@@ -139,3 +139,35 @@ describe('GradebookView: points-only cells open the modal', () => {
     expect(within(dialog).getByText('Revise question 3.')).toBeInTheDocument();
   });
 });
+
+// #40: a marker (Late, Incomplete, Absent) keeps the symbol in the cell and the pop-up shows the
+// rubric; a final flag (Exempt, Missing) keeps the rubric hidden.
+describe('GradebookView: flagged cells on an aligned task (#40)', () => {
+  const mastery = {
+    alignments: [{ assignment_schoology_id: 'sa-1', topic_id: 't1', topic_title: 'Select, analyze', topic_external_id: 'ART.5.1', category_title: 'HS Art: Producing' }],
+    scores: [{ student_uid: 'u1', assignment_schoology_id: 'sa-1', topic_id: 't1', grade: 'EX' }],
+  };
+  const dataWith = (exception) => ({
+    assignments: [{ id: 1, title: 'Project', schoology_assignment_id: 'sa-1', aligned: 1, is_lti_submission: 0, max_points: 100, due_date: '2020-01-01 00:00:00' }],
+    students: [STUDENT],
+    grades: { 10: { 1: { score: null, exception, grade_comment: '', submitted_at: 1, submission_type: 'drop' } } },
+    grading_scales: {},
+  });
+
+  it.each([[6, 'Late'], [2, 'Incomplete'], [5, 'Absent']])('marker %i: the cell keeps the symbol and opens the pop-up with the rubric', async (exception, name) => {
+    render(<MemoryRouter><GradebookView data={dataWith(exception)} courseId="5" mastery={mastery} /></MemoryRouter>);
+    const button = await screen.findByRole('button', { name: new RegExp(`${name}: show feedback`) });
+    expect(button.querySelector('.flag-symbol')).not.toBeNull();
+    fireEvent.click(button);
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Measurement Topic')).toBeInTheDocument();
+    expect(within(dialog).getByText(`Grading this work clears ${name}.`)).toBeInTheDocument();
+  });
+
+  it('a final flag (Exempt): the pop-up keeps the rubric hidden', async () => {
+    render(<MemoryRouter><GradebookView data={dataWith(1)} courseId="5" mastery={mastery} /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: /Exempt: show feedback/ }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).queryByText('Measurement Topic')).not.toBeInTheDocument();
+  });
+});

@@ -6,7 +6,9 @@ import { settleResubmissions, resubmissionByStudent, arrivedKeys, pairResubmissi
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { refreshCourseMastery } from '../services/masteryRefresh.js';
 import { enqueue } from '../services/syncQueue.js';
-import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair, withCheckedLine } from '../services/statusLinePublisher.js';
+import { STATUS_LINE_KINDS, putSucceeded, checkLine, lockPair, withCheckedLine, removeStatusLine } from '../services/statusLinePublisher.js';
+import { retireCopy } from '../services/gradeFlags.js';
+import { FLAG_NAMES, isFinalFlag, isMarker } from '../lib/flags.js';
 import { getFeedbackRows, getRowLevels, rowLevelsError, saveRowLevels } from '../services/feedbackRows.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
@@ -676,6 +678,42 @@ function echoFreshGrade(db, studentId, assignmentId, fresh, label) {
   if (changed) captureBeforeSave(db, studentId, assignmentId, label, at);
 }
 
+// Grading over a flag (#40). Exempt and Missing are final: the card keeps their rubric locked, and a
+// score written over one is refused (FLAGGED, 409). Late, Incomplete and Absent are markers the
+// teacher grades straight through: a score sent with a flag is removed (verified), so a score
+// written over a marker sends exception 0; the mastery (rubric) write clears the flag in Schoology
+// by itself (verified), so the comment write after it reads exception 0 fresh.
+const flaggedError = (code) => `This task is flagged ${FLAG_NAMES[Number(code)]} in Schoology: clear the flag before grading it. Nothing was written.`;
+// Was this save a grade over a marker? A score sent over a fresh marker, or a rubric save (its
+// mastery write already cleared the flag, so fresh reads 0) over the marker Prism held locally.
+function gradedOverMarker({ wroteScore, wroteRubric, freshException, localException }) {
+  const fresh = Number(freshException) || 0;
+  return (wroteScore && isMarker(fresh)) || (wroteRubric && fresh === 0 && isMarker(localException));
+}
+// After a grade over a marker is published and mirrored: the grade the marker removed is no longer
+// the one to restore (retire the saved copy), and the marker's status line comes off by its exact
+// stored text (removeStatusLine: a fresh read, then a comment-only PUT echoing the new grade). A
+// line of another kind stays. Best-effort: the grade is already published, so a failure here is
+// reported (lineError), never turned into a failed save.
+// → { exception: 0, comment?, status_line?: null, lineError? } for the card's in-place patch.
+async function settleMarker(db, studentId, assignmentId, label) {
+  const out = { exception: 0 };
+  try {
+    retireCopy(db, { studentId, assignmentId });
+  } catch (err) {
+    console.error(`[${label}] could not retire the saved copy:`, err.message);
+  }
+  const stored = db.prepare('SELECT kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+  if (stored?.kind !== 'flag') return out;
+  try {
+    const removed = await removeStatusLine(db, { studentId, assignmentId });
+    return { ...out, comment: removed.comment, status_line: null };
+  } catch (err) {
+    console.error(`[${label}] the flag's status line was not removed:`, err.message);
+    return { ...out, lineError: `Published, but the flag's line was not removed from the comment: ${err.message}` };
+  }
+}
+
 // POST /api/mastery/:courseId/write-comment — write grade comment back to Schoology
 router.post('/:courseId/write-comment', async (req, res) => {
   const { courseId } = req.params;
@@ -746,13 +784,19 @@ router.post('/:courseId/write-comment', async (req, res) => {
   // grade reproduced the original #46 wipe — see commit history.
   // A status line is replaced by its exact stored text: hold the per-pair lock
   // (shared with the triage actions) across read → PUT → store, so an overlapping
-  // write can't compose from the same read and drop it.
+  // write can't compose from the same read and drop it. A grade write holds it too:
+  // over a marker it removes the flag's line afterwards (#40).
+  const wroteGrade = hasPoints || rubricSaved === true;
+  const pairStudent = db.prepare(`
+    SELECT s.id FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?
+  `).get(String(enrollmentId));
+  const pairAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+  // The flag Prism held before this save (the rubric write just before it never touches grades).
+  const localException = pairStudent && pairAssignment
+    ? db.prepare('SELECT exception FROM grades WHERE student_id = ? AND assignment_id = ?').get(pairStudent.id, pairAssignment.id)?.exception ?? 0
+    : 0;
   let release = null;
-  if (line) {
-    const pairStudent = db.prepare(`
-      SELECT s.id FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?
-    `).get(String(enrollmentId));
-    const pairAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+  if (line || wroteGrade) {
     if (pairStudent && pairAssignment) {
       try {
         release = lockPair(pairStudent.id, pairAssignment.id);
@@ -794,6 +838,13 @@ router.post('/:courseId/write-comment', async (req, res) => {
     if (lookupFailed) {
       return res.status(502).json({ error: 'Could not read the current Schoology grade: nothing was saved. Try again.' });
     }
+    // A score over a final flag (Exempt, Missing) is refused: the card keeps them locked (#40).
+    if (hasPoints && isFinalFlag(fresh?.exception)) {
+      return res.status(409).json({ error: flaggedError(fresh.exception), code: 'FLAGGED' });
+    }
+    const overMarker = gradedOverMarker({
+      wroteScore: hasPoints, wroteRubric: rubricSaved === true, freshException: fresh?.exception, localException,
+    });
 
     const payload = {
       assignment_id: String(assignmentId),
@@ -804,6 +855,8 @@ router.post('/:courseId/write-comment', async (req, res) => {
     if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
     if (hasPoints) payload.grade = String(Number(points));
     if (fresh && fresh.exception != null) payload.exception = fresh.exception;
+    // A score sent with a flag is removed (verified): over a marker, the grade clears it.
+    if (hasPoints && isMarker(fresh?.exception)) payload.exception = 0;
 
     try {
       const result = await pushGradeUpdates(courseRow.schoology_section_id, [payload]);
@@ -838,6 +891,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
       `).get(String(assignmentId));
       let resubmissionFields = null;
       let rowsSaveFailed = false;
+      let flagCleared = null; // set when this grade cleared a marker (#40)
       if (studentRow && assignmentRow) {
         const now = new Date().toISOString();
         // Round 5: judge/absorb what other writers put in the DB, then the Schoology-side
@@ -861,7 +915,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
             assignmentRow.id,
             String(enrollmentId),
             hasPoints ? Number(points) : (fresh.grade ?? null),
-            fresh?.exception ?? 0,
+            Number(payload.exception) || 0, // what this PUT set: 0 when the grade cleared a marker
             gradeTimeAfterWrite(fresh),
             comment || '',
             commentStatusInt,
@@ -919,13 +973,14 @@ router.post('/:courseId/write-comment', async (req, res) => {
         } catch (err) {
           console.error('[mastery write-comment] snapshot/settle failed:', err.message);
         }
+        if (overMarker) flagCleared = await settleMarker(db, studentRow.id, assignmentRow.id, 'mastery write-comment');
         resubmissionFields = savedPairFields(db, studentRow.id, assignmentRow.id, 'write-comment');
       }
 
       if (rowsSaveFailed) {
-        return res.status(500).json({ error: ROWS_NOT_SAVED, published: true, resubmissionFields });
+        return res.status(500).json({ error: ROWS_NOT_SAVED, published: true, resubmissionFields, ...(flagCleared ? { flagCleared } : {}) });
       }
-      res.json({ ...result, resubmissionFields });
+      res.json({ ...result, resubmissionFields, ...(flagCleared ? { flagCleared } : {}) });
     } catch (err) {
       console.error('[mastery write-comment] Error:', err);
       res.status(500).json({ error: err.message });
@@ -996,14 +1051,28 @@ router.post('/:courseId/send-all', async (req, res) => {
     }
   }
 
+  // The flag Prism holds for each entry's pair before this batch (#40): a scale grade over a final
+  // flag (Exempt, Missing) is refused before anything is written; a grade over a marker clears it.
+  const localFlag = db.prepare(`
+    SELECT g.exception FROM grades g
+    JOIN enrolments en ON en.student_id = g.student_id AND en.schoology_enrolment_id = ?
+    JOIN assignments a ON a.id = g.assignment_id AND a.schoology_assignment_id = ?
+  `);
+  const localExceptionOf = new Map(entries.map((e) => [e.uid, localFlag.get(String(e.enrollmentId), String(e.assignmentId))?.exception ?? 0]));
+  const flaggedEntry = entries.find((e) => e.grade && isFinalFlag(localExceptionOf.get(e.uid)));
+  if (flaggedEntry) {
+    return res.status(409).json({ error: flaggedError(localExceptionOf.get(flaggedEntry.uid)), code: 'FLAGGED', results: entries.map(x => ({ uid: x.uid, ok: false })) });
+  }
+
   // Per-pair lock (shared with write-comment/triage) for every entry carrying a
   // status line: an overlapping write for the same pair must not compose from
-  // the same stale read and drop one line. Acquired before any write; if any
+  // the same stale read and drop one line. A grade entry holds it too: over a
+  // marker it removes the flag's line afterwards (#40). Acquired before any write; if any
   // pair is already busy, release what was taken and fail the whole batch
   // before touching Schoology — the rest is released in the finally below.
   const releases = [];
   for (const e of commentEntries) {
-    if (!e.comment.statusLine) continue;
+    if (!e.comment.statusLine && !e.grade && !e.scores) continue;
     const pairStudent = db.prepare(`
       SELECT s.id FROM students s JOIN enrolments en ON en.student_id = s.id WHERE en.schoology_enrolment_id = ?
     `).get(String(e.enrollmentId));
@@ -1039,6 +1108,8 @@ router.post('/:courseId/send-all', async (req, res) => {
     // 2. One fresh read of the section grades, reflecting the writes above, so
     //    each comment PUT can echo the current grade/exception (#46 safety).
     let freshByKey = new Map();
+    const sentException = new Map(); // uid → the exception each comment PUT set
+    const overMarker = new Set();    // uids whose grade cleared a marker (#40)
     if (commentEntries.length > 0) {
       const allGrades = await getSectionGrades(sectionId);
       for (const g of allGrades) {
@@ -1069,6 +1140,13 @@ router.post('/:courseId/send-all', async (req, res) => {
         });
       }
 
+      // A final flag set in Schoology since Prism last read it: refuse the batch before any PUT.
+      const flaggedNow = commentEntries.find((e) => e.grade && isFinalFlag(freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`)?.exception));
+      if (flaggedNow) {
+        const code = freshByKey.get(`${flaggedNow.assignmentId}::${flaggedNow.enrollmentId}`).exception;
+        return res.status(409).json({ error: failMessage(flaggedError(code)), code: 'FLAGGED', results: entries.map((x) => ({ uid: x.uid, ok: false })) });
+      }
+
       const payloads = commentEntries.map(e => {
         const fresh = freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`) || null;
         const payload = {
@@ -1080,6 +1158,12 @@ router.post('/:courseId/send-all', async (req, res) => {
         if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
         if (e.grade) payload.grade = String(Number(e.grade.points));
         if (fresh && fresh.exception != null) payload.exception = fresh.exception;
+        // A score sent with a flag is removed (verified): over a marker, the grade clears it.
+        if (e.grade && isMarker(fresh?.exception)) payload.exception = 0;
+        sentException.set(e.uid, Number(payload.exception) || 0);
+        if (gradedOverMarker({
+          wroteScore: Boolean(e.grade), wroteRubric: Boolean(e.scores), freshException: fresh?.exception, localException: localExceptionOf.get(e.uid),
+        })) overMarker.add(e.uid);
         return payload;
       });
 
@@ -1185,7 +1269,7 @@ router.post('/:courseId/send-all', async (req, res) => {
       upsertGrade.run(
         studentRow.id, assignmentRow.id, String(e.enrollmentId),
         e.grade ? Number(e.grade.points) : (fresh ? (fresh.grade ?? null) : null),
-        fresh ? (fresh.exception ?? 0) : 0,
+        sentException.get(e.uid) ?? 0, // 0 when the grade cleared a marker
         gradeTimeAfterWrite(fresh),
         e.comment.comment || '', commentStatusInt, now,
       );
@@ -1221,14 +1305,21 @@ router.post('/:courseId/send-all', async (req, res) => {
         console.error('[mastery send-all] snapshot/settle failed:', err.message);
       }
     }
+    // Grades over a marker: retire the saved copy and remove the flag's line (#40), one pair at a time.
+    const flagClearedByUid = new Map();
+    for (const e of commentEntries) {
+      const p = overMarker.has(e.uid) ? pairByUid.get(e.uid) : null;
+      if (p) flagClearedByUid.set(e.uid, await settleMarker(db, p.studentId, p.assignmentId, 'mastery send-all'));
+    }
 
     // Each saved pair's post-save resubmission state (final review I2).
     res.json({
       results: entries.map((e) => {
         const p = pairByUid.get(e.uid);
         const resubmissionFields = p ? savedPairFields(db, p.studentId, p.assignmentId, 'send-all') : null;
-        if (rowsFailed.has(e.uid)) return { uid: e.uid, ok: false, error: ROWS_NOT_SAVED, resubmissionFields };
-        return { uid: e.uid, ok: true, resubmissionFields };
+        const cleared = flagClearedByUid.has(e.uid) ? { flagCleared: flagClearedByUid.get(e.uid) } : {};
+        if (rowsFailed.has(e.uid)) return { uid: e.uid, ok: false, error: ROWS_NOT_SAVED, resubmissionFields, ...cleared };
+        return { uid: e.uid, ok: true, resubmissionFields, ...cleared };
       }),
     });
   } catch (err) {

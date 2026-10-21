@@ -46,6 +46,14 @@ describe('FlagSymbol', () => {
     expect(screen.getByRole('tooltip')).toBeInTheDocument();
   });
 
+  it('Missing\'s guide line says the topic levels still count only on an aligned task (#40)', () => {
+    const { rerender } = render(<FlagSymbol code={3} aligned />);
+    fireEvent.mouseEnter(screen.getByRole('img', { name: 'Missing' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Scores this task as zero. Topic levels already entered still count.');
+    rerender(<FlagSymbol code={3} />);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/^MissingScores this task as zero\.$/);
+  });
+
   it('the popover shows the symbol beside the name (not a second named image)', () => {
     render(<FlagSymbol code={5} />);
     fireEvent.click(screen.getByRole('img', { name: 'Absent' }));

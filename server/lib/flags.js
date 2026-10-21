@@ -11,6 +11,15 @@ export const isFlagCode = (code) => FLAG_CODES.includes(Number(code)) && code !=
 // nothing in Prism's own tracking; Incomplete, Missing and Late leave the work owed too.
 export const isExempt = (code) => isFlagCode(code) && Number(code) === 1;
 
+// Two final flags, three markers (Graham, 21 October 2026). Exempt (1) and Missing (3) are final:
+// the rubric stays locked while they are set and they count as handled (feedback given, grading
+// complete). Late (6), Incomplete (2) and Absent (5) are markers the teacher grades straight
+// through: publishing a grade clears them, as Schoology's own gradebook does, and until then the
+// work stays in feedback owed.
+export const FINAL_FLAGS = [1, 3];
+export const isFinalFlag = (code) => isFlagCode(code) && FINAL_FLAGS.includes(Number(code));
+export const isMarker = (code) => isFlagCode(code) && !FINAL_FLAGS.includes(Number(code));
+
 // Names and status-line verbs, as client/src/lib/flags.js FLAGS has them (UI word "Exempt").
 export const FLAG_NAMES = { 1: 'Exempt', 2: 'Incomplete', 3: 'Missing', 5: 'Absent', 6: 'Late' };
 export const FLAG_VERBS = { 1: 'exempt', 2: 'incomplete', 3: 'missing', 5: 'absent', 6: 'late' };

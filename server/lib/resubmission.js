@@ -5,7 +5,7 @@
 // Resubmission time = grades.latest_revision_at (native: newest non-draft
 // revision; LTI: the grader's submissionDate).
 import { hasPriorFeedback } from './feedbackFingerprint.js';
-import { isFlagCode } from './flags.js';
+import { isFinalFlag } from './flags.js';
 
 const parseFp = (fp) => { try { return JSON.parse(fp) || {}; } catch { return {}; } };
 
@@ -22,7 +22,10 @@ export const PART_SCORE = 1;    // score or exception
 export const PART_LEVELS = 2;   // rubric levels
 export const PART_COMMENT = 4;  // the visible comment (status line stripped)
 
-const scoreDiffers = (b, c) => (b.s ?? null) !== (c.s ?? null) || (isFlagCode(b.e) ? Number(b.e) : 0) !== (isFlagCode(c.e) ? Number(c.e) : 0);
+// Only a final flag (Exempt, Missing) is part of the visible feedback; a marker (Late, Incomplete,
+// Absent) in an older stored fingerprint reads as no flag (#40).
+const finalOrZero = (e) => (isFinalFlag(e) ? Number(e) : 0);
+const scoreDiffers = (b, c) => (b.s ?? null) !== (c.s ?? null) || finalOrZero(b.e) !== finalOrZero(c.e);
 const levelsDiffer = (b, c) => JSON.stringify(b.l || []) !== JSON.stringify(c.l || []);
 
 // Which parts differ between two fingerprints (PART_* bits).
@@ -48,7 +51,7 @@ export function absorbParts(baseFp, fromFp, parts) {
   const { l } = take(PART_LEVELS, ['l']);
   let { c } = take(PART_COMMENT, ['c']);
   if (!c && b.c) c = b.c;
-  return JSON.stringify({ s: s ?? null, e: Number(e) || 0, l: l || [], c: c ?? '' });
+  return JSON.stringify({ s: s ?? null, e: finalOrZero(e), l: l || [], c: c ?? '' });
 }
 
 // Has the teacher given NEW visible feedback since the baseline? A changed score,
@@ -71,11 +74,12 @@ export function feedbackAnswered(baselineFp, currentFp, evidence = null) {
   return Boolean(c.c) && c.c !== b.c && (graded || Boolean(parts & PART_COMMENT));
 }
 
-// Feedback given = a score, a flag (any exception: Exempt, Incomplete, Missing, Absent, Late), or a non-empty comment.
+// Feedback given = a score, a final flag (Exempt, Missing), or a non-empty comment. A marker
+// (Late, Incomplete, Absent) is not feedback: the work stays owed until it is graded (#40).
 export function hasFeedback(grade) {
   if (!grade) return false;
   if (grade.score != null) return true;
-  if (isFlagCode(grade.exception)) return true;
+  if (isFinalFlag(grade.exception)) return true;
   return String(grade.grade_comment ?? '').trim().length > 0;
 }
 

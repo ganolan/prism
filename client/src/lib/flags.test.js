@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { FLAGS, FLAG_ORDER, FLAGS_MENU_HEADING, flagGuide, isFlag, isExempt, flagEffect } from './flags.js';
+import { FLAGS, FLAG_ORDER, FLAGS_MENU_HEADING, FINAL_FLAGS, flagGuide, isFlag, isExempt, isFinalFlag, isMarker, flagEffect } from './flags.js';
 
 describe('Schoology flags (#40, probed 21 October 2026)', () => {
   it('codes 1 Exempt, 2 Incomplete, 3 Missing, 5 Absent, 6 Late; 4 is not a flag', () => {
@@ -29,6 +29,14 @@ describe('Schoology flags (#40, probed 21 October 2026)', () => {
     expect(flagEffect(4)).toBe('');
   });
 
+  it('final flags (Exempt, Missing) and markers (Incomplete, Absent, Late), as the server has them', () => {
+    expect(FINAL_FLAGS).toEqual([1, 3]);
+    for (const c of [1, 3, '3']) expect(isFinalFlag(c)).toBe(true);
+    for (const c of [0, 2, 4, 5, 6, null, undefined, '']) expect(isFinalFlag(c)).toBe(false);
+    for (const c of [2, 5, 6, '6']) expect(isMarker(c)).toBe(true);
+    for (const c of [0, 1, 3, 4, null, undefined, '']) expect(isMarker(c)).toBe(false);
+  });
+
   it('the menu heading', () => {
     expect(FLAGS_MENU_HEADING).toBe('Flag in Schoology');
   });
@@ -38,7 +46,10 @@ describe('Schoology flags (#40, probed 21 October 2026)', () => {
     expect(flagGuide(6, 'Sam')).toBe("Left out of Sam's grade while flagged.");
     expect(flagGuide(5, 'Sam')).toBe("Absent for this task. Left out of Sam's grade.");
     expect(flagGuide(2, 'Sam')).toBe('No grade while flagged.');
-    expect(flagGuide(3, 'Sam')).toBe("Counts as zero in Sam's grade.");
+    // Missing keeps the topic levels already entered and they still count (probe, 22 Oct 2026).
+    expect(flagGuide(3, 'Sam', { aligned: true })).toBe('Scores this task as zero. Topic levels already entered still count.');
+    expect(flagGuide(3, 'Sam', { aligned: false })).toBe('Scores this task as zero.');
+    expect(flagGuide(3, 'Sam')).toBe('Scores this task as zero.'); // topics unknown: the line that is always true
   });
 
   it('flagGuide says "the student" with no name, and nothing for a non-flag', () => {

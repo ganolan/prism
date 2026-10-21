@@ -1849,14 +1849,14 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
 
   test('write-comment with points writes the grade + comment in one PUT, echoing the exception', async () => {
     vi.mocked(getSectionGrades).mockResolvedValue([
-      { assignment_id: 'sa-C', enrollment_id: 'eB', grade: null, exception: 6, timestamp: '1700000000' },
+      { assignment_id: 'sa-C', enrollment_id: 'eB', grade: null, exception: 0, timestamp: '1700000000' },
     ]);
     const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'eB', assignmentId: 'sa-C', points: 100, comment: 'Done', commentStatus: true,
     });
     expect(status).toBe(200);
     expect(pushGradeUpdates).toHaveBeenCalledWith('sec-S', [{
-      assignment_id: 'sa-C', enrollment_id: 'eB', comment: 'Done', comment_status: 1, grade: '100', exception: 6,
+      assignment_id: 'sa-C', enrollment_id: 'eB', comment: 'Done', comment_status: 1, grade: '100', exception: 0,
     }]);
     const row = getDb().prepare(
       `SELECT g.score, g.grade_comment FROM grades g JOIN students s ON s.id = g.student_id WHERE s.schoology_uid = 'uid-B'`
@@ -2057,5 +2057,227 @@ describe('#52: mastery refreshed on demand after a page loads', () => {
     expect([a.status, b.status]).toEqual([200, 200]);
     expect(a.body).toMatchObject({ scoresCount: 2, syncedAt: '2026-10-19T08:00:00.000Z' });
     expect(syncMasteryForCourse).toHaveBeenCalledTimes(1);
+  });
+});
+
+// #40: Late, Incomplete and Absent are markers the teacher grades straight through; Exempt and
+// Missing are final. A score sent with a flag is removed (verified), so a grade written over a
+// marker sends exception 0; one over a final flag is refused. Never a real Schoology call: the
+// fake below keeps one record per pair and applies each PUT as the probes showed.
+describe('grading over a flag (#40)', () => {
+  let courseId, studentId, scaleTask, alignedTask;
+  let records; // `${assignment_id}::${enrollment_id}` → the Schoology grade record
+  const LINE = 'Marked late on Wed 21/10. Handed in after the deadline.';
+  const key = (a, e) => `${a}::${e}`;
+  const copyOf = (assignmentId) => getDb().prepare('SELECT * FROM excused_grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId) || null;
+  const gradeOf = (assignmentId) => getDb().prepare('SELECT score, exception, grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
+  const lineOf = (assignmentId) => getDb().prepare('SELECT line, kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId) || null;
+  function setRecord(a, over) {
+    records.set(key(a, 'eF'), { assignment_id: a, enrollment_id: 'eF', grade: null, exception: 0, comment: '', comment_status: 1, timestamp: 1700000000, ...over });
+  }
+  // A marker set in Prism: the local row, a saved copy and the flag's status line.
+  function markLate(assignmentId, a, { line = true } = {}) {
+    const db = getDb();
+    const comment = line ? `${LINE}\n\nGood start.` : 'Good start.';
+    setRecord(a, { exception: 6, comment });
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception, grade_comment, comment_status) VALUES (?, ?, 'eF', NULL, 6, ?, 1)
+      ON CONFLICT (student_id, assignment_id) DO UPDATE SET score = NULL, exception = 6, grade_comment = excluded.grade_comment`).run(studentId, assignmentId, comment);
+    db.prepare(`INSERT INTO excused_grades (student_id, assignment_id, flag, saved_json, saved_at, restored_at) VALUES (?, ?, 6, '{"score":100,"topics":{},"rows":{}}', datetime('now'), NULL)`).run(studentId, assignmentId);
+    if (line) db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'flag')`).run(studentId, assignmentId, LINE);
+    return comment;
+  }
+
+  beforeEach(() => {
+    const db = getDb();
+    db.exec(
+      'DELETE FROM excused_grades; DELETE FROM assessment_drafts; DELETE FROM feedback_snapshots; DELETE FROM mastery_rollups; DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubrics; DELETE FROM extensions; DELETE FROM referrals; ' +
+      ' DELETE FROM status_lines; DELETE FROM resubmissions; ' +
+      'DELETE FROM mastery_scores; DELETE FROM mastery_alignments; DELETE FROM measurement_topics; DELETE FROM reporting_categories; ' +
+      'DELETE FROM assignment_assignees; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
+    );
+    courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-F', 'Course')`).run().lastInsertRowid;
+    studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-F', 'Fay', 'F')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'eF')`).run(studentId, courseId);
+    scaleTask = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-S', 'Homework', '7165818')`).run(courseId).lastInsertRowid;
+    alignedTask = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-A', 'Project')`).run(courseId).lastInsertRowid;
+    db.prepare(`INSERT INTO measurement_topics (id, course_id, external_id, title) VALUES ('tF', ?, 'X.1', 'Topic')`).run(courseId);
+    records = new Map();
+    writeMasteryScoresBatch.mockReset().mockImplementation(async ({ entries }) => {
+      // The mastery write clears the flag in Schoology by itself (verified) and sets the score.
+      for (const e of entries) { const r = records.get(key(e.assignmentId, e.enrollmentId)); if (r) Object.assign(r, { exception: 0, grade: 100 }); }
+    });
+    vi.mocked(getSectionGrades).mockReset().mockImplementation(async () => [...records.values()].map((r) => ({ ...r })));
+    vi.mocked(pushGradeUpdates).mockReset().mockImplementation(async (_section, entries) => {
+      for (const e of entries) {
+        const r = records.get(key(e.assignment_id, e.enrollment_id)) || {};
+        const next = { ...r, assignment_id: e.assignment_id, enrollment_id: e.enrollment_id, comment: e.comment, comment_status: e.comment_status, grade: e.grade ?? null, exception: Number(e.exception) || 0 };
+        if (next.exception !== 0 && next.exception !== 3) next.grade = null; // a score sent with a flag is removed
+        records.set(key(e.assignment_id, e.enrollment_id), next);
+      }
+      return { status: 207, data: { grades: { grade: entries.map(() => ({ response_code: 204 })) } } };
+    });
+  });
+
+  describe('write-comment', () => {
+    test('points over Late: the PUT sends exception 0 with the grade; the copy is retired, the flag line removed, exception 0 mirrored', async () => {
+      const comment = markLate(scaleTask, 'sa-S');
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eF', assignmentId: 'sa-S', points: 100, comment, commentStatus: true,
+      });
+      expect(status).toBe(200);
+      expect(pushGradeUpdates.mock.calls[0][1]).toEqual([{
+        assignment_id: 'sa-S', enrollment_id: 'eF', comment, comment_status: 1, grade: '100', exception: 0,
+      }]);
+      // The flag's line comes off by its exact stored text (a second, comment-only PUT echoing the new grade).
+      expect(pushGradeUpdates).toHaveBeenCalledTimes(2);
+      expect(pushGradeUpdates.mock.calls[1][1][0]).toMatchObject({ comment: 'Good start.', grade: '100', exception: 0 });
+      expect(lineOf(scaleTask)).toBeNull();
+      expect(copyOf(scaleTask).restored_at).not.toBeNull();
+      expect(gradeOf(scaleTask)).toMatchObject({ score: 100, exception: 0, grade_comment: 'Good start.' });
+      expect(body.flagCleared).toEqual({ exception: 0, comment: 'Good start.', status_line: null });
+    });
+
+    test.each([2, 5])('points over marker %i also sends exception 0', async (code) => {
+      markLate(scaleTask, 'sa-S', { line: false });
+      records.get(key('sa-S', 'eF')).exception = code;
+      const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eF', assignmentId: 'sa-S', points: 0, comment: 'Not done', commentStatus: true,
+      });
+      expect(status).toBe(200);
+      expect(pushGradeUpdates.mock.calls[0][1][0]).toMatchObject({ grade: '0', exception: 0 });
+      expect(pushGradeUpdates).toHaveBeenCalledTimes(1); // no flag line to remove
+      expect(copyOf(scaleTask).restored_at).not.toBeNull();
+    });
+
+    test('points with no flag echoes exception 0 and touches no copy', async () => {
+      setRecord('sa-S', { exception: 0 });
+      getDb().prepare(`INSERT INTO excused_grades (student_id, assignment_id, flag, saved_json, saved_at) VALUES (?, ?, 1, '{}', datetime('now'))`).run(studentId, scaleTask);
+      const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eF', assignmentId: 'sa-S', points: 100, comment: 'x', commentStatus: true,
+      });
+      expect(status).toBe(200);
+      expect(pushGradeUpdates.mock.calls[0][1][0]).toMatchObject({ exception: 0 });
+      expect(copyOf(scaleTask).restored_at).toBeNull();
+    });
+
+    test.each([1, 3])('points over the final flag %i: 409, nothing written', async (code) => {
+      setRecord('sa-S', { exception: code, grade: code === 3 ? 0 : null });
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eF', assignmentId: 'sa-S', points: 100, comment: 'x', commentStatus: true,
+      });
+      expect(status).toBe(409);
+      expect(body.code).toBe('FLAGGED');
+      expect(body.error).toMatch(code === 1 ? /Exempt/ : /Missing/);
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+    });
+
+    test('a comment-only write over a marker is no grade: the flag is echoed, the copy and line stay', async () => {
+      const comment = markLate(scaleTask, 'sa-S');
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eF', assignmentId: 'sa-S', comment: `${comment} More.`, commentStatus: true,
+      });
+      expect(status).toBe(200);
+      expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
+      expect(pushGradeUpdates.mock.calls[0][1][0]).toMatchObject({ exception: 6 });
+      expect(copyOf(scaleTask).restored_at).toBeNull();
+      expect(lineOf(scaleTask)).toMatchObject({ kind: 'flag' });
+      expect(gradeOf(scaleTask).exception).toBe(6);
+      expect(body.flagCleared).toBeUndefined();
+    });
+
+    test('rubricSaved over Late (the rubric write cleared it, fresh reads 0): copy retired, line removed, exception 0 mirrored', async () => {
+      const comment = markLate(alignedTask, 'sa-A');
+      Object.assign(records.get(key('sa-A', 'eF')), { exception: 0, grade: 100 }); // the mastery write just ran
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eF', assignmentId: 'sa-A', comment, commentStatus: true, rubricSaved: true,
+      });
+      expect(status).toBe(200);
+      expect(pushGradeUpdates.mock.calls[0][1][0]).toMatchObject({ grade: '100', exception: 0 });
+      expect(pushGradeUpdates.mock.calls[1][1][0]).toMatchObject({ comment: 'Good start.', exception: 0 });
+      expect(copyOf(alignedTask).restored_at).not.toBeNull();
+      expect(lineOf(alignedTask)).toBeNull();
+      expect(gradeOf(alignedTask)).toMatchObject({ score: 100, exception: 0 });
+      expect(body.flagCleared).toEqual({ exception: 0, comment: 'Good start.', status_line: null });
+    });
+
+    test('a status line of another kind is never removed by a grade over a marker', async () => {
+      markLate(scaleTask, 'sa-S', { line: false });
+      const received = 'Resubmission received 20/10 - regraded.';
+      getDb().prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'received')`).run(studentId, scaleTask, received);
+      await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eF', assignmentId: 'sa-S', points: 100, comment: `${received}\n\nx`, commentStatus: true,
+      });
+      expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
+      expect(lineOf(scaleTask)).toMatchObject({ kind: 'received' });
+    });
+
+    test('removing the line fails: the grade stays published and the response says so', async () => {
+      const comment = markLate(scaleTask, 'sa-S');
+      pushGradeUpdates.mockImplementationOnce(async (_section, entries) => {
+        for (const e of entries) records.set(key(e.assignment_id, e.enrollment_id), { ...records.get(key(e.assignment_id, e.enrollment_id)), comment: e.comment, grade: e.grade, exception: 0 });
+        return { status: 207 };
+      }).mockResolvedValueOnce({ status: 500, data: 'oops' });
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eF', assignmentId: 'sa-S', points: 100, comment, commentStatus: true,
+      });
+      expect(status).toBe(200);
+      expect(body.flagCleared).toMatchObject({ exception: 0, lineError: expect.any(String) });
+      expect(gradeOf(scaleTask)).toMatchObject({ score: 100, exception: 0 });
+      expect(copyOf(scaleTask).restored_at).not.toBeNull();
+      expect(lineOf(scaleTask)).toMatchObject({ kind: 'flag' }); // still there: removable later by its stored text
+    });
+  });
+
+  describe('send-all', () => {
+    test('a scale grade over Late: exception 0 in the PUT, copy retired, line removed, exception 0 mirrored', async () => {
+      const comment = markLate(scaleTask, 'sa-S');
+      const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-S', scores: null, grade: { points: 100 }, comment: { comment, commentStatus: true } }],
+      });
+      expect(status).toBe(200);
+      expect(pushGradeUpdates.mock.calls[0][1][0]).toMatchObject({ grade: '100', exception: 0 });
+      expect(pushGradeUpdates.mock.calls[1][1][0]).toMatchObject({ comment: 'Good start.', exception: 0 });
+      expect(copyOf(scaleTask).restored_at).not.toBeNull();
+      expect(lineOf(scaleTask)).toBeNull();
+      expect(gradeOf(scaleTask)).toMatchObject({ score: 100, exception: 0, grade_comment: 'Good start.' });
+      expect(body.results[0]).toMatchObject({ ok: true, flagCleared: { exception: 0, comment: 'Good start.', status_line: null } });
+    });
+
+    test('rubric scores over Late (Prism held the marker): copy retired, line removed, exception 0 mirrored', async () => {
+      const comment = markLate(alignedTask, 'sa-A');
+      const { status } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-A',
+          scores: { gradeInfo: { tF: { grade: '100', gradingScaleId: 1 } }, gradingPeriodId: 1, gradingCategoryId: 2 },
+          comment: { comment, commentStatus: true } }],
+      });
+      expect(status).toBe(200);
+      expect(pushGradeUpdates.mock.calls[0][1][0]).toMatchObject({ grade: '100', exception: 0 });
+      expect(copyOf(alignedTask).restored_at).not.toBeNull();
+      expect(lineOf(alignedTask)).toBeNull();
+      expect(gradeOf(alignedTask)).toMatchObject({ exception: 0 });
+    });
+
+    test.each([1, 3])('a scale grade over the final flag %i: 409 before any write', async (code) => {
+      setRecord('sa-S', { exception: code });
+      getDb().prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, exception) VALUES (?, ?, 'eF', ?)`).run(studentId, scaleTask, code);
+      const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-S', scores: null, grade: { points: 100 }, comment: { comment: 'x', commentStatus: true } }],
+      });
+      expect(status).toBe(409);
+      expect(body.code).toBe('FLAGGED');
+      expect(body.results).toEqual([{ uid: 'uid-F', ok: false }]);
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+      expect(writeMasteryScoresBatch).not.toHaveBeenCalled();
+    });
+
+    test('a final flag Prism did not know of (set in Schoology since): refused at the fresh read, nothing PUT', async () => {
+      setRecord('sa-S', { exception: 1 });
+      const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-S', scores: null, grade: { points: 100 }, comment: { comment: 'x', commentStatus: true } }],
+      });
+      expect(status).toBe(409);
+      expect(body.code).toBe('FLAGGED');
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+    });
   });
 });

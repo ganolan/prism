@@ -17,13 +17,14 @@ import CompactRubric from './CompactRubric.jsx';
 import RubricDescriptorGrid from './RubricDescriptorGrid.jsx';
 import { feedbackDescriptorRows, feedbackRowView } from '../lib/rubricDescriptorRows.js';
 import FlagSymbol from './FlagSymbol.jsx';
-import { FLAGS, isFlag, flagEffect } from '../lib/flags.js';
+import { FLAGS, isFinalFlag, isMarker, flagEffect } from '../lib/flags.js';
 import { LEVELS, LEVEL_COLORS, CELL_TEXT, masteryCodeForLevel } from '../lib/masteryLevels.js';
 
-// The rubric is hidden while any flag is set (Exempt, Incomplete, Missing, Absent, Late: the
-// gradebook and /assessment/ lock the same five). Schoology removes the grade for four of them
-// and counts Missing as zero (flagEffect).
-const lockName = (exception) => (isFlag(exception) ? FLAGS[Number(exception)].name : null);
+// The rubric is hidden while a final flag is set (Exempt or Missing, #40; /assessment/ locks the
+// same two): Schoology removes Exempt's grade and counts Missing as zero (flagEffect). A marker
+// (Late, Incomplete, Absent) keeps the rubric: the teacher grades straight through it, and a line
+// above it says grading clears the flag.
+const lockName = (exception) => (isFinalFlag(exception) ? FLAGS[Number(exception)].name : null);
 
 const HEADER = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].headerFill]));
 const BORDER = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].finalBorder]));
@@ -61,6 +62,14 @@ export default function AssignmentFeedback({
   comment = '',
 }) {
   const hasBadges = status.length > 0 || flags.length > 0 || resubmitted || !!links;
+  // A marker on a task with a rubric: its symbol (an aligned task shows no score label to carry it)
+  // and the line the assessment card shows too.
+  const markerNote = isMarker(exception) && (topics.length > 0 || feedbackRowView(attachment) != null) ? (
+    <div className="assignment-feedback__marker text-sm">
+      {topics.length > 0 && <FlagSymbol code={Number(exception)} size="inline" showName firstName={firstName} aligned />}
+      <span>Grading this work clears {FLAGS[Number(exception)].name}.</span>
+    </div>
+  ) : null;
   const lock = topics.length > 0 ? lockName(exception) : null;
   const rows = lock ? null : feedbackDescriptorRows(topics, attachment);
   const gradeByTopic = Object.fromEntries(topics.map((t) => [t.topic_id, t.grade]));
@@ -134,6 +143,7 @@ export default function AssignmentFeedback({
       {timeline
         ? <SubmissionTimeline timeline={timeline} help={timelineHelp} />
         : due && <span className="text-xs text-muted">Due: {due}</span>}
+      {markerNote}
       {rubric}
       {comment && (
         <div className="assignment-feedback__comment text-sm">

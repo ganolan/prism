@@ -80,11 +80,19 @@ describe('AssignmentFeedback', () => {
     expect(follows(screen.getByText('50 / 100'), screen.getByText('Revise question 3.'))).toBe(true);
   });
 
-  it.each([[1, 'Exempt'], [2, 'Incomplete'], [5, 'Absent'], [6, 'Late']])('hides the rubric while flag %i has removed the grade', (exception, name) => {
-    render(<AssignmentFeedback topics={TOPICS} attachment={ATTACHMENT} exception={exception} />);
-    expect(screen.getByText(name)).toBeInTheDocument();
+  it('hides the rubric while Exempt (a final flag) is set', () => {
+    render(<AssignmentFeedback topics={TOPICS} attachment={ATTACHMENT} exception={1} />);
+    expect(screen.getByText('Exempt')).toBeInTheDocument();
     expect(screen.getByText(/rubric hidden because Schoology removes the grade while it is flagged/)).toBeInTheDocument();
     expect(screen.queryByText('Clear and usable.')).not.toBeInTheDocument();
+  });
+
+  it.each([[2, 'Incomplete'], [5, 'Absent'], [6, 'Late']])('marker %i keeps the rubric, with its symbol and "Grading this work clears %s." (#40)', (exception, name) => {
+    render(<AssignmentFeedback topics={TOPICS} attachment={ATTACHMENT} exception={exception} />);
+    expect(screen.getByText('Clear and usable.')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name })).toBeInTheDocument();
+    expect(screen.getByText(`Grading this work clears ${name}.`)).toBeInTheDocument();
+    expect(screen.queryByText(/rubric hidden/)).not.toBeInTheDocument();
   });
 
   it('Missing says what Schoology really does: it counts the work as zero (it keeps the levels)', () => {

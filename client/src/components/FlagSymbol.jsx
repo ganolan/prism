@@ -38,11 +38,12 @@ function Disc({ flag }) {
 // kept a copy of the grade the flag removed, where that copy is.
 //   size        'cell' (the gradebook cell and the pop-up) or 'inline' (a little smaller, in text)
 //   firstName   the student's first name, for the guide line
+//   aligned     the task has measurement topics (Missing's guide line says their levels still count)
 //   savedLevel  the grade Prism saved before the flag, e.g. "Exhibiting (3.5)"
 //   reasonLine  the status line Prism wrote with the flag
 //   passive     hover only: the symbol sits inside a control (the gradebook cell is a button) that
 //               owns click and focus, so the symbol takes neither
-export default function FlagSymbol({ code, size = 'cell', showName = false, firstName = null, savedLevel = null, reasonLine = null, passive = false }) {
+export default function FlagSymbol({ code, size = 'cell', showName = false, firstName = null, aligned = false, savedLevel = null, reasonLine = null, passive = false }) {
   const [pos, setPos] = useState(null);
   const [pinned, setPinned] = useState(false);
   const hide = () => { setPos(null); setPinned(false); };
@@ -86,7 +87,7 @@ export default function FlagSymbol({ code, size = 'cell', showName = false, firs
             <span className={`flag-symbol flag-symbol--${flag.key} flag-symbol--inline`} aria-hidden="true"><Disc flag={flag} /></span>
             <span className="flag-pop__name">{flag.name}</span>
           </span>
-          <span className="flag-pop__line">{flagGuide(code, firstName)}</span>
+          <span className="flag-pop__line">{flagGuide(code, firstName, { aligned })}</span>
           {reasonLine && <span className="flag-pop__line">{reasonLine}</span>}
           {savedLevel && <span className="flag-pop__line">Grade saved in Prism: {savedLevel}. Clear the flag to restore it.</span>}
         </span>

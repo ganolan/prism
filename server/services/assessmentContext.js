@@ -10,7 +10,7 @@ import { getScoreScales, getFeatures } from '../middleware/featureGate.js';
 import { psAlertFieldsForAgents } from './psAlertStore.js';
 import { findScoreScale, levelForScore } from '../lib/scoreScales.js';
 import { resolveAssignmentId } from './idResolvers.js';
-import { isFlagCode } from '../lib/flags.js';
+import { isFinalFlag } from '../lib/flags.js';
 import { preferredFirstName } from './studentNames.js';
 import { resubmissionByStudent } from './resubmissions.js';
 import { teacherText } from '../lib/statusLines.js';
@@ -54,11 +54,12 @@ export function normalizeSubmissionStatus({
   return 'not_started';
 }
 
-// Grading completeness on the published finals. A flagged student (Exempt, Incomplete, Missing,
-// Absent or Late) counts as handled → 'complete'. Complete = every aligned topic has a
-// level AND a comment is present. Empty = nothing entered. Otherwise partial.
+// Grading completeness on the published finals. A final flag (Exempt or Missing) counts as
+// handled → 'complete'; a marker (Late, Incomplete, Absent) grades like no flag (#40).
+// Complete = every aligned topic has a level AND a comment is present. Empty = nothing
+// entered. Otherwise partial.
 export function gradingState({ scoredCount, topicsCount, hasComment, exception } = {}) {
-  if (isFlagCode(exception)) return 'complete';
+  if (isFinalFlag(exception)) return 'complete';
   if (scoredCount === 0 && !hasComment) return 'ungraded';
   if (topicsCount === 0) return 'complete'; // no rubric topics to score; a comment/score-bearing row is handled
   if (scoredCount === topicsCount && hasComment) return 'complete';

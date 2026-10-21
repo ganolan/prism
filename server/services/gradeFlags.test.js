@@ -7,7 +7,7 @@ vi.mock('./schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeUpdates: 
 
 import { getDb } from '../db/index.js';
 import { getSectionGrades, pushGradeUpdates } from './schoology.js';
-import { readFlagState, setGradeFlag } from './gradeFlags.js';
+import { readFlagState, setGradeFlag, retireCopy } from './gradeFlags.js';
 import { cardBaselineFor } from './unfinishedGrading.js';
 import { saveRubric } from './rubricStore.js';
 import { flagLine } from '../lib/statusLines.js';
@@ -446,11 +446,65 @@ describe('setGradeFlag: clearing', () => {
     expect(record).toMatchObject({ exception: 0, comment: 'Good work.' });
   });
 
-  test('clearing Missing echoes its 0 (Schoology keeps it)', async () => {
+  test('clearing Missing sends grade: null, so no 0 is left counting (probe dd0509e), and drops the blanked levels', async () => {
     await flag(3);
     await flag(0, { restore: false });
-    expect(sent(1)).toMatchObject({ grade: '0', exception: 0 });
-    expect(gradeRow()).toMatchObject({ score: 0, exception: 0 });
+    expect(sent(1)).toEqual({ assignment_id: 'sa', enrollment_id: 'enr', comment: 'Good work.', comment_status: 1, grade: null, exception: 0 });
+    expect(gradeRow()).toMatchObject({ score: null, exception: 0 });
+    // Schoology blanks the levels Missing kept: Prism's mirror drops them, the copy holds them.
+    expect(levels()).toEqual([]);
+    expect(JSON.parse(copyRow().saved_json).topics).toEqual({ t1: 'EX', t2: 'EX' });
+    expect(copyRow().restored_at).toBeNull();
+  });
+
+  test('clearing Missing: levels graded since the flag (not in the copy) are saved into it before the PUT, then restored', async () => {
+    db.exec('DELETE FROM mastery_scores');
+    db.prepare('UPDATE grades SET score = NULL').run();
+    record = { ...record, grade: null };
+    await flag(3); // ungraded: no copy
+    expect(copyRow()).toBeNull();
+    // Missing keeps levels: the teacher's levels land beside it (e.g. set in Schoology's own gradebook).
+    for (const t of ['t1', 't2']) db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'sa', ?, 100, 'ED')`).run(t);
+    let copyAtPut = null;
+    pushGradeUpdates.mockImplementationOnce(async (_section, entries) => {
+      copyAtPut = copyRow();
+      entries.forEach(applyPut);
+      return { status: 207, data: { grades: { grade: [{ response_code: 204 }] } } };
+    });
+    const out = await flag(0);
+    expect(sent(1)).toMatchObject({ grade: null, exception: 0 });
+    expect(copyAtPut).toMatchObject({ flag: 3, restored_at: null });
+    expect(JSON.parse(copyAtPut.saved_json)).toMatchObject({ score: null, topics: { t1: 'ED', t2: 'ED' } });
+    expect(out.restored).toEqual({ draft: true, notRestored: [] });
+    expect(draftRow().pending).toEqual({ t1: 'ED', t2: 'ED' });
+    expect(levels()).toEqual([]);
+  });
+
+  test('clearing Missing with a waiting copy that holds everything keeps that copy as it is', async () => {
+    await flag(3);
+    const first = copyRow();
+    await flag(0, { restore: false });
+    expect(copyRow()).toMatchObject({ flag: 3, saved_json: first.saved_json, restored_at: null });
+  });
+
+  test('clearing Missing fails at Schoology: the copy is put back, levels and the 0 stay', async () => {
+    db.exec('DELETE FROM mastery_scores');
+    db.prepare('UPDATE grades SET score = NULL').run();
+    record = { ...record, grade: null };
+    await flag(3);
+    for (const t of ['t1', 't2']) db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('u1', 'sa', ?, 100, 'ED')`).run(t);
+    pushGradeUpdates.mockResolvedValueOnce({ status: 502, data: 'down' });
+    await expect(flag(0)).rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
+    expect(copyRow()).toBeNull();
+    expect(levels()).toHaveLength(2);
+    expect(gradeRow()).toMatchObject({ score: 0, exception: 3 });
+  });
+
+  test('clearing another flag never sends grade: null', async () => {
+    await flag(6);
+    await flag(0, { restore: false });
+    expect(sent(1)).not.toHaveProperty('grade');
+    expect(sent(1).exception).toBe(0);
   });
 
   test('restore with no flag set: restores the kept copy without a write', async () => {
@@ -543,5 +597,24 @@ describe('readFlagState', () => {
   test('a failed read: SCHOOLOGY_READ_FAILED', async () => {
     getSectionGrades.mockRejectedValueOnce(new Error('down'));
     await expect(readFlagState(db, { studentId: s, assignmentId: a })).rejects.toMatchObject({ code: 'SCHOOLOGY_READ_FAILED' });
+  });
+});
+
+describe('retireCopy', () => {
+  test('marks a waiting copy retired (restored_at set): a new grade was published over a marker', async () => {
+    await flag(6);
+    expect(copyRow().restored_at).toBeNull();
+    expect(retireCopy(db, { studentId: s, assignmentId: a })).toBe(true);
+    expect(copyRow().restored_at).not.toBeNull();
+    const state = await readFlagState(db, { studentId: s, assignmentId: a });
+    expect(state.savedGrade).toBeNull();
+  });
+
+  test('no copy, or one already restored: nothing changes', async () => {
+    expect(retireCopy(db, { studentId: s, assignmentId: a })).toBe(false);
+    await flag(6);
+    db.prepare(`UPDATE excused_grades SET restored_at = '2026-10-01 00:00:00'`).run();
+    expect(retireCopy(db, { studentId: s, assignmentId: a })).toBe(false);
+    expect(copyRow().restored_at).toBe('2026-10-01 00:00:00');
   });
 });

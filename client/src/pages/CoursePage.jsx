@@ -39,7 +39,7 @@ import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFi
 import { timelineSummary, lateText } from '../lib/submissionTimeline.js';
 import LateClock from '../components/LateClock.jsx';
 import FlagSymbol from '../components/FlagSymbol.jsx';
-import { isFlag } from '../lib/flags.js';
+import { isFlag, isFinalFlag } from '../lib/flags.js';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', overdue: 'O', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
@@ -1157,13 +1157,14 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 }
                 // Aligned summatives show a mini rubric strip of the student's
                 // per-topic proficiency instead of a numeric score (#32).
-                // A flag (Exempt/Incomplete/Missing/Absent/Late) removes the grade in
-                // Schoology (Missing counts it as zero), so those cells keep the symbol below.
-                const isRubricLocked = isFlag(g.exception);
+                // A flagged cell shows the flag's symbol in the grade's place, never the strip. A
+                // final flag (Exempt, Missing) hides the rubric in the pop-up too; a marker (Late,
+                // Incomplete, Absent) is graded straight through, so its pop-up keeps the rubric (#40).
+                const isRubricLocked = isFinalFlag(g.exception);
                 const rubricTopics = (a.aligned && !isRubricLocked)
                   ? buildAssignmentRubric(a.schoology_assignment_id, s.schoology_uid, indexed)
                   : [];
-                const showStrip = rubricTopics.length > 0;
+                const showStrip = rubricTopics.length > 0 && !isFlag(g.exception);
 
                 // Non-aligned cells (and aligned cells with no rubric data
                 // available) keep the scale-aware / numeric label.
@@ -1210,7 +1211,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 // A flag stands where the grade was: its symbol with its name under it. The cell
                 // button owns click and focus, so the symbol is hover-only here (passive).
                 const scoreText = lbl.kind === 'exception'
-                  ? <FlagSymbol code={lbl.exception} showName passive firstName={preferredFirstName(s)} savedLevel={g.saved_level ?? null} />
+                  ? <FlagSymbol code={lbl.exception} showName passive firstName={preferredFirstName(s)} aligned={Boolean(a.aligned)} savedLevel={g.saved_level ?? null} />
                   : c
                   ? <span style={{ background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
                   : text;
@@ -1220,7 +1221,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 const inner = showStrip
                   ? <MiniRubricStrip topics={rubricTopics} onClick={() => openModal(rubricTopics)} />
                   : opensModal
-                    ? <button type="button" className="cell-open" onClick={() => openModal([])}
+                    ? <button type="button" className="cell-open" onClick={() => openModal(rubricTopics)}
                         aria-label={`${lbl.text}: show feedback`} title="Show the comment and submission detail">{scoreText}</button>
                     : scoreText;
                 // #76: an ungraded cell whose lti document fetch failed shows the

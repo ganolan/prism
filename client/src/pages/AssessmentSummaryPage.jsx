@@ -42,7 +42,7 @@ import { formatDateTime } from '../lib/formatDate.js';
 import { workLinkText, workLinksStatusText } from '../lib/workLink.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../lib/statusLines.js';
-import { FLAGS, isFlag, isExempt, flagEffect } from '../lib/flags.js';
+import { FLAGS, isExempt, isFinalFlag, isMarker, flagEffect } from '../lib/flags.js';
 import { afterRefresh } from '../lib/assessmentFreshness.js';
 import SyncStatus from '../components/SyncStatus.jsx';
 import SyncHelp from '../components/SyncHelp.jsx';
@@ -50,9 +50,9 @@ import { useSyncFacts } from '../hooks/useSyncFacts.js';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import SyncDialog from '../components/SyncDialog.jsx';
 
-// The rubric-locked badge takes the flag's color (#40): Exempt green, Incomplete amber, Missing red,
-// Absent slate gray, Late red.
-const LOCK_BADGE = { 1: 'badge-green', 2: 'badge-amber', 3: 'badge-red', 5: 'badge-slate', 6: 'badge-red' };
+// The rubric-locked badge takes the flag's color (#40). Only the final flags lock the rubric:
+// Exempt green, Missing red.
+const LOCK_BADGE = { 1: 'badge-green', 3: 'badge-red' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
 const SUGGEST = { fill: 'var(--ai-suggest-wash)', ring: 'var(--ai-suggest)', glyph: 'var(--ai-suggest)' };
 // Sentinel stored in pending[topicId] to stage a synced final for removal (Slice 2).
@@ -67,6 +67,18 @@ const SCALE = '__scale__';
 // that. A hidden-only, unchanged or received-line-only save keeps an arrival
 // Arrived. Unknown (null/absent — the server could not read it) → leave the card's
 // fields alone rather than guess.
+// The card's patch after a grade cleared a marker (#40): the save routes return flagCleared
+// ({ exception: 0, comment?, status_line?: null }) once Schoology took the grade over Late,
+// Incomplete or Absent and Prism removed the flag's status line. Absent → nothing to patch.
+export function flagClearedPatch(cleared) {
+  if (!cleared) return {};
+  return {
+    exception: 0,
+    ...(typeof cleared.comment === 'string' ? { grade_comment: cleared.comment } : {}),
+    ...('status_line' in cleared ? { status_line: null } : {}),
+  };
+}
+
 export function resubmissionFieldsPatch(fields) {
   if (!fields) return {};
   return {
@@ -266,14 +278,14 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
 
-  // A flag on the underlying grade (Exempt, Incomplete, Missing, Absent or Late) locks the
-  // rubric grid: Schoology removes the grade for four of them and counts Missing as zero, so
-  // any proficiency a teacher selected here would be wiped or ignored on the next sync.
-  // Comments and the Display-to-student
-  // toggle stay editable — Schoology allows those for flagged students, and they add
-  // important context for students/parents.
-  const isRubricLocked = isFlag(student.exception);
+  // A final flag (Exempt or Missing, #40) locks the rubric grid: the student is not graded on this
+  // task while it is set. Comments and the Display-to-student toggle stay editable: Schoology
+  // allows those for flagged students, and they add important context for students/parents.
+  // A marker (Late, Incomplete, Absent) keeps the rubric open: the teacher grades straight through
+  // it, and publishing the grade clears the flag in Schoology (markerNote says so above the rubric).
+  const isRubricLocked = isFinalFlag(student.exception);
   const exceptionLabel = isRubricLocked ? FLAGS[Number(student.exception)].name : null;
+  const markerNote = isMarker(student.exception) ? `Grading this work clears ${FLAGS[Number(student.exception)].name}.` : null;
 
   // Comment publish state, verified against the synced Schoology value mirrored
   // in the local DB (grades.grade_comment → student.grade_comment). After a
@@ -296,8 +308,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }
   const average = hasFeedbackRows ? rubricAverage(scoreScale, topics.map((t) => rowName(t.id)), effectiveRows) : { level: null, reason: null };
-  // Never on a flagged student: a grade would be
-  // written over the exception.
+  // Never on a final flag (Exempt, Missing): no grade is written over it.
   const autoScale = hasFeedbackRows && !isRubricLocked && student.scale_level == null && pending[SCALE] == null ? average.level : null;
   const stagedScale = scoreScale ? (pending[SCALE] ?? autoScale) : null;
   const averageLabel = average.level ? scoreScale.levels.find((l) => l.code === average.level)?.label : null;
@@ -429,7 +440,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     const uid = student.schoology_uid;
     registerCard?.(uid, {
       getEntry: () => entryRef.current(),
-      applyResult: (ok) => applyRef.current(ok),
+      applyResult: (ok, result) => applyRef.current(ok, result),
       discard: () => discardRef.current(),
       setDisplay: (v) => setDisplayRef.current(v),
       stageScaleLevel: (code) => stageRef.current(code),
@@ -745,7 +756,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           gradingPeriodId: assignmentRow.mastery_grading_period_id,
           gradingCategoryId: assignmentRow.mastery_grading_category_id,
         } : null,
-        comment: (hasCommentChange || hasDisplayChange) ? { comment, commentStatus: display, ...statusLineFields() } : null,
+        // Over a marker the comment write rides along even when the comment is unchanged: the
+        // server takes the flag's line off it once the grade has cleared the flag (#40).
+        comment: (hasCommentChange || hasDisplayChange || (hasScoreChanges && isMarker(student.exception)))
+          ? { comment, commentStatus: display, ...statusLineFields() } : null,
       },
       patch: {
         scores: buildSavedScores(), grade_comment: comment, comment_status: display ? 1 : null,
@@ -757,8 +771,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // Update this card's own UI after the page's batch lands. The page applies the
   // in-place data patch itself (handleCardSaved) — here we only own the badge,
   // pending reset, and draft clear (mirrors handleSave's success/error tail).
-  function applySendResult(ok) {
+  function applySendResult(ok, result = null) {
     if (ok) {
+      // A grade over a marker: Prism took the flag's line off the comment (#40).
+      if (typeof result?.flagCleared?.comment === 'string') setComment(result.flagCleared.comment);
       setSaveResult('saved');
       setPending({});
       setInsertedLine(null);
@@ -812,8 +828,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             comment_status: display ? 1 : null,
             ...resubmissionFieldsPatch(saved?.resubmissionFields),
             ...statusLinePatch(),
+            ...flagClearedPatch(saved?.flagCleared),
           } : {}),
         });
+        if (typeof saved?.flagCleared?.comment === 'string') setComment(saved.flagCleared.comment);
         if (overallChanged) setNotesCollapsed(true);
         return true;
       }
@@ -833,7 +851,10 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         rubricSaved = true;
       }
 
-      if (hasCommentChange || hasDisplayChange) {
+      // Over a marker the comment write follows the rubric write even when the comment is
+      // unchanged: the server takes the flag's line off the comment once the grade cleared it (#40).
+      let cleared = null;
+      if (hasCommentChange || hasDisplayChange || (rubricSaved && isMarker(student.exception))) {
         const saved = await writeMasteryComment(courseId, {
           enrollmentId: student.enrollment_id,
           assignmentId,
@@ -846,7 +867,9 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           ...(rubricSaved ? { rubricSaved: true } : {}),
         });
         fields = saved?.resubmissionFields ?? fields;
+        cleared = saved?.flagCleared ?? null;
       }
+      if (typeof cleared?.comment === 'string') setComment(cleared.comment);
       setSaveResult('saved');
       setPending({});
       setInsertedLine(null);
@@ -860,6 +883,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         comment_status: display ? 1 : null,
         ...resubmissionFieldsPatch(fields),
         ...statusLinePatch(),
+        ...flagClearedPatch(cleared),
       });
       setNotesCollapsed(true); // published → tuck the reviewer notes away
       return true;
@@ -1040,6 +1064,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           <SubmissionTimeline timeline={student.timeline} showDue={false} />
         </div>
       )}
+
+      {markerNote && <div className="flag-marker-note">{markerNote}</div>}
 
       {/* Rubric grid */}
       <div style={{
@@ -1955,9 +1981,10 @@ export default function AssessmentSummaryPage() {
       for (const i of items) {
         const r = resultByUid.get(i.uid);
         const success = r?.ok ?? false;
-        cardsRef.current[i.uid]?.applyResult(success);
-        // Each saved pair's post-save resubmission state comes back with its result (I2).
-        if (success) { handleCardSaved(i.uid, { ...i.patch, ...resubmissionFieldsPatch(r.resubmissionFields) }); ok++; } else { fail++; }
+        cardsRef.current[i.uid]?.applyResult(success, r);
+        // Each saved pair's post-save resubmission state comes back with its result (I2), and a
+        // grade that cleared a marker its flagCleared (#40).
+        if (success) { handleCardSaved(i.uid, { ...i.patch, ...resubmissionFieldsPatch(r.resubmissionFields), ...flagClearedPatch(r.flagCleared) }); ok++; } else { fail++; }
       }
       setBulkResult(`Published ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}`);
     } catch (err) {
@@ -2197,7 +2224,7 @@ export default function AssessmentSummaryPage() {
   // differs from the grade, or (feedback rows) a row level that differs from
   // the row's final.
   const openScaleSuggestions = scoreScale ? students.filter(s => {
-    if (isFlag(s.exception)) return false;
+    if (isFinalFlag(s.exception)) return false; // a marker takes suggestions: it is graded straight through
     const parsed = feedbackByStudent[s.id]?.feedback_parsed;
     const lv = parsed?.scale_level;
     if (lv && lv !== s.scale_level) return true;

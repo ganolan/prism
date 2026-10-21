@@ -19,9 +19,9 @@ describe('isResubmitted', () => {
     expect(isResubmitted({ score: null, exception: 3, submitted_at: 1000, latest_revision_at: 2000 })).toBe(true);
   });
 
-  test('true for a Late- or Absent-flagged row: every flag is feedback (#40)', () => {
-    expect(isResubmitted({ score: null, exception: 6, submitted_at: 1000, latest_revision_at: 2000 })).toBe(true);
-    expect(isResubmitted({ score: null, exception: 5, submitted_at: 1000, latest_revision_at: 2000 })).toBe(true);
+  test('a marker (Late, Absent, Incomplete) is not feedback: only the final flags are (#40)', () => {
+    for (const exception of [6, 5, 2]) expect(isResubmitted({ score: null, exception, submitted_at: 1000, latest_revision_at: 2000 })).toBe(false);
+    expect(isResubmitted({ score: null, exception: 1, submitted_at: 1000, latest_revision_at: 2000 })).toBe(true);
   });
 
   test('false when submitted_at is 0 (grade time unknown)', () => {
@@ -51,8 +51,9 @@ describe('hasFeedback', () => {
     expect(hasFeedback(null)).toBe(false);
   });
 
-  test('every flag (Exempt, Incomplete, Missing, Absent, Late) is feedback (#40)', () => {
-    for (const exception of [1, 2, 3, 5, 6, '6']) expect(hasFeedback({ score: null, exception, grade_comment: '' })).toBe(true);
+  test('only the final flags (Exempt, Missing) are feedback; the markers (Late, Incomplete, Absent) are not (#40)', () => {
+    for (const exception of [1, 3, '3']) expect(hasFeedback({ score: null, exception, grade_comment: '' })).toBe(true);
+    for (const exception of [2, 5, 6, '6']) expect(hasFeedback({ score: null, exception, grade_comment: '' })).toBe(false);
     expect(hasFeedback({ score: null, exception: 0, grade_comment: '' })).toBe(false);
     expect(hasFeedback({ score: null, exception: 4, grade_comment: '' })).toBe(false); // 4 is no flag
   });
@@ -151,6 +152,15 @@ describe('resubmissionStateFromSnapshot', () => {
     expect(absorbParts(noComment, shown, PART_COMMENT)).toBe(shown);
     expect(absorbParts(null, cur, PART_SCORE)).toBe(cur);
   });
+  test('a marker in a stored fingerprint is not a score change: only the final flags count (#40)', () => {
+    const none = fingerprint({ score: null });
+    for (const e of [2, 5, 6]) {
+      expect(changedParts(none, `{"s":null,"e":${e},"l":[],"c":""}`)).toBe(0);
+      expect(feedbackAnswered(none, `{"s":null,"e":${e},"l":[],"c":""}`)).toBe(false);
+    }
+    expect(changedParts(none, '{"s":null,"e":1,"l":[],"c":""}')).toBe(PART_SCORE);
+  });
+
   test('changedParts / feedbackAnswered without evidence (any change counts)', () => {
     const a = fingerprint({ score: 80, comment: 'x', commentStatus: 1, levels: [{ topic_id: 't', grade: 'D' }] });
     expect(changedParts(a, a)).toBe(0);
@@ -199,8 +209,8 @@ describe('resubmissionStateFromSnapshot', () => {
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('v2 is better'), ...g })).toBe(null);
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis(null, { score: 90 }), ...g })).toBe(null);
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { exception: 3 }), ...g })).toBe(null);
-    // Late (6) is a flag like the others, so it acknowledges too (#40).
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { exception: 6 }), ...g })).toBe(null);
+    // Late (6) is a marker, not feedback: it does not acknowledge the resubmission (#40).
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { exception: 6 }), ...g })).toBe('arrived');
     // A level change needs a Prism save after the arrival that changed levels (round 4).
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { levels: [{ topic_id: 't', grade: 'EX' }] }), ...g })).toBe('arrived');
     expect(resubmissionStateFromSnapshot({ snapshot: { ...snapshot, arrival_parts: PART_LEVELS }, currentFingerprint: vis('Good start', { levels: [{ topic_id: 't', grade: 'EX' }] }), ...g })).toBe(null);

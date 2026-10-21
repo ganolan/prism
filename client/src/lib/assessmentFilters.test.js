@@ -48,10 +48,13 @@ describe('gradingStateOf', () => {
   it('exception 4 is no flag: ungraded until graded', () => {
     expect(gradingStateOf(stu({ exception: 4 }), TOPICS)).toBe('ungraded');
   });
-  it('every flag is complete: Exempt, Incomplete, Missing, Absent and Late (server parity, #40)', () => {
-    for (const exception of [1, 2, 3, 5, 6]) expect(gradingStateOf(stu({ exception }), TOPICS)).toBe('complete');
-    expect(gradingStateOf(stu({ exception: 6 }), [])).toBe('complete');
-    expect(gradingStateOf(stu({ exception: '6' }), TOPICS)).toBe('complete');
+  it('only the final flags (Exempt, Missing) are complete; a marker grades like no flag (server parity, #40)', () => {
+    for (const exception of [1, 3, '3']) expect(gradingStateOf(stu({ exception }), TOPICS)).toBe('complete');
+    for (const exception of [2, 5, 6, '6']) {
+      expect(gradingStateOf(stu({ exception }), TOPICS)).toBe('ungraded');
+      expect(gradingStateOf(stu({ exception }), [])).toBe('ungraded');
+      expect(gradingStateOf(stu({ exception, scores: { t1: { grade: 'EX' } }, grade_comment: 'x' }), TOPICS)).toBe('partial');
+    }
   });
   // Final review M3 (server gradingState parity): Prism's own status line is not feedback.
   it('a comment that is only the stored status line is not a comment', () => {
@@ -173,9 +176,10 @@ describe('studentReasons (Needs action + Watch)', () => {
   it('exempt: no grading reasons', () => {
     expect(ids(stu({ exception: 1, attention: { handedIn: true, reasons: [] } }))).toEqual([]);
   });
-  it('absent is a marker, not a decision: server reasons (a referral) stay, as for an unflagged student', () => {
+  it('a marker (Absent, Late, Incomplete) is not a decision: handed-in work is still to grade, and server reasons stay (#40)', () => {
     const s = { attention: { handedIn: true, reasons: [{ id: 'referral', kind: 'outstanding', daysLate: 9 }] } };
-    expect(ids(stu({ exception: 5, ...s }))).toEqual(['referral']);
+    for (const exception of [5, 6, 2]) expect(ids(stu({ exception, ...s }))).toEqual(['to_grade', 'referral']);
+    expect(ids(stu({ exception: 3, ...s }))).toEqual(['referral']); // Missing is final: handled
   });
   it('server reasons join in REASONS order; unknown ids are dropped', () => {
     const s = stu({ attention: { handedIn: true, reasons: [{ id: 'resubmission_pending', until: '2026-10-20' }, { id: 'referral', kind: 'outstanding', daysLate: 9 }, { id: 'nope' }] } });

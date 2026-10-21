@@ -11,6 +11,8 @@
 //   every other field echoed from the fresh read, #46) -> read back and confirm -> mirror the
 //   read-back into grades -> withdraw Prism's open records (Exempt only) -> the status
 //   line -> (clearing) the draft -> release.
+// Clearing Missing sends `grade: null` as well, so no 0 is left counting; that also blanks the topic
+// levels Missing kept (probe dd0509e), so the copy takes them first, like a flag that removes them.
 // A gateway error (non-2xx, or a per-entry response_code of 400+) means Schoology wrote nothing:
 // nothing in Prism changes and it is never retried here (one transient 502 was seen in the probes).
 import { getSectionGrades, pushGradeUpdates } from './schoology.js';
@@ -141,14 +143,18 @@ function keepCopy(db, t, fresh, was, code) {
   }
 }
 
-async function putFlag(t, fresh, code) {
+// Clearing Missing (3 → 0): the write that also removes Missing's 0 (and blanks its levels).
+const clearsMissing = (was, code) => was === 3 && code === 0;
+
+async function putFlag(t, fresh, code, was) {
   const payload = {
     assignment_id: t.schoologyAssignmentId,
     enrollment_id: t.enrollmentId,
     comment: fresh?.comment ?? '',
     comment_status: fresh?.comment_status ?? null,
   };
-  if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
+  if (clearsMissing(was, code)) payload.grade = null; // the 0 was Missing's own, not a grade
+  else if (fresh && fresh.grade != null) payload.grade = String(fresh.grade);
   payload.exception = code;
   let result;
   try {
@@ -180,9 +186,9 @@ async function readBack(t, code) {
   return back;
 }
 
-// Prism's mirror of the read-back: the score and flag. The topic levels a flag blanks go too (as the
-// next mastery read would drop them); the copy holds them.
-function mirror(db, t, back, code) {
+// Prism's mirror of the read-back: the score and flag. The topic levels a flag (or clearing Missing)
+// blanks go too (as the next mastery read would drop them); the copy holds them.
+function mirror(db, t, back, code, was) {
   const a = assignmentOf(db, t);
   db.transaction(() => {
     db.prepare(`
@@ -191,7 +197,7 @@ function mirror(db, t, back, code) {
       ON CONFLICT(student_id, assignment_id) DO UPDATE SET score = excluded.score, exception = excluded.exception, synced_at = excluded.synced_at
     `).run(t.studentId, t.assignmentId, t.enrollmentId, num(back.grade), Number(back.exception) || 0,
       back.comment ?? '', back.comment_status ?? null, new Date().toISOString());
-    if (removesLevels(code)) {
+    if (removesLevels(code) || clearsMissing(was, code)) {
       // Only levels the stored copy holds: a level Prism has no other record of is never dropped here.
       const kept = waitingCopy(db, t);
       const held = kept ? JSON.parse(kept.saved_json).topics || {} : {};
@@ -310,6 +316,14 @@ const savedGradeOf = (db, t, copy) => (copy ? {
   notRestored: planRestore(db, assignmentOf(db, t), JSON.parse(copy.saved_json)).notRestored,
 } : null);
 
+// A new grade was published over a marker (write-comment / send-all, #40): the grade the marker
+// removed is no longer the one to restore, so a waiting copy is retired (restored_at set) and
+// "Restore saved grade" is no longer offered. → true when a waiting copy was retired.
+export function retireCopy(db, { studentId, assignmentId } = {}) {
+  return db.prepare(`UPDATE excused_grades SET restored_at = datetime('now') WHERE student_id = ? AND assignment_id = ? AND restored_at IS NULL`)
+    .run(Number(studentId), Number(assignmentId)).changes > 0;
+}
+
 // The Flags panel's fresh read (no write).
 export async function readFlagState(db, { studentId, assignmentId } = {}) {
   const t = pairTarget(db, studentId, assignmentId);
@@ -358,10 +372,12 @@ export async function setGradeFlag(db, { studentId, assignmentId, code, expected
       throw new TriageError('NOT_ELIGIBLE', target ? `This task is already flagged ${flagName(target)}` : 'There is no flag to clear on this task');
     }
 
+    // A copy before any flag, and before clearing Missing (its grade: null blanks the levels it
+    // kept); the copy stays Missing's (flag 3) when clearing.
     let copy = { saved: false, undo: () => {} };
-    if (target !== 0) copy = keepCopy(db, t, fresh, was, target);
+    if (target !== 0 || clearsMissing(was, target)) copy = keepCopy(db, t, fresh, was, target || was);
     try {
-      await putFlag(t, fresh, target);
+      await putFlag(t, fresh, target, was);
     } catch (err) {
       try { copy.undo(); } catch (e) { console.error('[grade flag] could not put the earlier copy back:', e.message); }
       throw err;
@@ -388,7 +404,7 @@ export async function setGradeFlag(db, { studentId, assignmentId, code, expected
 
     capture(db, t, 'before');
     try {
-      mirror(db, t, back, target);
+      mirror(db, t, back, target, was);
     } catch (err) {
       console.error('[grade flag] mirror failed (the next sync will catch up):', err.message);
     }

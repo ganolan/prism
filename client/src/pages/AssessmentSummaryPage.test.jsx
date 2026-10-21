@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
-import AssessmentSummaryPage, { StudentRubricCard } from './AssessmentSummaryPage.jsx';
+import AssessmentSummaryPage, { StudentRubricCard, flagClearedPatch } from './AssessmentSummaryPage.jsx';
 import { writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment, getAssignmentFileSummaries } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import { formatDateTime } from '../lib/formatDate.js';
@@ -2493,8 +2493,8 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     expect(handlers['uid-1'].getEntry()).toBeNull();
   });
 
-  it.each([[1, 'Exempt', 'badge-green'], [2, 'Incomplete', 'badge-amber'], [3, 'Missing', 'badge-red'], [5, 'Absent', 'badge-slate'], [6, 'Late', 'badge-red']])(
-    'flag %i shows its "%s, rubric locked" badge in its flag color (%s)', (exception, label, cls) => {
+  it.each([[1, 'Exempt', 'badge-green'], [3, 'Missing', 'badge-red']])(
+    'final flag %i shows its "%s, rubric locked" badge in its flag color (%s)', (exception, label, cls) => {
       card({ student: { ...makeStudent(), exception, scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
       expect(screen.getByText(`${label}, rubric locked`)).toHaveClass(cls);
     });
@@ -2651,5 +2651,78 @@ describe('AssessmentSummaryPage - suggestions made from old data (#131)', () => 
     renderPage();
     await screen.findByText('Quiz');
     expect(screen.queryByText(/AI suggestions were made/)).not.toBeInTheDocument();
+  });
+});
+
+// #40: Exempt and Missing are final (rubric locked); Late, Incomplete and Absent are markers the
+// teacher grades straight through, with a note that grading clears them.
+describe('StudentRubricCard: final flags and markers (#40)', () => {
+  it.each([[6, 'Late'], [2, 'Incomplete'], [5, 'Absent']])('marker %i keeps the rubric editable, with "Grading this work clears %s."', (exception, name) => {
+    renderCard({ student: { ...makeStudent(), exception } });
+    expect(screen.getByText(`Grading this work clears ${name}.`)).toBeInTheDocument();
+    expect(screen.queryByText(/rubric locked/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+  });
+
+  it.each([[1, 'Exempt'], [3, 'Missing']])('final flag %i locks the rubric and shows no marker note', (exception, name) => {
+    renderCard({ student: { ...makeStudent(), exception } });
+    expect(screen.getByText(`${name}, rubric locked`)).toBeInTheDocument();
+    expect(screen.queryByText(/Grading this work clears/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+  });
+
+  it('no flag: no note', () => {
+    renderCard();
+    expect(screen.queryByText(/Grading this work clears/)).not.toBeInTheDocument();
+  });
+
+  it('a score-scale task over a marker: the picker stays open', () => {
+    renderCard({ topics: [], scoreScale: { name: 'Completion Scale', levels: [{ code: 'C', label: 'Completed', points: 100 }, { code: 'I', label: 'Incomplete', points: 0 }] },
+      assignmentRow: { id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      student: { ...makeStudent(), exception: 6 } });
+    expect(screen.getByRole('button', { name: /completed/i })).toBeEnabled();
+    expect(screen.getByText('Grading this work clears Late.')).toBeInTheDocument();
+  });
+
+  it('publishing rubric levels over a marker also sends the comment write (it clears the flag line), then patches the card from flagCleared', async () => {
+    const onSaved = vi.fn();
+    writeMasteryComment.mockResolvedValueOnce({ flagCleared: { exception: 0, comment: 'Good start.', status_line: null } });
+    renderCard({ onSaved, student: { ...makeStudent(), exception: 6, grade_comment: 'Marked late on Wed 21/10.\n\nGood start.', comment_status: 1,
+      status_line: { line: 'Marked late on Wed 21/10.', kind: 'flag' } } });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(writeMasteryScores).toHaveBeenCalled();
+    expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({ rubricSaved: true, comment: 'Marked late on Wed 21/10.\n\nGood start.' }));
+    expect(onSaved.mock.calls[0][1]).toMatchObject({ exception: 0, grade_comment: 'Good start.', status_line: null });
+  });
+
+  it('Send all over a marker: the entry carries the comment write with the scores, even with the comment unchanged', async () => {
+    const handlers = {};
+    renderCard({ student: { ...makeStudent(), exception: 6, grade_comment: 'Hi', comment_status: 1 },
+      registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {} });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    await waitFor(() => expect(handlers['uid-1'].getEntry().entry.scores).not.toBeNull()); // once the scale loads
+    const built = handlers['uid-1'].getEntry();
+    expect(built.entry.comment).toMatchObject({ comment: 'Hi', commentStatus: true });
+  });
+
+  it('flagClearedPatch: exception 0, the stripped comment and no status line; nothing without flagCleared', () => {
+    expect(flagClearedPatch(null)).toEqual({});
+    expect(flagClearedPatch({ exception: 0 })).toEqual({ exception: 0 });
+    expect(flagClearedPatch({ exception: 0, comment: 'Good start.', status_line: null })).toEqual({ exception: 0, grade_comment: 'Good start.', status_line: null });
+  });
+
+  it('publishing rubric levels with no flag sends no comment write when the comment is unchanged', async () => {
+    const onSaved = vi.fn();
+    renderCard({ onSaved, student: { ...makeStudent(), grade_comment: 'Hi', comment_status: 1 } });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(writeMasteryComment).not.toHaveBeenCalled();
   });
 });

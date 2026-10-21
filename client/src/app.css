@@ -748,6 +748,10 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
 .feedback-rows-overall-label { color: var(--text-muted); font-size: 0.75rem; margin: 0.4rem 0; }
 .feedback-rows-average { margin-top: 0.4rem; font-size: 0.75rem; color: var(--text-muted); }
 
+/* A marker flag (Late, Incomplete, Absent; #40) keeps the card's rubric open: one quiet line above
+   it says publishing a grade clears the flag. Final flags lock the rubric instead. */
+.flag-marker-note { padding: 0.6rem 1rem 0; font-size: 0.75rem; color: var(--text-muted); }
+
 /* ========================================================================
    MODAL
    ======================================================================== */
@@ -1505,6 +1509,8 @@ img.file-viewer-media { background: transparent; }
 .assignment-feedback__comment { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; white-space: pre-line; overflow-wrap: anywhere; }
 .assignment-feedback__notice { padding: 0.5rem 0.75rem; background: var(--bg-subtle); border: 1px dashed var(--border); border-radius: 6px; color: var(--text-muted); font-style: italic; }
 .assignment-feedback__notice strong { font-style: normal; color: var(--danger); }
+/* A marker flag (#40): its symbol and "Grading this work clears Late." above the rubric it keeps. */
+.assignment-feedback__marker { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
 
 /* Gradebook submission modal: 560px, widened to fit a five-level descriptor grid
    only while descriptors show; the overlay's padding caps it to the viewport. */

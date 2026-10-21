@@ -2,13 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Set, change and clear Schoology's Excused and Late flags from Prism (assessment card, gradebook pop-up, student page), keep a copy of any grade Excused removes, and show every flag clearly in the gradebook.
+**Goal:** Set, change and clear Schoology's five grade flags from Prism (assessment card, gradebook pop-up, student page), keep a copy of any grade a flag removes, and show every flag as a symbol.
 
 **Architecture:** One server service (`server/services/gradeFlags.js`) does the flag write with the quiz write-back safety pattern (lock, fresh read, refuse on change, write, read back, mirror), saves the pre-excuse grade in a new `excused_grades` table, withdraws open triage records, publishes an optional `excused` status line, and restores the saved grade into the card's draft on clear. One client component (`FlagsMenu`) serves the card header and the shared `AssignmentFeedback` view. Display work (late clocks, exception chips, colors, Overdue, removing Flag for review) is independent of the write path and lands first.
 
 **Tech Stack:** Node ESM + Express + better-sqlite3, React + Vite, Vitest + React Testing Library.
 
-**Spec:** `docs/superpowers/specs/2026-10-21-flags-excused-late-design.md` (mockups: https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3, version 7).
+**Spec:** `docs/superpowers/specs/2026-10-21-flags-excused-late-design.md` (revised after the probes; mockups: https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3, version 9).
+
+**Revision (21 Oct 2026):** Tasks 1 to 6 are done. The probes changed the design (five settable flags, Late = 6, every flag removes the grade, symbols). Task 10 reworks the display from Tasks 2 to 4; Tasks 7 and 8 are rewritten. Order: 10, 7, 8, 9.
 
 ## Global Constraints
 
@@ -17,8 +19,8 @@
 - UI copy is American spelling: "grayed", "color".
 - Status lines are plain printable ASCII (`plainLine`, `checkLine`).
 - New columns or tables go in `server/db/schema.sql` **and** the `MIGRATIONS` array in `server/db/index.js`.
-- Menu copy, verbatim: Excused "Visibly flags the work as excused in Schoology. It is left out of {first name}'s grade, and the rubric locks."; Late "Visibly flags the work as late in Schoology. The grade still counts."; ticked item "Choose again to clear it."; caption "In Schoology only"; hover "Set these in Schoology for now. Prism may add them later."
-- Colors: Excused green, Late red, Incomplete amber, Missing red, everywhere a flag shows.
+- Menu copy, flag names, symbols, colors and status-line text: verbatim from the spec (revised 21 Oct 2026). UI word "Exempt", never "Excused".
+- Flag codes: 1 Exempt, 2 Incomplete, 3 Missing, 5 Absent, 6 Late (4 is invalid). Colors: Exempt green, Late red, Absent slate gray, Incomplete amber, Missing red outline, everywhere a flag shows.
 - A live Schoology write happens only after Graham approves it, on a target he names, followed by a read-back (AGENTS.md "Schoology write-back is live").
 - Tests: `npx vitest run` at the root and `cd client && npx vitest run`, then `npm run build`, before every commit that touches code.
 
@@ -149,65 +151,91 @@ git commit -m "probe: Schoology grade exceptions, verified live (#40)"
 
 ---
 
+### Task 10: Flag codes, symbols and Late as a flag (rework after the probes)
+
+Done earlier and now partly wrong: Tasks 2 and 3 assumed Late = 4 and that Late keeps the grade; Task 4 drew dashed text chips. The probes (019bcc0) found Late = 6, Absent = 5, 4 invalid, and every flag removes the grade. This task makes the display match the revised spec.
+
+**Files:**
+- Create: `client/src/components/FlagSymbol.jsx`, `client/src/components/FlagSymbol.test.jsx`, `client/src/lib/flags.js` (+ test)
+- Modify: `client/src/lib/gradeLabel.js` (labels and tones for 1, 2, 3, 5, 6; no 4), `server/services/submissionTimeline.js` and its client mirror (`flagged` = exception 6; `LATE_EXCEPTION` = 6), `client/src/components/LateClock.jsx` (drop the `flagged` form: the Late flag is a symbol now), `client/src/pages/CoursePage.jsx`, `client/src/components/AssignmentFeedback.jsx`, `client/src/pages/AssessmentSummaryPage.jsx` (EXCEPTION_LABELS, `isRubricLocked` = any flag, "Exempt" wording, lock badge), `client/src/app.css` (tokens `--flag-exempt`, `--flag-late`, `--flag-absent`, `--flag-incomplete`, `--flag-missing` and their `-bg`), `server/lib/feedbackFingerprint.js`, `server/lib/resubmission.js`, `server/services/assessmentContext.js`, `client/src/lib/assessmentFilters.js` (every flag counts as handled), `server/db/index.js` (no new migration; the "e":4 rewrite stays harmless), `mcp/server.js` descriptions, `server/services/studentHistory.js` (its exception label text), `docs/design-language.md`
+- Delete: `client/src/components/ExceptionChip.jsx` and its test (replaced by `FlagSymbol`)
+
+**Interfaces:**
+- Produces: `client/src/lib/flags.js` exporting `FLAGS = { 1: { key: 'exempt', name: 'Exempt', verb: 'exempt' }, 2: { key: 'incomplete', name: 'Incomplete', verb: 'incomplete' }, 3: { key: 'missing', name: 'Missing', verb: 'missing' }, 5: { key: 'absent', name: 'Absent', verb: 'absent' }, 6: { key: 'late', name: 'Late', verb: 'late' } }`, `FLAG_ORDER = [1, 6, 5, 2, 3]`, `flagGuide(code, firstName) -> string` (the spec's verbatim menu lines), `isFlag(code) -> boolean`; `<FlagSymbol code size="cell"|"inline" showName savedLevel reasonLine />` with a popover (hover and tap) holding name, `flagGuide` text without the "Visibly flags" sentence, the reason line, and "Grade saved in Prism: {savedLevel}. Clear the flag to restore it."; server `FLAG_CODES = [1, 2, 3, 5, 6]` exported from `server/lib/flags.js` (create) for Task 7.
+
+- [ ] **Step 1: Write failing tests:**
+  - `gradeLabel({ exception: 6, score: null, ... })` is `{ kind: 'exception', exception: 6, text: 'Late' }`; exception 5 gives 'Absent'; 1 gives 'Exempt'; exception 4 gives no exception label.
+  - `submissionStatus` tones: 1 green, 6 red, 5 slate, 2 amber, 3 red.
+  - timeline: `flagged` is true only for exception 6; `late` stays the submission signal.
+  - `hasFeedback({ exception: 6 })`, `({ exception: 5 })` are true; `gradingState({ exception: 6, ... })` is 'complete'; client `gradingStateOf` agrees.
+  - `FlagSymbol` renders each of the five with class `flag-symbol--{key}`, its name in capitals when `showName`, an `aria-label` of the name, and the popover text on focus/hover and on click.
+  - a gradebook cell with exception 6 shows the Late symbol and no level chip; with `late: 1` and no flag it shows the outline corner clock only.
+  - the card's lock badge reads "Exempt, rubric locked" for 1 and locks for 5 and 6 too.
+- [ ] **Step 2: Run** the client and server tests named above. Expected: FAIL.
+- [ ] **Step 3: Implement.** Symbols are inline SVG per the spec's table (Absent: a person beside a small circle with a diagonal stroke at its bottom left); colors only via the new tokens.
+- [ ] **Step 4: Run both full suites and `npm run build`.** Expected: PASS.
+- [ ] **Step 5: Commit** `feat(flags): five Schoology flags with symbols; Late is code 6 (#40)`.
+
+---
+
 ### Task 7: The flag write service and route
 
 **Files:**
 - Create: `server/services/gradeFlags.js`, `server/services/gradeFlags.test.js`, `server/routes/gradeFlags.js`, `server/routes/gradeFlags.test.js`
-- Modify: `server/services/schoology.js` (rename `pushGradeComments` to `pushGradeUpdates`; update `server/routes/mastery.js`, `server/services/statusLinePublisher.js`, tests), `server/services/statusLinePublisher.js` (export `pairTarget`, `freshGrade`; add `'excused'` to `STATUS_LINE_KINDS`), `server/lib/statusLines.js` (`excusedLine`), `server/db/schema.sql` + `server/db/index.js` (`excused_grades`), `server/index.js` (mount `/api/grade-flags`), `server/services/triage.js` / `resubmissions.js` (no change expected: reuse `undoExtension`, `undoResubmission`, `undoReferral`)
+- Modify: `server/services/schoology.js` (rename `pushGradeComments` to `pushGradeUpdates`; update `server/routes/mastery.js`, `server/services/statusLinePublisher.js`, tests), `server/services/statusLinePublisher.js` (export `pairTarget`, `freshGrade`; add `'flag'` to `STATUS_LINE_KINDS`), `server/lib/statusLines.js` (`flagLine`), `server/db/schema.sql` + `server/db/index.js` (`excused_grades`), `server/index.js` (mount `/api/grade-flags`)
 
 **Interfaces:**
-- Consumes: Task 1's five answers; `lockPair`, `putSucceeded`, `publishStatusLine`, `removeStatusLine` (statusLinePublisher); `cardBaselineFor` (unfinishedGrading); `undoExtension`, `undoReferral` (triage), `undoResubmission` (resubmissions).
+- Consumes: probe facts (API reference, "Grade exceptions (flags)"): set with `exception: <code>` and every other field echoed; clear with `exception: 0`; 1, 2, 5, 6 remove score and levels; 3 sets score 0 and keeps levels; comment always kept; non-2xx or a per-entry code of 400+ means nothing was written. `FLAG_CODES` (Task 10). `lockPair`, `putSucceeded`, `publishStatusLine`, `removeStatusLine`; `cardBaselineFor`; `undoExtension`, `undoReferral`, `undoResubmission`.
 - Produces:
-  - table `excused_grades(student_id INTEGER, assignment_id INTEGER, saved_json TEXT NOT NULL, saved_at TEXT NOT NULL, restored_at TEXT, PRIMARY KEY (student_id, assignment_id))`; `saved_json` = `{ score, max_points, comment, comment_status, topics: { [topicId]: level }, rows: { [criterion]: level }, scale_level }`.
-  - `excusedLine({ on, note }) -> string`: `Excused on ${lineDate(on)}.` plus `withNote`, e.g. `Excused on Tue 21/10. Medical leave from 13 to 24 October.`
+  - table `excused_grades(student_id INTEGER NOT NULL, assignment_id INTEGER NOT NULL, flag INTEGER NOT NULL, saved_json TEXT NOT NULL, saved_at TEXT NOT NULL, restored_at TEXT, PRIMARY KEY (student_id, assignment_id))`; `saved_json` = `{ score, max_points, comment, comment_status, topics: { [topicId]: level }, rows: { [criterion]: level }, scale_level }`.
+  - `flagLine({ code, on, note }) -> string`: `Marked ${verb} on ${lineDate(on)}.` plus `withNote`, e.g. `Marked exempt on Tue 21/10. Medical leave from 13 to 24 October.`
   - `readFlagState(db, { studentId, assignmentId }) -> Promise<{ exception, score, comment, commentStatus, graded, savedGrade|null, openRecords: [{ type: 'extension'|'resubmission'|'referral', id, label }], hasDraft }>` (fresh Schoology read).
-  - `setGradeFlag(db, { studentId, assignmentId, flag: 'excused'|'late'|'none', expected: { exception, score }, reason = null, restore = true }) -> Promise<{ exception, saved: boolean, withdrawn: [...], line: { published|removed|error }|null, restored: { draft: boolean, notRestored: string[] }|null }>`; throws `TriageError` with codes `CHANGED` (409, message names what changed), `BUSY`, `NOT_FOUND`, `NOT_ELIGIBLE` (archived or excluded course, no enrolment), `SCHOOLOGY_READ_FAILED`, `SCHOOLOGY_WRITE_FAILED`, `READBACK_MISMATCH` (502).
-  - Routes: `GET /api/grade-flags?studentId=&assignmentId=` → `readFlagState`; `POST /api/grade-flags` body `{ studentId, assignmentId, flag, expected, reason, restore }` → `setGradeFlag`; errors as `{ error, code }` with the triage status map plus `CHANGED: 409`, `READBACK_MISMATCH: 502`.
+  - `setGradeFlag(db, { studentId, assignmentId, code: 0|1|2|3|5|6, expected: { exception, score }, reason = null, restore = true }) -> Promise<{ exception, saved: boolean, withdrawn: [...], line: { published|removed|error }|null, restored: { draft: boolean, notRestored: string[] }|null }>`; `code: 0` clears. Throws `TriageError` with `CHANGED` (409, names what changed), `BUSY`, `NOT_FOUND`, `NOT_ELIGIBLE` (archived or excluded course, no enrolment), `BAD_VALUE` (code not in FLAG_CODES or 0), `SCHOOLOGY_READ_FAILED`, `SCHOOLOGY_WRITE_FAILED`, `READBACK_MISMATCH` (502).
+  - Routes: `GET /api/grade-flags?studentId=&assignmentId=` → `readFlagState`; `POST /api/grade-flags` body `{ studentId, assignmentId, code, expected, reason, restore }` → `setGradeFlag`; errors `{ error, code }` with the triage status map plus `CHANGED: 409`, `READBACK_MISMATCH: 502`.
 
 - [ ] **Step 1: Write failing tests** (mock `getSectionGrades` and `pushGradeUpdates` as `statusLinePublisher.test.js` does):
-  - `excusedLine({ on: '2026-10-21', note: 'Medical leave.' }) === 'Excused on Tue 21/10. Medical leave.'`; without a note, `'Excused on Tue 21/10.'`.
-  - excusing a graded pair stores `excused_grades` before the PUT (assert the row exists when the PUT mock runs), sends `exception: 1` with echoed fields per Task 1, reads back, mirrors `grades.exception = 1`.
+  - `flagLine({ code: 1, on: '2026-10-21', note: 'Medical leave.' }) === 'Marked exempt on Tue 21/10. Medical leave.'`; `flagLine({ code: 6, on: '2026-10-21' }) === 'Marked late on Tue 21/10.'`.
+  - setting any flag on a graded pair stores `excused_grades` before the PUT (the row exists when the PUT mock runs), sends `exception: <code>` with echoed fields, reads back, mirrors `grades.exception` and the read-back score (null, or 0 for Missing).
   - storing the copy fails → no PUT, error thrown.
   - fresh exception or score differs from `expected` → `CHANGED`, no PUT.
-  - read-back shows the old exception → `READBACK_MISMATCH`, `grades` unchanged, saved copy kept.
-  - open extension, resubmission and referral → each undone (record only), listed in `withdrawn`; with a reason, one `publishStatusLine` call with kind `excused`; without a reason and a stored line from a withdrawn record, one `removeStatusLine`.
-  - `publishStatusLine` throws after the flag write → result has `exception: 1` and `line.error`, records stay withdrawn.
-  - Late sends `exception: 4`, keeps the grade, opens no records step.
-  - `flag: 'none'` from 1 with a saved copy and `restore: true` → PUT with the clear value, `assessment_drafts` row holds `pending` with the saved topic, `row:` and `__scale__` levels, `comment`, `display`, and `base === cardBaselineFor(db, a)(student)`; an existing draft is replaced; `restored_at` set; a points-only task returns `notRestored: ['score']`.
-  - `restore: false` keeps the row with `restored_at` null.
-  - two overlapping calls on one pair → the second rejects `BUSY` before any read.
-  - an archived course → `NOT_ELIGIBLE`.
+  - read-back shows the old exception → `READBACK_MISMATCH`, `grades` unchanged, copy kept.
+  - a 502 answer, and a 207 with a per-entry 400 → `SCHOOLOGY_WRITE_FAILED`, nothing mirrored.
+  - code 1 or 5 with an open extension, resubmission and referral → each undone (record only) and listed; code 6, 2 or 3 → none undone.
+  - with a reason, one `publishStatusLine` call with kind `flag`; without a reason, a stored line from a withdrawn record is removed.
+  - `publishStatusLine` throws after the flag write → result has the new `exception` and `line.error`; records stay withdrawn.
+  - code 0 from a flag with a saved copy and `restore: true` → PUT with `exception: 0`, `assessment_drafts` row holds `pending` with the saved topic, `row:` and `__scale__` levels, `comment`, `display`, and `base === cardBaselineFor(db, a)(student)`; an existing draft is replaced; `restored_at` set; a points-only task, or a saved overall that differs from the levels' computed score, returns `notRestored` naming it.
+  - `restore: false` keeps the copy with `restored_at` null; clearing removes the `flag` status line.
+  - two overlapping calls on one pair → the second rejects `BUSY` before any read; an archived course → `NOT_ELIGIBLE`; code 4 → `BAD_VALUE`.
 - [ ] **Step 2: Run** `npx vitest run server/services/gradeFlags.test.js server/routes/gradeFlags.test.js server/lib/statusLines.test.js`. Expected: FAIL.
-- [ ] **Step 3: Implement** `gradeFlags.js` in this order per call: `lockPair` → `pairTarget` → eligibility → `freshGrade` → compare with `expected` → (Excused on a graded pair) save the copy from the fresh record plus `mastery_scores` and `rubric_row_levels` → PUT (echoing every field Task 1 found the write could clear, such as a separate `flags` value) → re-read and confirm → mirror (`grades` score, exception, comment from the read-back) → withdraw records → status line → (clear with restore) draft → release. The rename of `pushGradeComments` is mechanical: grep every package for the old name first.
+- [ ] **Step 3: Implement** `gradeFlags.js` in this order: `lockPair` → `pairTarget` → eligibility → `freshGrade` → compare with `expected` → (graded pair, setting a flag) save the copy from the fresh record plus `mastery_scores`, `rubric_row_levels` and the scale level → PUT → re-read and confirm → mirror `grades` from the read-back → withdraw records (1 and 5) → status line → (clearing with restore) draft → release. The rename of `pushGradeComments` is mechanical: grep every package for the old name first.
 - [ ] **Step 4: Run tests.** Expected: PASS; both full suites.
-- [ ] **Step 5: Commit** `feat: write Excused and Late to Schoology with a saved grade (#40)`.
+- [ ] **Step 5: Commit** `feat: write Schoology flags with a saved grade (#40)`.
 
 ---
 
 ### Task 8: The Flags menu and panels
 
 **Files:**
-- Create: `client/src/components/FlagsMenu.jsx`, `client/src/components/FlagsMenu.test.jsx`, `client/src/components/ExcusePanel.jsx`, `client/src/components/ClearExcusedPanel.jsx`
-- Modify: `server/routes/mastery.js` (`GET /:courseId/assignment/:assignmentId` adds `excused_grade` per student from `excused_grades` while unrestored), `server/routes/courses.js` (gradebook grades add `excused_saved_level`), `client/src/services/api.js` (`getGradeFlags`, `setGradeFlag`), `client/src/pages/AssessmentSummaryPage.jsx` (header slot; locked rubric shows saved levels with caption), `client/src/components/AssignmentFeedback.jsx` (badge row), `client/src/pages/CoursePage.jsx` (`RubricModal` refresh after a change), `client/src/pages/StudentPage.jsx`, `client/src/app.css`, `docs/design-language.md`
+- Create: `client/src/components/FlagsMenu.jsx`, `client/src/components/FlagsMenu.test.jsx`, `client/src/components/FlagPanel.jsx`, `client/src/components/ClearFlagPanel.jsx`
+- Modify: `server/routes/mastery.js` (`GET /:courseId/assignment/:assignmentId` adds `saved_grade` and `flag_line` per student), `server/routes/courses.js` (gradebook grades add `saved_level`), `server/routes/students.js` (same for the student page), `client/src/services/api.js` (`getGradeFlags`, `setGradeFlag`), `client/src/pages/AssessmentSummaryPage.jsx` (header slot after Refer; locked rubric shows saved levels with caption; "Restore saved grade" when a copy exists and no flag is set), `client/src/components/AssignmentFeedback.jsx` (badge row), `client/src/pages/CoursePage.jsx` (refresh after a change; pass `saved_level` to `FlagSymbol`), `client/src/pages/StudentPage.jsx`, `client/src/app.css`, `docs/design-language.md`
 
 **Interfaces:**
-- Consumes: Task 7 routes; `ExceptionChip`, `EXCEPTION_TONE` (Task 4); `ActionPanel` portal (`client/src/components/ActionPanel.jsx`).
+- Consumes: Task 7 routes; `FLAGS`, `FLAG_ORDER`, `flagGuide`, `FlagSymbol` (Task 10); `ActionPanel` portal.
 - Produces: `<FlagsMenu student={{ id, firstName }} assignmentId exception score size="md"|"sm" panelHost onChange={(result) => void} />`.
 
 - [ ] **Step 1: Write failing tests:**
-  - closed pill text "Flags" with no flag, "Excused" with class `flags-pill--excused` when exception 1, "Late" with `flags-pill--late` when 4.
-  - open menu lists Excused and Late with the verbatim copy, a divider, the caption "In Schoology only", then every other Schoology menu flag Task 1 found (Incomplete, Missing, and any such as Absent) with `aria-disabled="true"`; exception 3 ticks Missing in the grayed group.
-  - choosing Late calls `setGradeFlag` with `flag: 'late'` and `expected` from props, no panel; while pending the pill is disabled.
-  - choosing Excused opens `ExcusePanel` (after `getGradeFlags`): reason input labeled "Reason for the student (optional)", the comment preview `Excused on Tue 21/10. <reason>`, "Excusing also withdraws: Extension to Fri 24/10/2026" when an open record exists, the saved-grade note and list on a graded task, buttons "Cancel" and "Excuse".
-  - choosing the ticked Excused with a saved copy opens `ClearExcusedPanel` with the box ticked and "(replaces your current draft)" when `hasDraft`; a points-only copy lists "Re-enter in Schoology: 45 / 50".
-  - an excused card with `excused_grade` shows the saved levels in the locked rubric under "Saved before excusing on Tue 21/10. Clear the flag to restore it."; a gradebook cell passes `excused_saved_level` to `ExceptionChip`.
-  - a `CHANGED` error shows its message beside the pill and keeps the old state.
-  - keyboard: ArrowDown moves between Excused and Late, Enter chooses, Escape closes.
+  - closed pill "Flags" with no flag; with exception 1 it shows the Exempt symbol, the text "Exempt" and class `flags-pill--exempt`; 6 gives `flags-pill--late`; 5 `--absent`.
+  - open menu lists the five in `FLAG_ORDER` with `flagGuide` text verbatim, the divider note verbatim, and ticks the set flag with "Choose again to clear it."
+  - choosing any flag calls `getGradeFlags` then opens `FlagPanel` titled "Mark Sam late?" (verb from `FLAGS`): reason input labeled "Reason for the student (optional)", preview `Added to the top of Sam's comment: "Marked late on Tue 21/10. <reason>"` when a reason is typed, "Also withdraws: Extension to Fri 24/10/2026" only for Exempt and Absent with an open record, the saved-grade note only on graded work (the Missing wording for code 3), buttons "Cancel" and "Mark late"; confirming calls `setGradeFlag` with `{ code: 6, expected, reason }`.
+  - choosing the ticked flag with a saved copy opens `ClearFlagPanel` with the box ticked, "(replaces your current draft)" when `hasDraft`, and a "Re-enter in Schoology:" line for `notRestorable` parts; without a copy it calls `setGradeFlag` with `code: 0` at once.
+  - a `CHANGED` error shows its message beside the pill and keeps the old state; while pending the pill is disabled.
+  - keyboard: ArrowDown moves through the five, Enter chooses, Escape closes.
+  - the flagged card shows the saved levels in the locked rubric under "Saved before the flag on Tue 21/10. Clear the flag to restore it."; a gradebook cell passes `saved_level` to `FlagSymbol`.
 - [ ] **Step 2: Run** `cd client && npx vitest run src/components/FlagsMenu.test.jsx`. Expected: FAIL.
-- [ ] **Step 3: Implement**, then place `FlagsMenu` in the card header where Flag for review was, and in `AssignmentFeedback`'s badge row (`size="sm"`, panel inside the view). On `onChange`, the card patches `student.exception`, `grade_comment`, the timeline, and reloads drafts; the gradebook and student page refetch the pair.
+- [ ] **Step 3: Implement**, then place `FlagsMenu` in the card header after Refer, and in `AssignmentFeedback`'s badge row (`size="sm"`, panel inside the view). On `onChange`, the card patches `student.exception`, `grade_comment`, the timeline and reloads drafts; the gradebook and student page refetch the pair.
 - [ ] **Step 4: Run both full suites and `npm run build`.** Expected: PASS.
-- [ ] **Step 5: Add to `docs/design-language.md`:** the Flags menu (grayed group under one caption, explained without hover), the dashed exception chips, the outline and filled clocks, flag colors, Overdue.
-- [ ] **Step 6: Commit** `feat: Flags menu for Excused and Late on the card, gradebook and student page (#40)`.
+- [ ] **Step 5: Add to `docs/design-language.md`:** the Flags menu and panel, flag symbols and colors.
+- [ ] **Step 6: Commit** `feat: Flags menu for all five Schoology flags (#40)`.
 
 ---
 

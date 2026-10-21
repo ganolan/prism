@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-21-flags-excused-late-design.md` (revised after the probes; mockups: https://claude.ai/artifact/RcePZWizTujDo17X1zpLf3, version 10).
 
-**Revision (21 Oct 2026):** Tasks 1 to 6 are done. The probes changed the design (five settable flags, Late = 6, every flag removes the grade, symbols). Task 10 reworks the display from Tasks 2 to 4; Tasks 7 and 8 are rewritten. Order: 10, 7, 11, 8, 9.
+**Revision (21 Oct 2026):** Tasks 1 to 6 are done. The probes changed the design (five settable flags, Late = 6, every flag removes the grade, symbols). Task 10 reworks the display from Tasks 2 to 4; Tasks 7 and 8 are rewritten. Order: 10, 7, 11, 12, 8, 9.
 
 ## Global Constraints
 
@@ -228,6 +228,28 @@ Graham, 21 Oct 2026, after Tasks 10 and 7: Absent must not be treated as "not do
 
 ---
 
+### Task 12: Final flags and markers; clearing Missing
+
+Graham, 21 Oct 2026: Exempt (1) and Missing (3) are final; Late (6), Incomplete (2) and Absent (5) are markers that the teacher grades straight through. Probe (dd0509e): Missing never reaches the topic averages; clearing Missing with `grade: null` removes the 0 and blanks the levels.
+
+**Files:**
+- Modify: `server/lib/flags.js`, `client/src/lib/flags.js` (`FINAL_FLAGS = [1, 3]`, `isFinalFlag(code)`, `isMarker(code)`; `flagGuide(code, firstName, { aligned })` with the spec's new Missing line), `server/lib/resubmission.js` (`hasFeedback`, `scoreDiffers`), `server/lib/feedbackFingerprint.js` (`fingerprint`, `hasPriorFeedback`), `server/services/assessmentContext.js` (`gradingState`), `client/src/lib/assessmentFilters.js` (`gradingStateOf`), `client/src/pages/AssessmentSummaryPage.jsx` (`isRubricLocked` = final only; marker note "Grading this work clears {name}."), `client/src/pages/CoursePage.jsx` (a marker cell still opens the pop-up), `client/src/components/AssignmentFeedback.jsx` (lock notice for final flags only), `server/routes/mastery.js` (write-comment and send-all: when the fresh exception is a marker and a score is written, send `exception: 0`; after a successful grade write over a marker, retire the pair's saved copy and remove a `flag` status line), `server/services/gradeFlags.js` (clearing Missing: save the current levels into the copy first when they are not already there, then send `grade: null`; export `retireCopy(db, { studentId, assignmentId })`), their tests, `mcp/server.js` descriptions, `docs/design-language.md`.
+
+- [ ] **Step 1: Write failing tests:**
+  - `isFinalFlag` true for 1 and 3 only; `isMarker` true for 2, 5, 6.
+  - `hasFeedback({ exception: 6 })`, `({ exception: 2 })`, `({ exception: 5 })` are false; `({ exception: 1 })`, `({ exception: 3 })` true; `gradingState` and `gradingStateOf` 'complete' only for 1 and 3 (a marker with no scores is 'ungraded').
+  - the card's rubric is editable for 6, 2, 5 with the note "Grading this work clears Late." and locked for 1 and 3.
+  - write-comment with `points` on a pair whose fresh exception is 6 sends `exception: 0` with the grade; on exception 0 it echoes 0; on a final flag (1 or 3) with `points` the route refuses with 409.
+  - after a successful grade write over a marker, the pair's `excused_grades` row has `restored_at` set and a `flag` status line is removed.
+  - `setGradeFlag` code 0 from Missing: the PUT carries `grade: null`; when the pair holds levels the copy lacks, the copy holds them before the PUT.
+  - `flagGuide(3, 'Sam', { aligned: true })` is "Scores this task as zero. Topic averages are unchanged."; `{ aligned: false }` gives "Scores this task as zero."
+- [ ] **Step 2: Run.** Expected: FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run both full suites and `npm run build`.** Expected: PASS.
+- [ ] **Step 5: Commit** `feat(flags): final flags and markers; clearing Missing removes the 0 (#40)`.
+
+---
+
 ### Task 8: The Flags menu and panels
 
 **Files:**
@@ -241,7 +263,7 @@ Graham, 21 Oct 2026, after Tasks 10 and 7: Absent must not be treated as "not do
 - [ ] **Step 1: Write failing tests:**
   - closed pill "Flags" with no flag; with exception 1 it shows the Exempt symbol, the text "Exempt" and class `flags-pill--exempt`; 6 gives `flags-pill--late`; 5 `--absent`.
   - open menu shows the subheading `FLAGS_MENU_HEADING`, then the five in `FLAG_ORDER` with `flagGuide` text verbatim, the divider note verbatim, and ticks the set flag with "Choose again to clear it."
-  - choosing any flag calls `getGradeFlags` then opens `FlagPanel` titled "Mark Sam late?" (verb from `FLAGS`): reason input labeled "Reason for the student (optional)", preview `Added to the top of Sam's comment: "Marked late on Tue 21/10. <reason>"` when a reason is typed, "Also withdraws: Extension to Fri 24/10/2026" only for Exempt with an open record; for Absent, the next-steps line "If Sam will make this up, set a date with Extend. If Sam will not do this task, mark Exempt instead.", the saved-grade note only on graded work (the Missing wording for code 3), buttons "Cancel" and "Mark late"; confirming calls `setGradeFlag` with `{ code: 6, expected, reason }`.
+  - choosing any flag calls `getGradeFlags` then opens `FlagPanel` titled "Mark Sam late?" (verb from `FLAGS`): reason input labeled "Reason for the student (optional)", preview `Added to the top of Sam's comment: "Marked late on Tue 21/10. <reason>"` when a reason is typed, "Also withdraws: Extension to Fri 24/10/2026" only for Exempt with an open record, the saved-grade note only on graded work (the Missing wording for code 3), the next-steps line for markers (Late, Incomplete, Absent; spec wording), buttons "Cancel" and "Mark late"; confirming calls `setGradeFlag` with `{ code: 6, expected, reason }`.
   - choosing the ticked flag with a saved copy opens `ClearFlagPanel` with the box ticked, "(replaces your current draft)" when `hasDraft`, and a "Re-enter in Schoology:" line for `notRestorable` parts; without a copy it calls `setGradeFlag` with `code: 0` at once.
   - a `CHANGED` error shows its message beside the pill and keeps the old state; while pending the pill is disabled.
   - keyboard: ArrowDown moves through the five, Enter chooses, Escape closes.

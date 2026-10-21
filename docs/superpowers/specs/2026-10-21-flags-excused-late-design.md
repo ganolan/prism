@@ -42,6 +42,12 @@ this account for Excused).
 - **Graded work keeps its grade in Prism:** before any flag, Prism saves the grade (score, topic levels,
   rubric row levels, comment); the rubric shows it grayed and locked while flagged; clearing the flag
   offers to restore it as a draft.
+- **Two final flags, three markers** (Graham, 21 October 2026). **Exempt and Missing are final:** the
+  rubric stays locked while they are set, and they count as handled (feedback given, grading complete).
+  **Late, Incomplete and Absent are markers:** the teacher grades straight through them in Prism, and
+  publishing a grade clears the flag, as Schoology's own gradebook does; until then the work stays in
+  feedback owed. Publishing a grade over a marker also retires any saved copy and removes the flag's
+  status line.
 - **Exempt is the only decision flag.** It withdraws Prism's open records on the task (extension,
   resubmission request, make-up, referral), after listing them, hides Extend, and takes the student out of
   make-ups, late work and feedback owed.
@@ -116,7 +122,7 @@ A subheading, "Flag in Schoology", then five items, each with its symbol, its na
 - **Late:** "Left out of Sam's grade while flagged."
 - **Absent:** "Absent for this task. Left out of Sam's grade."
 - **Incomplete:** "No grade while flagged."
-- **Missing:** "Counts as zero in Sam's grade."
+- **Missing:** "Scores this task as zero. Topic averages are unchanged." (on a task with no topics: "Scores this task as zero.")
 
 Below a divider: "On graded work, Schoology removes the grade while a flag is set. Prism keeps a copy and
 offers to restore it when you clear the flag." The ticked item's line reads "Choose again to clear it."
@@ -134,8 +140,12 @@ shared view, titled "Mark Jordan exempt?" (late, absent, incomplete, missing). I
 - **The saved grade** (graded work only): "Schoology removes this grade while the flag is set. Prism keeps
   a copy: Exhibiting (3.5) and 2 topic levels. Your comment stays." For Missing: "Schoology sets this
   grade to 0 while the flag is set. Prism keeps a copy: …".
-- **Next steps** (Absent only): "If Sam will make this up, set a date with Extend. If Sam will not do
-  this task, mark Exempt instead."
+- **Next steps** (markers only):
+  - Late: "Grading the work clears Late, and the grade then counts. If the work is too late to count,
+    mark it Missing instead."
+  - Incomplete: "Set a date to finish with Extend. Grading the work clears Incomplete."
+  - Absent: "If Sam will make this up, set a date with Extend. If Sam will not do this task, mark Exempt
+    instead."
 - **Buttons:** "Cancel" and "Mark exempt" (the flag's verb).
 
 A flag that replaces another flag (one value per task) opens the same panel.
@@ -151,8 +161,10 @@ A flag that replaces another flag (one value per task) opens the same panel.
 
 ### After a write
 
-The card shows the flag's symbol, the pill takes the flag's color, the rubric is grayed and locked (with
-the saved levels and the caption "Saved before the flag on Wed 21/10. Clear the flag to restore it."), and Extend hides for Exempt. A failed write shows its reason beside the pill and keeps the previous
+The card shows the flag's symbol and the pill takes the flag's color. For Exempt and Missing the rubric is
+grayed and locked, with the saved levels and the caption "Saved before the flag on Wed 21/10. Clear the
+flag to restore it." For Late, Incomplete and Absent the rubric stays open, with a note above it: "Grading
+this work clears Late." Extend hides for Exempt. A failed write shows its reason beside the pill and keeps the previous
 state.
 
 ## Saving and restoring the grade
@@ -176,7 +188,9 @@ state.
 
 - **Path:** the public bulk `PUT /sections/{id}/grades` (`pushGradeComments`, renamed
   `pushGradeUpdates`), with `exception` set and every other field echoed from a fresh read (the #46 rule).
-  Clearing sends `exception: 0`.
+  Clearing sends `exception: 0`. **Clearing Missing** sends `grade: null` as well, so no 0 is left
+  counting; that also blanks the topic levels Missing kept (verified), so Prism saves them in the copy
+  first and offers them back.
 - **Safety pattern** (`server/services/quizWriteback.js`): re-read before the write and refuse if the row
   changed since the page loaded (score, exception or comment), showing what changed; save the copy; write;
   read back and confirm the flag (and that every part Schoology removed is in the copy); update the local
@@ -192,9 +206,12 @@ state.
 
 ## Late, triage and PrisMCP
 
-- **Every flag, Late included, counts as handled:** `hasFeedback`, the feedback fingerprints and
-  `gradingState` treat all five codes the same (the earlier "Late is display only" rule assumed Late kept
-  the grade, and is withdrawn).
+- **Only the final flags count as handled:** `hasFeedback`, the feedback fingerprints, `gradingState`
+  and the client's `gradingStateOf` treat Exempt (1) and Missing (3) as feedback given and grading
+  complete. Late, Incomplete and Absent do not: the work stays in feedback owed until it is graded.
+- **Grading over a marker:** the mastery write clears the flag in Schoology by itself (verified). A score
+  written with the public PUT must send `exception: 0` when the pair holds a marker, because a score sent
+  with a flag is removed (verified).
 - `grades.late` stays the submission signal only; writing a flag never touches it. The outline corner
   clock keeps showing a late submission.
 - PrisMCP descriptions name the five flags and their codes.

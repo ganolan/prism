@@ -661,6 +661,10 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
 .late-clock--badge { position: absolute; top: -6px; right: -6px; width: 15px; height: 15px; padding: 2px; border-radius: 50%;
   background: var(--badge-red-text); color: #fff; border: 1.5px solid var(--card-bg); box-sizing: border-box; }
 .late-clock--corner { position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; color: var(--badge-red-text); opacity: 0.75; }
+.late-clock--flagged svg path { stroke: var(--card-bg); }
+.late-clock--flagged.late-clock--corner { opacity: 1; }
+/* The badge is already a red disc; the flagged form drops the ring so the fill and the badge are one. */
+.late-clock--badge.late-clock--flagged { color: var(--badge-red-text); }
 .status-pill-wrap { position: relative; display: inline-flex; }
 /* Gradebook cell comment markers (layout A, 18/10/2026): one spot, bottom right. The
    submission-thread bubble (SubmissionComments cell) is purple, amber when the student

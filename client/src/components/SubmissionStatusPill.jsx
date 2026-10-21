@@ -4,7 +4,7 @@
 // here the pill and the grade coexist — the rubric grid shows the grade.
 // One pill for the student's state: a resubmission that has arrived reads
 // "Resubmitted" (the blue resubmission tone), and lateness is a clock on the pill's
-// corner (LateClock), not a pill of its own (17/10/2026).
+// corner (LateClock), not a pill of its own (17/10/2026); the Late flag is its filled form (#40).
 
 import { submissionStatus, ltiStatusUnavailable } from '../lib/gradeLabel.js';
 import { TONE_VARS } from '../lib/assessmentFilters.js';
@@ -61,7 +61,7 @@ export default function SubmissionStatusPill({ student, assignment }) {
             <span style={{ ...PILL, background: v.bg, color: v.text, border: `1px solid ${v.text}` }}>
               {shown.label}
             </span>
-            {b.late && <LateClock title={lateText(student.timeline)} />}
+            {(b.late || b.flagged) && <LateClock flagged={b.flagged} title={lateText(student.timeline, { flagged: !!b.flagged })} />}
           </span>
         );
       })}

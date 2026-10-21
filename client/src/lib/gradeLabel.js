@@ -1,6 +1,7 @@
 // Resolve a grade to its display label given the assignment's grading scale.
 // Returns { text, kind } where kind is one of:
-//   'exception' — score overridden by Schoology exception flag (Excused/Missing/Incomplete/Late)
+//   'exception' — score overridden by Schoology exception flag (Excused/Incomplete/Missing). The
+//                 Late flag (4) is not one: it keeps the grade and shows a filled clock (#40).
 //   'pending'   — assignment not yet graded
 //   'numeric'   — scale has no levels; render raw score / max
 //   'scale'     — score matches a defined scale level (display the level name)
@@ -14,15 +15,16 @@ const EXCEPTION_LABELS = {
   1: 'Excused',
   2: 'Incomplete',
   3: 'Missing',
-  4: 'Late',
 };
+const LATE_EXCEPTION = 4;
 
 // Derive submission-state badges for an assignment row. Returns an array of
 // { kind, label, tone, late? } badges; tone ∈ 'red' | 'blue' | 'amber' | 'green' |
 // 'yellow' | 'neutral'. Graded cells return [] (gradeLabel shows the score).
 // Late is not a status of its own (17/10/2026): it rides on the status it qualifies
 // as `late: true` (a clock badge on the pill, a clock in the cell corner, LateClock).
-// Only a late flag with no status to attach to stays a { kind: 'late' } badge.
+// The teacher's Late flag (exception 4) rides the same way as `flagged: true`, the
+// filled form of the clock. A late flag with no status to attach to shows nothing.
 //
 // lti_submission work (#62): state comes from `lti_submission_state`
 // ('submitted' | 'in_progress' | 'not_started'), read from the grader's
@@ -47,12 +49,12 @@ function dueProximity(due_date, today) {
   return 'early';
 }
 
-function ltiBadges(state, submission_type, due_date, today, late) {
+function ltiBadges(state, submission_type, due_date, today, late, flagged) {
   // GHD covered the cell but the document fetch didn't: trust "submitted".
   if (state == null && submission_type) state = 'submitted';
   const prox = dueProximity(due_date, today);
   if (state === 'submitted') {
-    return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}) }];
+    return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}), ...(flagged ? { flagged: true } : {}) }];
   }
   if (state === 'in_progress') {
     return [{ kind: 'in-progress', label: 'In Progress', tone: prox === 'overdue' ? 'yellow' : 'blue' }];
@@ -68,23 +70,24 @@ function ltiBadges(state, submission_type, due_date, today, late) {
   return [];
 }
 
-function nonLtiBadges({ submission_type, late, due_date, today }) {
+function nonLtiBadges({ submission_type, late, flagged, due_date, today }) {
   const submitted = !!submission_type;
-  if (submitted) return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}) }];
+  if (submitted) return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}), ...(flagged ? { flagged: true } : {}) }];
   if (dueProximity(due_date, today) === 'overdue') return [{ kind: 'missing', label: 'Missing', tone: 'red' }];
   return []; // a late flag with no submission is a stale value, not a state
 }
 
 export function submissionStatus({ score, exception, late, draft, submitted_at, submission_type, is_lti_submission, lti_submission_state, due_date, accepts_submissions, is_test, today = new Date() }) {
   const exLabel = EXCEPTION_LABELS[exception];
-  if (exception && exception !== 4 && exLabel) {
+  const flagged = Number(exception) === LATE_EXCEPTION;
+  if (exLabel) {
     const tone = exception === 1 ? 'blue' : 'red';
     return [{ kind: 'exception', label: exLabel, tone }];
   }
   if (score != null) return []; // graded — gradeLabel renders the score
-  if (is_lti_submission) return ltiBadges(lti_submission_state, submission_type, due_date, today, late);
+  if (is_lti_submission) return ltiBadges(lti_submission_state, submission_type, due_date, today, late, flagged);
   if (accepts_submissions === 0 && !is_test) return []; // no submission channel
-  return nonLtiBadges({ submission_type, late, due_date, today });
+  return nonLtiBadges({ submission_type, late, flagged, due_date, today });
 }
 
 // True when an lti_submission assignment's document fetch failed at the last
@@ -98,7 +101,7 @@ export function ltiStatusUnavailable({ is_lti_submission, lti_fetch_status, scor
 }
 
 export function gradeLabel({ score, max_points, exception, grading_scale_id, scales }) {
-  if (exception && EXCEPTION_LABELS[exception]) {
+  if (EXCEPTION_LABELS[exception]) {
     return { text: EXCEPTION_LABELS[exception], kind: 'exception' };
   }
   if (score == null) {

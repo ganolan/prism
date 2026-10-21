@@ -2264,9 +2264,11 @@ describe('StudentRubricCard — submission timeline', () => {
     expect(within(row).getByRole('img', { name: /school days after the due date/ })).toBeInTheDocument();
   });
 
-  it('a Late exception from Schoology is shown on the card', () => {
-    renderCard({ student: { ...makeStudent(), exception: 4 } });
-    expect(screen.getByText('Marked late in Schoology')).toBeInTheDocument();
+  it('the Late flag is a filled clock on the status pill, not a badge of its own', () => {
+    renderCard({ student: { ...makeStudent(), exception: 4, submission_type: 'drop' }, assignmentRow: { id: 50, accepts_submissions: 1, mastery_grading_period_id: 1, mastery_grading_category_id: 2 } });
+    expect(screen.queryByText('Marked late in Schoology')).not.toBeInTheDocument();
+    const clock = screen.getByRole('img', { name: 'Marked late with Flags' });
+    expect(clock).toHaveClass('late-clock--flagged');
   });
 
   it('no timeline, no row', () => {

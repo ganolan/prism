@@ -55,7 +55,7 @@ function submissionLine(t) {
       let tone;
       let title;
       if (s.late) {
-        const lateness = lateText(t);
+        const lateness = submissionLateText(s);
         text += ` (${lateness[0].toLowerCase()}${lateness.slice(1)})`;
         tone = 'late';
       } else if (t.extension) {
@@ -86,13 +86,23 @@ function resubmissionLine(t) {
   return null;
 }
 
-// How late the submission was, for the late clock's hover ("1 h 23 min late").
-export function lateText(t) {
-  const s = t?.submission;
+// How late the submission was ("1 h 23 min late").
+function submissionLateText(s) {
   if (!s?.late) return 'Late';
   if (s.lateMinutes) return `${minutes(s.lateMinutes)} late`;
   if (s.day > 1) return `${days(s.day - 1)} late`;
   return 'Late, before the next school day';
+}
+
+export const FLAGGED_LATE_TEXT = 'Marked late with Flags';
+
+// The late clock's hover. A late submission says how late ("1 h 23 min late"); the teacher's
+// Late flag says "Marked late with Flags", and with both the flag line comes first, then the
+// submission line. `flagged` overrides the timeline's own (a cell may have no timeline).
+export function lateText(t, { flagged = Boolean(t?.submission?.flagged) } = {}) {
+  const s = t?.submission;
+  if (!flagged) return submissionLateText(s);
+  return s?.late ? `${FLAGGED_LATE_TEXT}\n${submissionLateText(s)}` : FLAGGED_LATE_TEXT;
 }
 
 // → [{ key, text, tone?: 'late' | 'over', title? }] in reading order.

@@ -116,4 +116,34 @@ describe('gradeLabel', () => {
   it('renders numeric score / max when the scale has no levels', () => {
     expect(gradeLabel({ score: 8, max_points: 10 })).toEqual({ text: '8 / 10', kind: 'numeric' });
   });
+
+  it('the Late flag (exception 4) keeps the grade: it shows the scale level, never "Late"', () => {
+    const scales = { 7: { levels: [{ name: 'Exhibiting', average: 87.5 }, { name: 'Developing', average: 62.5 }] } };
+    expect(gradeLabel({ score: 87.5, max_points: 100, exception: 4, grading_scale_id: 7, scales }))
+      .toEqual({ text: 'Exhibiting', kind: 'scale' });
+    expect(gradeLabel({ score: 8, max_points: 10, exception: 4 })).toEqual({ text: '8 / 10', kind: 'numeric' });
+    expect(gradeLabel({ score: null, exception: 4 })).toEqual({ text: 'Pending', kind: 'pending' });
+  });
+
+  it('Excused, Incomplete and Missing still replace the grade', () => {
+    expect(gradeLabel({ score: 5, exception: 1 })).toEqual({ text: 'Excused', kind: 'exception' });
+    expect(gradeLabel({ score: 5, exception: 2 })).toEqual({ text: 'Incomplete', kind: 'exception' });
+    expect(gradeLabel({ score: 5, exception: 3 })).toEqual({ text: 'Missing', kind: 'exception' });
+  });
+});
+
+describe('submissionStatus: the Late flag (exception 4)', () => {
+  it('keeps the submission badge, marks it flagged, and is never an exception badge', () => {
+    const b = submissionStatus({ score: null, exception: 4, is_lti_submission: 0, submission_type: 'drop', due_date: PAST });
+    expect(b).toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green', flagged: true }]);
+    expect(b.some((x) => x.kind === 'exception')).toBe(false);
+  });
+  it('flagged and submitted late carries both marks', () => {
+    expect(submissionStatus({ score: null, exception: 4, late: true, is_lti_submission: 1, lti_submission_state: 'submitted', due_date: PAST }))
+      .toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green', late: true, flagged: true }]);
+  });
+  it('flagged with nothing submitted still shows the status it already had (no late badge of its own)', () => {
+    expect(submissionStatus({ score: null, exception: 4, is_lti_submission: 0, due_date: PAST }).map((b) => b.kind)).toEqual(['missing']);
+    expect(submissionStatus({ score: 9, exception: 4, is_lti_submission: 0, submission_type: 'drop', due_date: PAST })).toEqual([]);
+  });
 });

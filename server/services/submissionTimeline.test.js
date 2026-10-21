@@ -68,9 +68,18 @@ describe('buildTimeline: submitted work', () => {
     expect(onTime.submission.late).toBe(false);
   });
 
-  test('Schoology\'s Late exception (4) counts as late', () => {
-    const t = buildTimeline({ ...base, assignment: native, grade: { exception: 4 } });
-    expect(t.submission.schoologyLate).toBe(true);
+  test('Schoology\'s Late exception (4) is the teacher\'s flag: it never makes the submission late', () => {
+    const t = buildTimeline({ ...base, assignment: native, grade: { exception: 4, late: 0, submission_type: 'drop' } });
+    expect(t.submission).toMatchObject({ flagged: true, late: false, schoologyLate: false });
+    const timed = buildTimeline({ ...base, assignment: native, grade: { exception: 4, late: 0, submission_type: 'drop', first_submitted_at: at('2026-10-06 14:10') } });
+    expect(timed.submission).toMatchObject({ flagged: true, late: false });
+    // No submission yet: the flag alone says nothing about the submission.
+    expect(buildTimeline({ ...base, assignment: native, grade: { exception: 4 } }).submission).toMatchObject({ flagged: true, late: null });
+  });
+
+  test('without the flag, flagged is false', () => {
+    const t = buildTimeline({ ...base, assignment: native, grade: { exception: 0, late: 1, submission_type: 'drop' } });
+    expect(t.submission).toMatchObject({ flagged: false, late: true });
   });
 });
 

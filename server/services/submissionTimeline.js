@@ -73,7 +73,10 @@ export function buildTimeline({
   const state = submissionState(assignment, g);
   const firstAt = Number(g.first_submitted_at) > 0 ? Number(g.first_submitted_at) : null;
   const latestAt = Number(g.latest_revision_at) > 0 ? Number(g.latest_revision_at) : null;
-  const schoologyLate = g.exception === LATE_EXCEPTION || (g.late == null ? null : g.late === 1);
+  // Schoology's submission timing only. The Late exception (4) is the teacher's own flag, a
+  // separate signal that never says anything about when the work came in (#40).
+  const schoologyLate = g.late == null ? null : g.late === 1;
+  const flagged = Number(g.exception) === LATE_EXCEPTION;
 
   let late = null;
   let day = null;
@@ -106,7 +109,7 @@ export function buildTimeline({
     due,
     extension: ext,
     deadline,
-    submission: { state, firstAt, latestAt, late, day, lateMinutes, schoologyLate },
+    submission: { state, firstAt, latestAt, late, day, lateMinutes, schoologyLate, flagged },
     overdue,
     resubmission: resubmission?.state
       ? {

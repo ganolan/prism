@@ -753,7 +753,7 @@ export function RubricModal({
             status={status} flags={flags} resubmitted={grade.resubmitted} assignmentTitle={assignment.title}
             links={links}
             timeline={timeline}
-            lateTitle={lateText(timeline)}
+            lateTitle={lateText(timeline, { flagged: Number(grade.exception) === 4 })}
             topics={topics} attachment={attachment} palette={palette} exception={grade.exception}
             score={topics.length > 0 ? null : score}
             comment={comment}
@@ -1185,6 +1185,8 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 // stays centred; graded late work keeps it (submissionStatus is empty
                 // once scored). How late is in the hover text (the timeline).
                 const isLate = status.some(b => b.late) || (g.score != null && !!tl?.submission?.late);
+                // The teacher's Late flag (exception 4) shows the filled clock, with the grade.
+                const isFlagged = Number(g.exception) === 4;
                 // A cell with an overall comment gets a corner indicator and an
                 // instant hover overlay (#36) — `position: relative` anchors the
                 // indicator.
@@ -1261,7 +1263,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                         </svg>
                       </span>
                     )}
-                    {isLate && <LateClock variant="corner" title={lateText(tl)} />}
+                    {(isLate || isFlagged) && <LateClock variant="corner" flagged={isFlagged} title={lateText(tl, { flagged: isFlagged })} />}
                     {ltiUnavailable ? unavailableMark() : inner}
                     {inlineBadges.map(b => (
                       <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone] || 'badge-gray'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>

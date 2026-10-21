@@ -187,7 +187,7 @@ export function CourseSection({
                         status={statusBadges}
                         flags={flagsByAssignment?.[g.assignment_id] || []}
                         resubmitted={g.resubmitted}
-                        lateTitle={lateText(g.timeline)}
+                        lateTitle={lateText(g.timeline, { flagged: Number(g.exception) === 4 })}
                         assignmentTitle={g.assignment_title}
                         links={links}
                         timeline={g.timeline}

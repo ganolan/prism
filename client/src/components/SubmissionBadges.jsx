@@ -19,7 +19,8 @@ function formatFlagReason(flag) {
   return flag?.flag_reason || '';
 }
 
-// lateTitle: how late, for the late clock's hover (lateText(timeline)).
+// lateTitle: why it is late, for the late clock's hover (lateText(timeline)). A badge with
+// `flagged` (the teacher's Late flag) gets the filled clock.
 export default function SubmissionBadges({ status = [], flags = [], resubmitted = false, assignmentTitle, lateTitle = 'Late' }) {
   if (status.length === 0 && flags.length === 0 && !resubmitted) return null;
   return (
@@ -27,7 +28,7 @@ export default function SubmissionBadges({ status = [], flags = [], resubmitted 
       {status.map(b => (
         <span key={b.kind} className="status-pill-wrap">
           <span className={`badge ${TONE_CLASS[b.tone]}`} style={{ fontSize: '0.65rem' }}>{b.label}</span>
-          {b.late && <LateClock title={lateTitle} />}
+          {(b.late || b.flagged) && <LateClock flagged={b.flagged} title={lateTitle} />}
         </span>
       ))}
       {flags.map(flag => {

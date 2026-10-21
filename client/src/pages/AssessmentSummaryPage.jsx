@@ -1192,9 +1192,6 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             {exceptionLabel}, rubric locked
           </span>
         )}
-        {student.exception === 4 && (
-          <span className="badge badge-amber" style={{ fontSize: '0.68rem' }}>Marked late in Schoology</span>
-        )}
         </div>
       </div>
 

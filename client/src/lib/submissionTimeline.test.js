@@ -106,4 +106,18 @@ describe('lateText (the late clock\'s hover)', () => {
     expect(lateText(sub({ late: true, day: 1 }))).toBe('Late, before the next school day');
     expect(lateText(null)).toBe('Late');
   });
+
+  it('the Late flag says "Marked late with Flags"; with a late submission, both lines', () => {
+    const flagged = (extra) => t({ submission: { ...t().submission, flagged: true, ...extra } });
+    expect(lateText(flagged({ late: false }))).toBe('Marked late with Flags');
+    expect(lateText(flagged({ late: null }))).toBe('Marked late with Flags');
+    expect(lateText(flagged({ late: true, day: 3 }))).toBe('Marked late with Flags\n2 school days late');
+    expect(lateText(flagged({ late: true, lateMinutes: 83 }))).toBe('Marked late with Flags\n1 h 23 min late');
+    expect(lateText(null, { flagged: true })).toBe('Marked late with Flags');
+  });
+
+  it('the flag does not change the submission line', () => {
+    const tl = t({ submission: { ...t().submission, flagged: true, firstAt: at('2026-10-12 09:00'), late: true, day: 4 } });
+    expect(timelineParts(tl)[1].text).toBe('Submitted 12/10 09:00 (3 school days late)');
+  });
 });

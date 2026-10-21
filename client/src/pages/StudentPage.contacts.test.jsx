@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 
 vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: () => null }));
 vi.mock('../services/api.js', () => ({
@@ -169,6 +169,75 @@ describe('StudentPage family contacts (#66)', () => {
     expect(screen.queryByText(/not copied/)).not.toBeInTheDocument();
     expect(screen.queryByText(/against PowerSchool/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Show alerts/ })).not.toBeInTheDocument();
+  });
+
+  it('not matched and not checked phones are plain text, with no tel link', async () => {
+    load({ parents: [parent(4, 'not_matched', { phone: '0000 0004' }), parent(5, 'not_checked', { phone: '0000 0005' })] });
+    const { container } = renderPage();
+    expect(await screen.findByText('0000 0004')).toBeInTheDocument();
+    expect(screen.getByText('0000 0005')).toBeInTheDocument();
+    expect(container.querySelector('a[href^="tel:"]')).toBeNull();
+  });
+
+  it('with the feature on, a parent with no contact is not checked: not copied, reason shown', async () => {
+    const bare = { id: 2, first_name: 'Guardian', last_name: 'Number2', email: 'guardian2@example.test', relationship: null, phone: null };
+    load({ parents: [parent(1, 'contactable'), bare] });
+    const { container } = renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy all emails' }));
+    await waitFor(() => expect(clipboard).toHaveBeenCalledWith('Guardian Number1 <guardian1@example.test>'));
+    expect(screen.getByText('1 not copied')).toBeInTheDocument();
+    expect(screen.getByText('Not checked against PowerSchool yet')).toHaveClass('text-muted');
+    expect(screen.getByText('guardian2@example.test')).toBeInTheDocument();
+    expect(container.querySelector('a[href^="mailto:guardian2"]')).toBeNull();
+  });
+
+  it('an uncertain deceased parent is hidden until the reveal, then shows its reason as sent', async () => {
+    const reason = 'Not matched to a PowerSchool guardian. Guardian 2 is flagged: Deceased (PowerSchool)';
+    load({ parents: [parent(1, 'contactable'), parent(2, 'deceased', { contact: { status: 'deceased', primary: false, uncertain: true, reason } })] });
+    const { container } = renderPage();
+    await screen.findByText('Guardian Number1');
+    expect(screen.queryByText(/Number2/)).not.toBeInTheDocument();
+    expect(container.textContent).not.toContain('guardian2@example.test');
+    expect(container.textContent).not.toContain('flagged');
+    await showAlerts(1);
+    expect(screen.getByText('Guardian Number2')).toBeInTheDocument();
+    expect(screen.getByText(reason)).toHaveClass('text-muted');
+    expect(container.querySelector('a[href^="mailto:guardian2"]')).toBeNull();
+  });
+
+  it('the reveal is cleared when the page moves to another student, and again on the way back', async () => {
+    const students = {
+      7: { ...base, guardians_synced_at: '2026-10-20T08:00:00.000Z', parents: [parent(2, 'deceased')] },
+      8: { ...base, id: 8, first_name: 'Bo', guardians_synced_at: '2026-10-20T08:00:00.000Z', parents: [parent(3, 'deceased')],
+        ps_alerts: [{ key: 'allergies', label: 'Allergies', category: 'health' }] },
+    };
+    getStudent.mockImplementation((id) => Promise.resolve(students[id]));
+    function Go() {
+      const navigate = useNavigate();
+      return (<>
+        <button onClick={() => navigate('/student/8')}>to 8</button>
+        <button onClick={() => navigate('/student/7')}>to 7</button>
+      </>);
+    }
+    render(
+      <MemoryRouter initialEntries={['/student/7']}>
+        <Go />
+        <Routes><Route path="/student/:id" element={<StudentPage />} /></Routes>
+      </MemoryRouter>
+    );
+    await showAlerts(1);
+    expect(screen.getByText('Guardian Number2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'to 8' }));
+    expect(await screen.findByRole('button', { name: 'Show alerts (2)' })).toBeInTheDocument();
+    expect(screen.queryByText('Guardian Number3')).not.toBeInTheDocument();
+    expect(screen.queryByText('Allergies')).not.toBeInTheDocument();
+    expect(screen.queryByText('Guardian Number2')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'to 7' }));
+    expect(await screen.findByRole('button', { name: 'Show alerts (1)' })).toBeInTheDocument();
+    expect(screen.queryByText('Guardian Number2')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Hide alerts' })).not.toBeInTheDocument();
   });
 
   it('shows the not-synced message only when there are no parents', async () => {

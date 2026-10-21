@@ -216,11 +216,15 @@ export function CourseSection({
 }
 
 // A parent's PowerSchool contact check (#66), present only with the powerschool_alerts
-// feature on (no `contact`: every parent is shown and copied as before). Do not contact
-// and deceased are family facts, kept behind Show alerts with the PowerSchool alerts;
-// every guardian not cleared as contactable is left out of Copy all.
+// feature on (the student then carries `guardians_synced_at`; with it off, no `contact`:
+// every parent is shown and copied as before). Do not contact and deceased are family
+// facts, kept behind Show alerts with the PowerSchool alerts; every guardian not cleared
+// as contactable is left out of Copy all. The reason is shown as the API sends it.
 // See docs/design-language.md "PowerSchool alerts".
 const REVEAL_ONLY = new Set(['do_not_contact', 'deceased']);
+const NOT_CHECKED = { status: 'not_checked', primary: false, reason: 'Not checked against PowerSchool yet' };
+// Fail safe: with the feature on, a parent the API sent no contact for is not checked.
+const withContact = (p, checking) => (checking && !p.contact ? { ...p, contact: NOT_CHECKED } : p);
 const isRevealOnly = (p) => REVEAL_ONLY.has(p.contact?.status);
 const isCopyable = (p) => !!p.email && (!p.contact || p.contact.status === 'contactable');
 
@@ -405,7 +409,7 @@ export default function StudentPage() {
 
   const titleName = displayedFullName;
   const alertsShown = alertsShownFor === student.id;
-  const parents = student.parents || [];
+  const parents = (student.parents || []).map((p) => withContact(p, 'guardians_synced_at' in student));
   const revealOnlyCount = parents.filter(isRevealOnly).length;
   const copyableParents = parents.filter(isCopyable);
   const notCopied = parents.filter((p) => p.email && !isCopyable(p)).length;

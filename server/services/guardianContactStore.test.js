@@ -1,0 +1,110 @@
+import { describe, test, expect, beforeEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { migrate } from '../db/index.js';
+import { contactsForStudents } from './guardianContactStore.js';
+
+// Masked fixtures: invented names and example.test addresses only.
+let db;
+const addStudent = (n) => db.prepare(
+  'INSERT INTO students (schoology_uid, school_uid, first_name, last_name) VALUES (?, ?, ?, ?)'
+).run(`s${n}`, `1_${n}`, `Student${n}`, 'Sample').lastInsertRowid;
+const addParent = (studentId, uid, first, last, email) => db.prepare(
+  'INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email) VALUES (?, ?, ?, ?, ?)'
+).run(studentId, uid, first, last, email).lastInsertRowid;
+const addSlot = (studentId, slot, name, email) => db.prepare(
+  'INSERT INTO student_ps_guardians (student_id, slot, name, email) VALUES (?, ?, ?, ?)'
+).run(studentId, slot, name, email);
+const setPs = (studentId, fields) => {
+  const cols = Object.keys(fields);
+  db.prepare(`INSERT INTO student_powerschool (student_id, ${cols.join(', ')}) VALUES (?, ${cols.map(() => '?').join(', ')})`)
+    .run(studentId, ...cols.map((c) => fields[c]));
+};
+const SYNCED = '2026-10-21T01:00:00.000Z';
+
+beforeEach(() => {
+  db = new Database(':memory:');
+  migrate(db);
+});
+
+describe('contactsForStudents', () => {
+  test('an unread student\'s parents are not_checked', () => {
+    const a = addStudent(1);
+    const p = addParent(a, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test'); // slots without a read stamp do not count
+    setPs(a, { alerts_synced_at: SYNCED });
+    const out = contactsForStudents(db, [a]);
+    expect(out.get(a).guardiansSyncedAt).toBeNull();
+    expect(out.get(a).byParent.get(p)).toEqual({ status: 'not_checked', primary: false, reason: 'Not checked against PowerSchool yet' });
+  });
+
+  test('a parent with no slot is not_matched', () => {
+    const a = addStudent(1);
+    const p = addParent(a, 'p1', 'Jordan', 'Other', 'jordan@example.test');
+    const q = addParent(a, 'p2', 'Robin', 'Sample', 'robin@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, correspondence: '1' });
+    const out = contactsForStudents(db, [a]).get(a);
+    expect(out.guardiansSyncedAt).toBe(SYNCED);
+    expect(out.byParent.get(p)).toEqual({ status: 'not_matched', primary: false, reason: 'Not matched to a PowerSchool guardian' });
+    expect(out.byParent.get(q)).toEqual({ status: 'contactable', primary: true, reason: null });
+  });
+
+  test('a flagged slot gives do_not_contact with its reason', () => {
+    const a = addStudent(1);
+    const p = addParent(a, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    const q = addParent(a, 'p2', 'Kit', 'Sample', 'kit@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    addSlot(a, 2, 'Sample, Kit', 'kit@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, dnc_g1: '1', g2_deceased: '1' });
+    const out = contactsForStudents(db, [a]).get(a);
+    expect(out.byParent.get(p)).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)' });
+    expect(out.byParent.get(q)).toEqual({ status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)' });
+  });
+
+  test('a flag for one child applies to a sibling with the same uid or email', () => {
+    const a = addStudent(1);
+    const b = addStudent(2);
+    // Student A's record flags guardian 1 and guardian 2.
+    addParent(a, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    addParent(a, 'p2', 'Kit', 'Sample', 'KIT@example.test ');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    addSlot(a, 2, 'Sample, Kit', 'kit@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, dnc_g1: '1', g2_deceased: '1' });
+    // Student B's record flags no one; B's rows for the same guardians differ in uid or email.
+    const bRobin = addParent(b, 'p1', 'Robin', 'Sample', 'robin.work@example.test');
+    const bKit = addParent(b, 'p9', 'Kit', 'Sample', 'kit@example.test');
+    const bOther = addParent(b, 'p3', 'Jordan', 'Sample', 'jordan@example.test');
+    addSlot(b, 1, 'Sample, Robin', 'robin.work@example.test');
+    addSlot(b, 2, 'Sample, Jordan', 'jordan@example.test');
+    setPs(b, { guardians_synced_at: SYNCED });
+    // Only B is asked for: A is decided because its rows share a uid or an email with B's.
+    const out = contactsForStudents(db, [b]);
+    expect([...out.keys()]).toEqual([b]);
+    const byParent = out.get(b).byParent;
+    expect(byParent.get(bRobin)).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)' });
+    expect(byParent.get(bKit)).toEqual({ status: 'deceased', primary: false, reason: 'Deceased (PowerSchool)' });
+    expect(byParent.get(bOther)).toEqual({ status: 'contactable', primary: false, reason: null });
+  });
+
+  test('do_not_contact wins over deceased across rows', () => {
+    const a = addStudent(1);
+    const b = addStudent(2);
+    const pa = addParent(a, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, g1_deceased: '1' });
+    const pb = addParent(b, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    addSlot(b, 2, 'Sample, Robin', 'robin@example.test');
+    setPs(b, { guardians_synced_at: SYNCED, dnc_g2: '1' });
+    const out = contactsForStudents(db, [a, b]);
+    expect(out.get(a).byParent.get(pa).status).toBe('do_not_contact');
+    expect(out.get(b).byParent.get(pb).status).toBe('do_not_contact');
+  });
+
+  test('every requested student is listed, with no parents or none asked for', () => {
+    const a = addStudent(1);
+    const out = contactsForStudents(db, [a, String(a), 999]);
+    expect([...out.keys()]).toEqual([a, 999]);
+    expect(out.get(a)).toEqual({ guardiansSyncedAt: null, byParent: new Map() });
+    expect(contactsForStudents(db, []).size).toBe(0);
+  });
+});

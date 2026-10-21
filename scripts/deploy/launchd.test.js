@@ -55,7 +55,7 @@ describe('agents', () => {
     expect(env.PORT).toBe('3001');
     expect(env.DB_PATH).toBe(`${HOME}/prism/data/students.db`);
     expect(env.PRISM_SESSION_DIR).toBe(`${HOME}/prism/data/.playwright-session`);
-    expect(env.INBOX_DIR).toBe(`${HOME}/prism/data/inbox`);
+    expect(env).not.toHaveProperty('INBOX_DIR'); // the feedback inbox is gone (#122)
     // Only prod arms the nightly scheduled sync (dev clones copy prod's settings).
     expect(env.PRISM_SCHEDULED_SYNC).toBe('1');
     expect(a.server.WorkingDirectory).toBe(`${HOME}/prism/current`);

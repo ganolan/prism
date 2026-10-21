@@ -236,6 +236,16 @@ describe('migration: guardian phones and the extra email (#173)', () => {
   });
 });
 
+describe('migration: the feedback inbox log is dropped (#122)', () => {
+  test('an existing database loses inbox_log', () => {
+    const db = new Database(':memory:');
+    db.exec(`CREATE TABLE inbox_log (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, status TEXT NOT NULL)`);
+    db.prepare(`INSERT INTO inbox_log (filename, status) VALUES ('a.json', 'success')`).run();
+    migrate(db);
+    expect(db.prepare(`SELECT name FROM sqlite_master WHERE name = 'inbox_log'`).get()).toBeUndefined();
+  });
+});
+
 describe('migration: sync_metrics per-phase timing (#143)', () => {
   test('a DB whose sync_metrics predates the timing columns gains them (NULL on old rows)', () => {
     const db = new Database(':memory:');

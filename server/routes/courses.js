@@ -52,8 +52,8 @@ router.get('/', (req, res) => {
 
   // The dashboard's tabs leave out excluded sections (no course code and no school code: the
   // template), which the sync marks and never reads, so they would show as a card that never
-  // synced (#171). The legacy path below still returns them (the dashboard's Show hidden list, the
-  // Tools page and the Feedback page filter `excluded` themselves).
+  // synced (#171). The legacy path below still returns them (the dashboard's Show hidden list and the
+  // Tools page filter `excluded` themselves).
   let rows;
   if (view === 'current') {
     rows = db.prepare(`${select} WHERE archived = 0 AND hidden = 0 AND COALESCE(excluded, 0) = 0 ORDER BY course_name`).all();

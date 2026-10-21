@@ -35,7 +35,7 @@ export function useStickyTab(key, fallback, { param = 'tab' } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // `get` returns null when absent but '' for `?status=`, so `??` correctly
-  // treats an empty-string tab (FeedbackPage's "All") as a real choice.
+  // treats an empty-string tab (an "All" filter) as a real choice.
   const value = searchParams.get(param) ?? remembered(key) ?? fallback;
 
   const setValue = useCallback((next) => {

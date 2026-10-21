@@ -28,8 +28,8 @@ export default function QuizResultLine({ result, onRebuild }) {
     <span className="quiz-result-line">
       <span>{quizLineText(result)}</span>
       {result.overall?.stale && (result.overall.edited ? (
-        // The teacher reworded the comment on the Feedback page: flag it, never overwrite it.
-        <span className="badge badge-amber" title="The numbers changed after the comment was edited on the Feedback page. Update the numbers there.">Numbers changed</span>
+        // The stored comment was reworded (no page edits it since #122): flag it, never overwrite it.
+        <span className="badge badge-amber" title="The numbers changed after the comment was edited. Write the overall result again to update it.">Numbers changed</span>
       ) : (
         <>
           <span className="badge badge-amber" title="The suggested comment shows older numbers, or an older template">Numbers changed</span>

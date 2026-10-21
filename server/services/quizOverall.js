@@ -52,7 +52,7 @@ export function rebuildOverallSuggestion(db, { groupId, studentId }) {
   if (!st) throw new QuizError('NOT_FOUND', 'No attempt on this quiz for that student');
   if (!st.overall) throw new QuizError('NOT_ELIGIBLE', 'There is no overall suggestion to update');
   if (!st.ready) throw new QuizError('NOT_ELIGIBLE', `Not ready: ${st.blocked.join(', ')}`);
-  if (st.overall.edited) throw new QuizError('NOT_ELIGIBLE', 'The comment was edited on the Feedback page: update it there, or write the overall result again');
+  if (st.overall.edited) throw new QuizError('NOT_ELIGIBLE', 'The comment was edited: write the overall result again to update it');
   const fj = JSON.parse(db.prepare('SELECT feedback_json FROM feedback WHERE id = ?').get(st.overall.feedback_id).feedback_json);
   store(db, data, st, {
     rubric_scores: fj.rubric_scores, reviewer_flags: fj.reviewer_flags, reviewer_flags_brief: fj.reviewer_flags_brief,

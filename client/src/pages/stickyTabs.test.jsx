@@ -6,7 +6,6 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Dashboard from './Dashboard.jsx';
 import CoursePage from './CoursePage.jsx';
-import FeedbackPage from './FeedbackPage.jsx';
 import * as api from '../services/api.js';
 
 vi.mock('../services/api.js');
@@ -27,7 +26,6 @@ beforeEach(() => {
   vi.mocked(api.getCourseStudents).mockResolvedValue([]);
   vi.mocked(api.getGradebook).mockResolvedValue({ assignments: [], students: [] });
   vi.mocked(api.getMasteryForCourse).mockResolvedValue(null);
-  vi.mocked(api.getFeedback).mockResolvedValue([]);
   vi.mocked(api.getGradingScales).mockResolvedValue({});
   vi.mocked(api.getProficiencyScale).mockResolvedValue({ schoologyScaleId: 1, levels: [] });
 });
@@ -140,35 +138,5 @@ describe('CoursePage sticky gradebook filter (#144)', () => {
 
     renderAt('/course/7?tab=gradebook');
     expect(await pill('Unpublished')).toHaveAttribute('aria-pressed', 'true');
-  });
-});
-
-describe('FeedbackPage sticky filter', () => {
-  const renderAt = (entry) => render(
-    <MemoryRouter initialEntries={[entry]}>
-      <LocationProbe />
-      <FeedbackPage />
-    </MemoryRouter>,
-  );
-
-  const filterBtn = (name) => screen.getByRole('button', { name });
-
-  it('opens on the status named in the URL', async () => {
-    renderAt('/feedback?status=flagged');
-    await waitFor(() => expect(filterBtn(/^flagged/)).toHaveClass('active'));
-    expect(api.getFeedback).toHaveBeenCalledWith(expect.objectContaining({ flagged: 'true' }));
-  });
-
-  it('treats an empty status as the real "All" choice, not a missing one', async () => {
-    sessionStorage.setItem('prism.tab.feedback-status', 'draft');
-    renderAt('/feedback?status=');
-    await waitFor(() => expect(filterBtn(/^All/)).toHaveClass('active'));
-    expect(filterBtn(/^draft/)).not.toHaveClass('active');
-  });
-
-  it('puts the chosen status in the URL', async () => {
-    renderAt('/feedback');
-    fireEvent.click(await screen.findByRole('button', { name: /^approved/ }));
-    expect(screen.getByTestId('search')).toHaveTextContent('status=approved');
   });
 });

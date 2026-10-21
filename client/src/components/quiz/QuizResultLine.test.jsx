@@ -42,7 +42,7 @@ describe('QuizResultLine', () => {
 
   it('after a teacher edit, changed numbers show without Update numbers, so the edit is never overwritten', () => {
     render(<QuizResultLine result={{ ...BASE, overall: { stale: true, edited: true } }} onRebuild={vi.fn()} />);
-    expect(screen.getByText('Numbers changed').getAttribute('title')).toMatch(/edited on the Feedback page/);
+    expect(screen.getByText('Numbers changed').getAttribute('title')).toMatch(/after the comment was edited/);
     expect(screen.queryByRole('button', { name: 'Update numbers' })).not.toBeInTheDocument();
   });
 

@@ -133,7 +133,7 @@ describe('GET /api/feedback/for-assignment/:assignmentId - data time', () => {
   test('a teacher edit after the suggestion does not make it stale', async () => {
     // Made from data 1 minute old, years ago. The edit below moves updated_at to now, long after.
     const id = suggestion(s1, { dataAsOf: '2020-01-01T10:29:00.000Z', suggestedAt: '2020-01-01T10:30:00.000Z' });
-    expect((await call('PUT', `/api/feedback/${id}`, { teacher_notes: 'checked the sources' })).status).toBe(200);
+    getDb().prepare(`UPDATE feedback SET teacher_notes = 'checked the sources', updated_at = datetime('now') WHERE id = ?`).run(id);
     const body = await get();
     expect(body[s1].data_stale).toBe(false);
   });

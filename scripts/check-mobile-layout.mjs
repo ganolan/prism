@@ -29,7 +29,7 @@ mkdirSync(shotDir, { recursive: true });
 
 const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1440, height: 900 };
-const STATIC_ROUTES = ['/', '/search', '/people', '/feedback', '/tools', '/import'];
+const STATIC_ROUTES = ['/', '/search', '/people', '/tools', '/import'];
 
 const failures = [];
 const check = (ok, label) => {

@@ -141,8 +141,9 @@ describe('rebuildOverallSuggestion', () => {
   });
 });
 
-describe('a teacher edit on the Feedback page', () => {
-  // FeedbackPage saves { ...feedback_json, narrative_feedback } and keeps quiz_overall.
+describe('an edited overall comment', () => {
+  // An edit replaces narrative_feedback and keeps quiz_overall. No page edits it since #122
+  // retired /feedback, but the guard keeps any future edit from being overwritten.
   const editNarrative = (text) => {
     const row = latest(stu.u1);
     const fj = JSON.parse(row.feedback_json);

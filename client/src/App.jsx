@@ -7,7 +7,6 @@ import SearchPage from './pages/SearchPage.jsx';
 import PeoplePage from './pages/PeoplePage.jsx';
 import ImportPage from './pages/ImportPage.jsx';
 import ToolsPage from './pages/ToolsPage.jsx';
-import FeedbackPage from './pages/FeedbackPage.jsx';
 import AssessmentSummaryPage from './pages/AssessmentSummaryPage.jsx';
 import SettingsPage from './pages/SettingsPage.jsx';
 import { DataVersionContext, BumpDataVersionContext } from './hooks/useDataVersion.jsx';
@@ -75,7 +74,6 @@ function Shell() {
         <NavLink to="/search">Search Students</NavLink>
         <NavLink to="/people">Directory</NavLink>
         <div className="sidebar-section-label">Tools</div>
-        <NavLink to="/feedback">Feedback Review</NavLink>
         <NavLink to="/tools">Class Tools</NavLink>
         <NavLink to="/import">Import CSV</NavLink>
         <NavLink to="/settings">Settings</NavLink>
@@ -90,7 +88,6 @@ function Shell() {
           <Route path="/student/:id" element={<StudentPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/people" element={<PeoplePage />} />
-          <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/tools" element={<ToolsPage />} />
           <Route path="/import" element={<ImportPage />} />
           <Route path="/settings" element={<SettingsPage />} />

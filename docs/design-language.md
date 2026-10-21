@@ -560,7 +560,7 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 
 - **Every tab bar / filter selector remembers itself.** Dashboard (Current /
   Archived), CoursePage (Roster / Gradebook / Assessments / Analytics),
-  FeedbackPage's status filter, and AssessmentSummaryPage's Descriptors /
+  FeedbackPage's status filter (page retired in #122), and AssessmentSummaryPage's Descriptors /
   Compact toggle all go through `client/src/hooks/useStickyTab.js`. Previously
   each held plain `useState`, so React Router unmounting the page on navigation
   reset it — clicking from Gradebook into an assessment and pressing Back landed
@@ -1556,3 +1556,9 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **One banner, not a line on every card.** A grading run writes every card from the same data, so the assessment page shows a single `.alert.alert-warning` above the cards: "AI suggestions were made from data as of 20/10/2026, 17:00. Sync Assignment, then grade again for current data." It names the oldest stale data time. If a stale suggestion was made before the task was ever synced, it says "AI suggestions were made before this task was ever synced. Sync Assignment, then grade again for current data." instead. This overrides the spec's "beside the suggestions", which would repeat one fact on every card.
 - **Stale means over 10 minutes, measured when the grader was given its data.** A grader reads the context once, grades a whole class, and writes suggestions at the end, often over 10 minutes later, so write time says nothing. `get_assignment_context` records each answer as a serve (`context_serves`: the data time it served, `'never'` for a task not yet synced, and the moment it served it) and returns that serve's `context_id`; the grader passes the `context_id` of the answer it graded from to `write_student_suggestions`, and `upsertStudentSuggestion` copies that serve's times onto the suggestion as `feedback.data_as_of` and `feedback.suggested_at`. Without a `context_id` (or with one that no longer exists, which the result notes) the oldest serve of the task in the last 3 hours stands in, and with none the task's `task_synced_at` and now; a `context_id` of another task is refused. Serves are pruned after 30 days. A suggestion is stale when `data_as_of` is more than `SYNC_FRESH_MS` older than `suggested_at`, so a fresh sync followed by a late write is current, and stored data stays stale however a background sync stamps the task meanwhile. The server decides (`data_stale` on `/api/feedback/for-assignment`). `updated_at` is not used: it also moves when the teacher edits the row.
 - **Only AI suggestions the teacher has not handled count.** A teacher's own saved grade never shows the banner, and neither does a suggestion marked used or ignored; revised ones still count. Rows written before these columns existed (null) are not judged.
+
+## Feedback is reviewed on the assessment page only (October 2026, #122)
+
+- **One place to review a suggestion:** the student's card on `/assessment/:id`, next to the rubric and comment it describes. The sidebar's "Feedback Review" entry and the `/feedback` page are gone.
+- **Why:** two review surfaces for the same row let a status or an edit on one page go unseen on the other, and the standalone page had not been used since April 2026.
+

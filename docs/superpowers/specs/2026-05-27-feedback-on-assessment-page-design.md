@@ -143,6 +143,8 @@ CSS-variable convention.
 
 ### 6. `/feedback` page disposition
 
+> **Resolved 2026-10-21 (#122):** removed, with the inbox and Upload JSON. Suggestions arrive through PrisMCP.
+
 Out of scope to delete here. Options for a follow-up:
 
 - repurpose `FeedbackPage` as an **inbox-log + bulk-import** view (keep Process

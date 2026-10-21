@@ -55,7 +55,6 @@ export function agents({ home, node: nodeBin = NODE_BIN }) {
         PORT: '3001',
         DB_PATH: p.db,
         PRISM_SESSION_DIR: join(p.data, '.playwright-session'),
-        INBOX_DIR: join(p.data, 'inbox'),
         // Arms the nightly scheduled sync (server/services/syncScheduler.js). Prod only.
         PRISM_SCHEDULED_SYNC: '1',
       },

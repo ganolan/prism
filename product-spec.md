@@ -22,7 +22,7 @@ These exist to keep the Tauri migration path open and the codebase clean:
 - No localStorage or sessionStorage for application state — all state lives in SQLite
 - React frontend communicates with Express backend exclusively via HTTP endpoints
 - All API calls use relative URLs (`/api/students` not `http://localhost:3000/api/students`)
-- File paths (database, inbox folder, config) are configurable via environment variables
+- File paths (database, config) are configurable via environment variables
 - Schoology API credentials stored in `.env` file, never committed to repo
 - Feature flags in `config.yaml` control which UI elements and routes are active
 
@@ -42,6 +42,9 @@ These exist to keep the Tauri migration path open and the codebase clean:
 - Imported via file upload in the dashboard UI
 
 ### Grading Engine Inbox (companion tool integration)
+
+> **Retired (21 Oct 2026, #122).** The inbox folder, JSON upload and manual entry are gone. Grading suggestions now arrive through PrisMCP (`write_student_suggestions`), which writes the same `feedback_json` shape. The schema below is kept as the record of that shape.
+
 - The dashboard has an `inbox/` folder within its own directory
 - JSON feedback files dropped here are imported on app launch or via file watcher
 - The dashboard defines the accepted JSON schema; it does not know or care what produces the files
@@ -245,6 +248,8 @@ flags
 
 > **Update (2026-05-27):** Phase 4 shipped a standalone `/feedback` review page. The next iteration relocates the review UI onto `/assessment/:id` so suggested feedback sits next to the comment and rubric it describes — an uneditable "Suggested feedback (AI)" box with a Copy-to-comment button, and suggested proficiencies shown as a faded-yellow overlay on the rubric cells. The standalone `/feedback` page becomes legacy. See `docs/superpowers/specs/2026-05-27-feedback-on-assessment-page-design.md` and issue #64.
 
+> **Update (2026-10-21, #122):** the `/feedback` page, the inbox, JSON upload, manual entry and the approve / request-revision / batch-approve endpoints are removed. Review happens only on `/assessment/:id`. The lists below record what Phase 4 shipped.
+
 **Inbox ingestion:**
 - On app launch (or via button), check `inbox/` folder for new JSON files
 - Validate against accepted schema
@@ -343,9 +348,6 @@ features:
   student_flags: true
   class_tools: true
   analytics: true
-  feedback_inbox: false      # hidden for colleagues
-  feedback_review: false     # hidden for colleagues
-  revision_workflow: false   # hidden for colleagues
   schoology_writeback: false # hidden for colleagues
 ```
 
@@ -402,8 +404,6 @@ student-dashboard/
 ├── config.yaml             # feature flags and app settings
 ├── package.json
 ├── CLAUDE.md               # project context for Claude Code
-├── inbox/                  # JSON feedback files land here
-│   └── processed/          # successfully imported files moved here
 ├── client/                 # React + Vite
 │   ├── src/
 │   │   ├── components/
@@ -423,8 +423,7 @@ student-dashboard/
 │   │   ├── tools.js        # class tools endpoints
 │   │   └── schoology.js    # sync endpoints
 │   ├── services/
-│   │   ├── schoology.js    # Schoology API client wrapper
-│   │   └── inbox.js        # inbox folder watcher/importer
+│   │   └── schoology.js    # Schoology API client wrapper
 │   ├── db/
 │   │   ├── schema.sql      # database creation script
 │   │   ├── students.db     # SQLite database (gitignored)

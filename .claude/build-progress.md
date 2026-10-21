@@ -80,6 +80,9 @@ Tracks implementation status across Prism's development phases. Check this befor
 
 ## Phase 4 Feedback Review — COMPLETE (2026-04-03)
 
+*Retired 2026-10-21 (#122): the `/feedback` page, the inbox, JSON upload, manual entry and the approve / revision endpoints are removed, and `inbox_log` is dropped. Review happens on `/assessment/:id`. The list below records what shipped.*
+
+
 - [x] Schema: feedback table + inbox_log table added to schema.sql
 - [x] Inbox ingestion service (`server/services/inbox.js`) for JSON intake, validation, ID resolution, import, file processing, and error logging
 - [x] Feedback API routes (`server/routes/feedback.js`) for CRUD, approval, revision requests, batch approval, history, manual entry, uploads, and inbox processing
@@ -1715,3 +1718,13 @@ Commits `c481c5b` and `610a40e` (server) and `76f679e` (client), then the docs (
 - **Show:** the guardian card lists the PowerSchool email and phone, then the "Added in Prism" extra phone and email, with an Edit button for those two. An extra email or phone that repeats the shown address or the PowerSchool number is left out, and Copy all lists each address once. Class Tools copies exactly `contact.copy`; its "not copied" count is guardians, a contactable one with every address blocked included. Pattern in `docs/design-language.md` "PowerSchool alerts".
 - **Verified intel:** `.claude/powerschool-api-reference.md` "Guardian contacts", the 2026-10-21 line on phones and which email is which.
 - **Live check:** `scripts/parity-ps-guardians.js` also prints how many parents have a PowerSchool phone and how many PowerSchool emails differ from Schoology's (counts only). Not run in this session (it reaches PowerSchool).
+
+## /feedback page retired (#122, 2026-10-21)
+
+- **Why:** the per-student card on `/assessment/:id` shows everything the page showed (#64). In prod its own features were last used on 2026-04-04 (2 inbox files, 2 approvals, 1 revision request); the 245 drafts since then were all reviewed on `/assessment`.
+- **Removed:** `client/src/pages/FeedbackPage.jsx`, its route and nav entry, its tests, its client API calls; `server/services/inbox.js`; the endpoints only it used (`GET /api/feedback`, `GET`/`PUT`/`DELETE /:id`, approve, request-revision, batch-approve, manual, upload, process-inbox, inbox-log); `INBOX_DIR` (launchd and docs); the unused flags `feedback_inbox`, `feedback_review`, `revision_workflow`.
+- **Kept:** `for-assignment`, `analysis` and `suggestion-state`, which `/assessment` uses. The `feedback_json` shape is unchanged; `product-spec.md` keeps the old inbox schema as history.
+- **Schema:** `inbox_log` leaves `schema.sql`, and `DROP TABLE IF EXISTS inbox_log` in `MIGRATIONS` removes it from existing databases.
+- **Quiz overall result:** the "comment was edited" guard stays, since a stored edit is still never overwritten; its messages no longer name the Feedback page. Prod had no edited overall comments.
+- **Prod plist:** still sets `INBOX_DIR` until the next `install.js` run; nothing reads it.
+

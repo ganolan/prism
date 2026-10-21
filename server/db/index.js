@@ -199,6 +199,8 @@ const MIGRATIONS = [
   // #173: each guardian slot's phone, and the teacher's extra email for a parent.
   `ALTER TABLE student_ps_guardians ADD COLUMN phone TEXT`,
   `ALTER TABLE parents ADD COLUMN extra_email TEXT`,
+  // #122: the feedback inbox and its log are gone (graders write through PrisMCP).
+  `DROP TABLE IF EXISTS inbox_log`,
 ];
 
 // Remove orphaned auto-flag rows. The auto-flag feature that wrote 'missing',

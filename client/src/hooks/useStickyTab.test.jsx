@@ -65,6 +65,12 @@ describe('useStickyTab — reading the active tab', () => {
     expect(screen.getByTestId('tab')).toHaveTextContent('analytics');
   });
 
+  it('treats an empty URL param as a real choice (an "All" filter), not a missing one', () => {
+    sessionStorage.setItem('prism.tab.course', 'analytics');
+    renderApp({ entries: ['/course/5?tab='] });
+    expect(screen.getByTestId('tab').textContent).toBe('');
+  });
+
   it('prefers the URL param over the remembered tab', () => {
     sessionStorage.setItem('prism.tab.course', 'analytics');
     renderApp({ entries: ['/course/5?tab=gradebook'] });

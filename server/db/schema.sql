@@ -281,18 +281,9 @@ CREATE TABLE IF NOT EXISTS feedback (
   updated_at TEXT DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS inbox_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  filename TEXT NOT NULL,
-  status TEXT NOT NULL,
-  error_message TEXT,
-  feedback_id INTEGER REFERENCES feedback(id),
-  processed_at TEXT DEFAULT (datetime('now'))
-);
-
 -- Assessment-level reviewer analysis (PrisMCP Project A). One row per assignment.
 -- analysis_json holds { noticings: [{title, body}], moderation_note?: string }.
--- Populated by Project B / inbox ingestion (out of scope here); read-only in the UI.
+-- Written by PrisMCP (write_assessment_analysis); read-only in the UI.
 CREATE TABLE IF NOT EXISTS assessment_analysis (
   assignment_id INTEGER PRIMARY KEY REFERENCES assignments(id),
   analysis_json TEXT NOT NULL,

@@ -118,25 +118,11 @@ export const getProficiencyScale = () => request('/proficiency-scale');
 // Analytics
 export const getCourseAnalytics = (id) => request(`/analytics/course/${id}`);
 
-// Feedback
-export const getFeedback = (params) => { const qs = new URLSearchParams(params).toString(); return request(`/feedback${qs ? `?${qs}` : ''}`); };
-export const getFeedbackItem = (id) => request(`/feedback/${id}`);
+// Feedback (AI suggestions shown on /assessment)
 export const getFeedbackForAssignment = (assignmentId) => request(`/feedback/for-assignment/${assignmentId}`);
 // The teacher used / ignored a suggested-feedback narrative (or cleared that).
 export const setSuggestionState = (id, state) => request(`/feedback/${id}/suggestion-state`, { method: 'PUT', body: JSON.stringify({ state }) });
 export const getAssessmentAnalysis = (assignmentId) => request(`/feedback/analysis/${assignmentId}`);
-export const updateFeedback = (id, data) => request(`/feedback/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-export const approveFeedback = (id) => request(`/feedback/${id}/approve`, { method: 'PUT' });
-export const requestRevision = (id, notes) => request(`/feedback/${id}/request-revision`, { method: 'PUT', body: JSON.stringify({ teacher_notes: notes }) });
-export const batchApproveFeedback = (ids) => request('/feedback/batch-approve', { method: 'POST', body: JSON.stringify({ ids }) });
-export const processInbox = () => request('/feedback/process-inbox', { method: 'POST' });
-export const deleteFeedback = (id) => request(`/feedback/${id}`, { method: 'DELETE' });
-export const createManualFeedback = (data) => request('/feedback/manual', { method: 'POST', body: JSON.stringify(data) });
-export const uploadFeedbackJson = (file) => {
-  const formData = new FormData();
-  formData.append('file', file);
-  return fetch(`${BASE}/feedback/upload`, { method: 'POST', body: formData }).then(r => r.json());
-};
 
 // Assessment drafts (DB-backed unpublished grading work). DRAFTS_PATH is the
 // absolute path used by navigator.sendBeacon on unload (request() prepends /api).

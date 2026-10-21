@@ -37,7 +37,6 @@ Prism can currently:
 ├── client/                 # React frontend
 ├── server/                 # Express API, services, SQLite schema
 ├── server/db/              # schema + local database file
-├── inbox/                  # optional feedback JSON drop folder
 ├── config.yaml             # feature flags
 ├── CLAUDE.md               # project notes and API quirks
 ├── product-spec.md
@@ -99,7 +98,6 @@ These environment variables are supported:
 - `SCHOOLOGY_CONSUMER_SECRET`
 - `PORT` to override the backend port. Default: `3001`
 - `DB_PATH` to override the SQLite database path. Default: `server/db/students.db`
-- `INBOX_DIR` to override the feedback inbox folder. Default: `inbox/`
 - `CONFIG_PATH` to override the feature flag config file. Default: `config.yaml`
 
 Example:
@@ -112,7 +110,6 @@ SCHOOLOGY_CONSUMER_SECRET=secret123
 # Optional
 PORT=3001
 DB_PATH=server/db/students.db
-INBOX_DIR=inbox
 CONFIG_PATH=config.yaml
 ```
 
@@ -136,7 +133,7 @@ From `client/`:
 
 Feature flags live in [config.yaml](config.yaml).
 
-This lets you fork the project and selectively enable features like analytics, feedback review, class tools, and Schoology write-back without removing code.
+This lets you fork the project and selectively enable features like analytics, class tools, and Schoology write-back without removing code.
 
 ## Running a Local Fork Safely
 
@@ -144,7 +141,7 @@ If you are forking this for your own use:
 
 - start with `schoology_writeback: false`
 - use a copy of production data only if you understand the privacy implications
-- point `DB_PATH` and `INBOX_DIR` to your own local folders if you do not want to share state with another checkout
+- point `DB_PATH` to your own local folder if you do not want to share state with another checkout
 - verify Schoology API behavior in your own environment before enabling write-back features
 
 ## Data Notes
@@ -152,7 +149,7 @@ If you are forking this for your own use:
 - The SQLite database is local and is created automatically on startup.
 - The server applies the schema in `server/db/schema.sql` when the database is opened.
 - The Schoology sync is designed around the public API, including pagination and some known endpoint quirks documented in `CLAUDE.md`.
-- Feedback inbox files are expected as JSON and can be processed from the `inbox/` directory.
+- AI grading suggestions arrive through PrisMCP (`/mcp`) and are reviewed on each assessment page.
 
 ## Contributing
 

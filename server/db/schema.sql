@@ -660,7 +660,7 @@ CREATE TABLE IF NOT EXISTS settings (
 -- limit — 'referred' (sent to the academic office). A row removes the pair from
 -- the late-work list; undo = delete. days_late is the school-day count (between; shown as day = days_late + 1) when the
 -- action was taken. ('exempt' is legacy: the app no longer writes it — per-student
--- extensions live in `extensions`, true exemptions use Schoology's Excused flag.)
+-- extensions live in `extensions`, true exemptions use Schoology's Exempt flag.)
 CREATE TABLE IF NOT EXISTS referrals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   student_id INTEGER NOT NULL REFERENCES students(id),

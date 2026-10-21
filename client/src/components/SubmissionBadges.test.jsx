@@ -13,6 +13,18 @@ describe('SubmissionBadges', () => {
     expect(screen.getByText('Incomplete')).toHaveClass('badge', 'badge-amber');
   });
 
+  it('maps the slate tone (Absent) to badge-slate', () => {
+    render(<SubmissionBadges status={[{ kind: 'exception', label: 'Absent', tone: 'slate' }]} />);
+    expect(screen.getByText('Absent')).toHaveClass('badge', 'badge-slate');
+  });
+
+  it('a late submission gets the outline clock; a Late-flag badge has no clock of its own', () => {
+    const { rerender } = render(<SubmissionBadges status={[{ kind: 'submitted', label: 'Submitted', tone: 'green', late: true }]} lateTitle="2 school days late" />);
+    expect(screen.getByRole('img', { name: '2 school days late' })).not.toHaveClass('late-clock--flagged');
+    rerender(<SubmissionBadges status={[{ kind: 'exception', label: 'Late', tone: 'red' }]} />);
+    expect(document.querySelector('.late-clock')).toBeNull();
+  });
+
   it('renders the resubmit_requested and resubmitted badges', () => {
     render(
       <SubmissionBadges

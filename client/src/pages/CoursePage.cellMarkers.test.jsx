@@ -57,54 +57,60 @@ describe('gradebook cell comment markers', () => {
   });
 });
 
-describe('gradebook cell: the late clocks', () => {
-  const flagsTitle = 'Marked late with Flags';
+describe('gradebook cell: the late clock is the submission only', () => {
   const lateTimeline = {
     due: { date: '2026-10-06', time: '15:00' }, extension: null, deadline: '2026-10-06',
-    submission: { state: 'submitted', firstAt: Math.floor(new Date('2026-10-12T09:00:00').getTime() / 1000), latestAt: null, late: true, day: 4, lateMinutes: null, schoologyLate: true, flagged: true },
+    submission: { state: 'submitted', firstAt: Math.floor(new Date('2026-10-12T09:00:00').getTime() / 1000), latestAt: null, late: true, day: 4, lateMinutes: null, schoologyLate: true, flagged: false },
     overdue: null, resubmission: null, referral: null, limit: 8,
   };
 
-  it('a graded cell with the Late flag keeps its grade and shows a flagged clock', () => {
-    renderGrid({ score: 80, exception: 4 });
-    expect(cell()).toHaveTextContent('80 / 100');
-    expect(cell()).not.toHaveTextContent('Late');
-    const clock = screen.getByRole('img', { name: flagsTitle });
-    expect(clock).toHaveClass('late-clock--corner', 'late-clock--flagged');
-    expect(clock).toHaveAttribute('title', flagsTitle);
-  });
-
-  it('a late submission and the flag: one flagged clock, both lines in its title', () => {
-    renderGrid({ score: 80, exception: 4, late: 1 }, {}, { 10: { 1: lateTimeline } });
-    const clocks = document.querySelectorAll('.late-clock');
-    expect(clocks).toHaveLength(1);
-    expect(clocks[0]).toHaveClass('late-clock--flagged');
-    expect(clocks[0]).toHaveAttribute('title', `${flagsTitle}\n3 school days late`);
-  });
-
-  it('a late submission without the flag: the outline clock', () => {
-    renderGrid({ score: 80, exception: null, late: 1 }, {}, { 10: { 1: { ...lateTimeline, submission: { ...lateTimeline.submission, flagged: false } } } });
+  it('a late submission without a flag: the outline corner clock, with how late', () => {
+    renderGrid({ score: 80, exception: null, late: 1 }, {}, { 10: { 1: lateTimeline } });
     const clock = document.querySelector('.late-clock');
+    expect(clock).toHaveClass('late-clock--corner');
     expect(clock).not.toHaveClass('late-clock--flagged');
     expect(clock).toHaveAttribute('title', '3 school days late');
+    expect(cell().querySelector('.flag-symbol')).toBeNull();
   });
 
   it('no late signal: no clock', () => {
     renderGrid({ score: 80, exception: null });
     expect(document.querySelector('.late-clock')).toBeNull();
   });
+
+  it('exception 4 is invalid in Schoology: no symbol, no clock, the grade shows', () => {
+    renderGrid({ score: 80, exception: 4 });
+    expect(cell()).toHaveTextContent('80 / 100');
+    expect(cell().querySelector('.flag-symbol')).toBeNull();
+    expect(document.querySelector('.late-clock')).toBeNull();
+  });
 });
 
-describe('gradebook cell: exception chips', () => {
-  it.each([[1, 'Exc', 'excused'], [2, 'Inc', 'incomplete'], [3, 'Miss', 'missing']])(
-    'exception %i shows the dashed chip in a button that opens the pop-up, and no level chip',
-    (exception, text, tone) => {
+describe('gradebook cell: flag symbols', () => {
+  it('the Late flag (6) shows the Late symbol where the grade was, and no level chip or grade text', () => {
+    renderGrid({ score: null, exception: 6 });
+    const sym = cell().querySelector('.flag-symbol');
+    expect(sym).toHaveClass('flag-symbol--late');
+    expect(sym).toHaveAttribute('aria-label', 'Late');
+    expect(cell()).toHaveTextContent('LATE');
+    expect(cell()).not.toHaveTextContent('100');
+  });
+
+  it('a Late flag on a late submission is one symbol; the cell never draws a second, filled clock', () => {
+    renderGrid({ score: null, exception: 6, late: 1 });
+    expect(cell().querySelectorAll('.flag-symbol')).toHaveLength(1);
+    expect(document.querySelector('.late-clock--flagged')).toBeNull();
+  });
+
+  it.each([[1, 'exempt', 'EXEMPT'], [2, 'incomplete', 'INCOMPLETE'], [3, 'missing', 'MISSING'], [5, 'absent', 'ABSENT'], [6, 'late', 'LATE']])(
+    'flag %i shows flag-symbol--%s with its name under it, in a button that opens the pop-up, and no level chip',
+    (exception, key, name) => {
       renderGrid({ score: null, exception });
-      const chip = cell().querySelector('.exception-chip');
-      expect(chip).toHaveTextContent(text);
-      expect(chip).toHaveClass(`exception-chip--${tone}`);
-      expect(cell()).not.toHaveTextContent(/Excused|Incomplete|Missing/);
-      const button = chip.closest('button.cell-open');
+      const sym = cell().querySelector('.flag-symbol');
+      expect(sym).toHaveClass(`flag-symbol--${key}`);
+      expect(sym).toHaveTextContent(name);
+      expect(cell().querySelector('.exception-chip')).toBeNull();
+      const button = sym.closest('button.cell-open');
       expect(button).not.toBeNull();
       fireEvent.click(button);
       expect(screen.getByRole('dialog', { name: 'Ada Lovelace: Essay' })).toBeInTheDocument();

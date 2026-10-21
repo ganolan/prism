@@ -301,7 +301,7 @@ describe('recordSchoologyUnsubmit guards (final review 5b)', () => {
     expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a })).toBe(false);
   });
   test('an exception (≠ 0) → false', () => {
-    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project'); unsubmitted(s, a, { exception: 4 });
+    const s = student('u1', 'Maya', 'Chen'); const a = assignment('a1', 'Project'); unsubmitted(s, a, { exception: 6 });
     expect(recordSchoologyUnsubmit(db, { studentId: s, assignmentId: a })).toBe(false);
   });
   test.each(['submitted', null, 'graded'])('state %s (not in_progress) → false', (state) => {

@@ -435,30 +435,6 @@ describe('migration: status_lines and feedback_snapshots tables (Amendment B)', 
     expect(cols).toEqual(expect.arrayContaining(['synced_fingerprint', 'fingerprint_at']));
   });
 
-  test('rewrites a Late (exception 4) fingerprint to no exception, in all four columns, idempotently', () => {
-    const db = new Database(':memory:');
-    migrate(db);
-    const studentId = newStudent(db);
-    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('s1', 'C')`).run().lastInsertRowid;
-    const assignmentId = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'a1', 'A')`).run(courseId).lastInsertRowid;
-    const late = '{"s":null,"e":4,"l":[],"c":""}';
-    const excused = '{"s":null,"e":1,"l":[],"c":""}';
-    const none = '{"s":null,"e":0,"l":[],"c":""}';
-    // save_log holds fingerprints as JSON strings inside a JSON array, so the quotes are escaped.
-    const saveLog = JSON.stringify([[100, late, none], [200, excused, late]]);
-    expect(saveLog).toContain('\\"e\\":4,\\"l\\"');
-    db.prepare(`INSERT INTO feedback_snapshots (student_id, assignment_id, fingerprint, arrival_baseline, synced_fingerprint, save_log)
-      VALUES (?, ?, ?, ?, ?, ?)`).run(studentId, assignmentId, late, late, late, saveLog);
-
-    migrate(db);
-    migrate(db); // idempotent
-    const row = db.prepare('SELECT * FROM feedback_snapshots').get();
-    expect(row.fingerprint).toBe(none);
-    expect(row.synced_fingerprint).toBe(none);
-    expect(row.arrival_baseline).toBe(none);
-    expect(JSON.parse(row.save_log)).toEqual([[100, none, none], [200, excused, none]]);
-  });
-
   test('status_lines carries source_type / source_id, added to a dev DB that lacks them', () => {
     const db = new Database(':memory:');
     migrate(db);

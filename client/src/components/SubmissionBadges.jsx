@@ -11,10 +11,10 @@ import LateClock from './LateClock.jsx';
 //                    left: Flag for review was removed, #40)
 //   resubmitted    — boolean → "↩ Resubmitted" badge
 
-const TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-amber', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
+const TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-amber', green: 'badge-green', slate: 'badge-slate', yellow: 'badge-amber', neutral: 'badge-gray' };
 
-// lateTitle: why it is late, for the late clock's hover (lateText(timeline)). A badge with
-// `flagged` (the teacher's Late flag) gets the filled clock.
+// lateTitle: how late, for the late clock's hover (lateText(timeline)); the clock rides a badge
+// whose submission was late. The Late flag is an exception badge and has no clock.
 export default function SubmissionBadges({ status = [], flags = [], resubmitted = false, lateTitle = 'Late' }) {
   if (status.length === 0 && flags.length === 0 && !resubmitted) return null;
   return (
@@ -22,7 +22,7 @@ export default function SubmissionBadges({ status = [], flags = [], resubmitted 
       {status.map(b => (
         <span key={b.kind} className="status-pill-wrap">
           <span className={`badge ${TONE_CLASS[b.tone]}`} style={{ fontSize: '0.65rem' }}>{b.label}</span>
-          {(b.late || b.flagged) && <LateClock flagged={b.flagged} title={lateTitle} />}
+          {b.late && <LateClock title={lateTitle} />}
         </span>
       ))}
       {flags.filter(flag => flag.flag_type === 'resubmit_requested').map(flag => (

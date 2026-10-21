@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import AssignmentFeedback from './AssignmentFeedback.jsx';
+import { gradeLabel } from '../lib/gradeLabel.js';
 
 const TOPICS = [{ topic_id: 't1', title: 'Select, analyze', external_id: 'ART.5.1', category_title: 'HS Art: Producing', grade: 'EX' }];
 const ATTACHMENT = {
@@ -64,6 +65,14 @@ describe('AssignmentFeedback', () => {
     expect(screen.getByText('Measurement Topic')).toBeInTheDocument();
   });
 
+  it('a flag shows its symbol in the place of the score, with the saved grade in its popover', () => {
+    render(<AssignmentFeedback score={gradeLabel({ score: 5, exception: 1 })} savedLevel="Exhibiting" />);
+    expect(screen.getByText('Score:')).toBeInTheDocument();
+    const sym = screen.getByRole('img', { name: 'Exempt' });
+    expect(sym).toHaveClass('flag-symbol--exempt');
+    expect(document.querySelector('.exception-chip')).toBeNull();
+  });
+
   it('a points-only task shows its score in the rubric\'s place, with no rubric', () => {
     render(<AssignmentFeedback score={{ text: '50 / 100', kind: 'numeric' }} comment="Revise question 3." />);
     expect(screen.getByText('50 / 100')).toBeInTheDocument();
@@ -71,9 +80,9 @@ describe('AssignmentFeedback', () => {
     expect(follows(screen.getByText('50 / 100'), screen.getByText('Revise question 3.'))).toBe(true);
   });
 
-  it('hides the rubric while an exception has deleted the scores', () => {
-    render(<AssignmentFeedback topics={TOPICS} attachment={ATTACHMENT} exception={1} />);
-    expect(screen.getByText('Excused')).toBeInTheDocument();
+  it.each([[1, 'Exempt'], [2, 'Incomplete'], [3, 'Missing'], [5, 'Absent'], [6, 'Late']])('hides the rubric while flag %i has removed the scores', (exception, name) => {
+    render(<AssignmentFeedback topics={TOPICS} attachment={ATTACHMENT} exception={exception} />);
+    expect(screen.getByText(name)).toBeInTheDocument();
     expect(screen.getByText(/rubric hidden because Schoology deletes scores/)).toBeInTheDocument();
     expect(screen.queryByText('Clear and usable.')).not.toBeInTheDocument();
   });

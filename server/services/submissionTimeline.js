@@ -19,7 +19,7 @@ import { sqliteUtcToEpoch } from '../lib/resubmission.js';
 import { attentionByStudent } from './cardAttention.js';
 
 const EXCUSED = 1;
-const LATE_EXCEPTION = 4;
+const LATE_EXCEPTION = 6; // Schoology's Late flag (probed 21 Oct 2026; 4 is invalid)
 
 function splitDue(dueDate) {
   const [date = null, time = null] = String(dueDate || '').split(' ');
@@ -73,7 +73,7 @@ export function buildTimeline({
   const state = submissionState(assignment, g);
   const firstAt = Number(g.first_submitted_at) > 0 ? Number(g.first_submitted_at) : null;
   const latestAt = Number(g.latest_revision_at) > 0 ? Number(g.latest_revision_at) : null;
-  // Schoology's submission timing only. The Late exception (4) is the teacher's own flag, a
+  // Schoology's submission timing only. The Late flag (exception 6) is the teacher's own flag, a
   // separate signal that never says anything about when the work came in (#40).
   const schoologyLate = g.late == null ? null : g.late === 1;
   const flagged = Number(g.exception) === LATE_EXCEPTION;

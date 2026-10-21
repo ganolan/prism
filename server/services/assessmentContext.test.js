@@ -382,13 +382,8 @@ describe('gradingState', () => {
   test('excepted is complete regardless of scores', () => {
     expect(gradingState({ scoredCount: 0, topicsCount: 3, hasComment: false, exception: 3 })).toBe('complete');
   });
-  test('Late (4) is not a handled grade: ungraded until graded', () => {
-    expect(gradingState({ scoredCount: 0, topicsCount: 2, hasComment: false, exception: 4 })).toBe('ungraded');
-    expect(gradingState({ scoredCount: 2, topicsCount: 2, hasComment: true, exception: 4 })).toBe('complete');
-    expect(gradingState({ scoredCount: 1, topicsCount: 2, hasComment: true, exception: 4 })).toBe('partial');
-  });
-  test('Excused, Incomplete and Missing are still complete', () => {
-    for (const exception of [1, 2, 3]) {
+  test('every flag is complete, Late (6) and Absent (5) included (#40)', () => {
+    for (const exception of [1, 2, 3, 5, 6]) {
       expect(gradingState({ scoredCount: 0, topicsCount: 2, hasComment: false, exception })).toBe('complete');
     }
   });

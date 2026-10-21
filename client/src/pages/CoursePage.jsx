@@ -38,7 +38,8 @@ import SubmissionComments from '../components/SubmissionComments.jsx';
 import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import { timelineSummary, lateText } from '../lib/submissionTimeline.js';
 import LateClock from '../components/LateClock.jsx';
-import ExceptionChip from '../components/ExceptionChip.jsx';
+import FlagSymbol from '../components/FlagSymbol.jsx';
+import { isFlag } from '../lib/flags.js';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', overdue: 'O', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
@@ -753,8 +754,9 @@ export function RubricModal({
             status={status} flags={flags} resubmitted={grade.resubmitted}
             links={links}
             timeline={timeline}
-            lateTitle={lateText(timeline, { flagged: Number(grade.exception) === 4 })}
+            lateTitle={lateText(timeline)}
             topics={topics} attachment={attachment} palette={palette} exception={grade.exception}
+            firstName={student.first_name}
             score={topics.length > 0 ? null : score}
             comment={comment}
           />
@@ -1155,9 +1157,9 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 }
                 // Aligned summatives show a mini rubric strip of the student's
                 // per-topic proficiency instead of a numeric score (#32).
-                // Rubric-locking exceptions (Excused/Incomplete/Missing) delete
-                // the scores in Schoology, so those cells keep the badge below.
-                const isRubricLocked = g.exception === 1 || g.exception === 2 || g.exception === 3;
+                // A flag (Exempt/Incomplete/Missing/Absent/Late) removes the scores in
+                // Schoology, so those cells keep the symbol below.
+                const isRubricLocked = isFlag(g.exception);
                 const rubricTopics = (a.aligned && !isRubricLocked)
                   ? buildAssignmentRubric(a.schoology_assignment_id, s.schoology_uid, indexed)
                   : [];
@@ -1181,12 +1183,10 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 });
                 // Don't double up exception text — gradeLabel already shows it.
                 const inlineBadges = status.filter(b => b.kind !== 'exception');
-                // Late is a quiet clock in the cell's top-right corner, so the status
+                // Late (the submission) is a quiet clock in the cell's top-right corner, so the status
                 // stays centred; graded late work keeps it (submissionStatus is empty
                 // once scored). How late is in the hover text (the timeline).
                 const isLate = status.some(b => b.late) || (g.score != null && !!tl?.submission?.late);
-                // The teacher's Late flag (exception 4) shows the filled clock, with the grade.
-                const isFlagged = Number(g.exception) === 4;
                 // A cell with an overall comment gets a corner indicator and an
                 // instant hover overlay (#36) — `position: relative` anchors the
                 // indicator.
@@ -1204,8 +1204,10 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                   student: s, assignment: a, topics, score: lbl,
                   comment: g.grade_comment || '', grade: g, timeline: tl,
                 });
+                // A flag stands where the grade was: its symbol with its name under it. The cell
+                // button owns click and focus, so the symbol is hover-only here (passive).
                 const scoreText = lbl.kind === 'exception'
-                  ? <ExceptionChip exception={lbl.exception} savedLevel={g.saved_level ?? null} />
+                  ? <FlagSymbol code={lbl.exception} showName passive firstName={s.first_name} savedLevel={g.saved_level ?? null} />
                   : c
                   ? <span style={{ background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
                   : text;
@@ -1265,7 +1267,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                         </svg>
                       </span>
                     )}
-                    {(isLate || isFlagged) && <LateClock variant="corner" flagged={isFlagged} title={lateText(tl, { flagged: isFlagged })} />}
+                    {isLate && <LateClock variant="corner" title={lateText(tl)} />}
                     {ltiUnavailable ? unavailableMark() : inner}
                     {inlineBadges.map(b => (
                       <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone] || 'badge-gray'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>

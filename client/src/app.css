@@ -65,14 +65,19 @@
   --badge-amber-text: #92400e;
   --badge-pink-bg: #fce7f3;
   --badge-pink-text: #be185d;
-  /* Flag colors (#40), after Schoology: Excused green, Late red, Incomplete amber, Missing red.
-     -ink colors are the text/border of the dashed exception chip and the flag pill. */
-  --flag-excused: #047857;
-  --flag-excused-bg: var(--badge-green-bg);
+  /* Flag colors (#40), after Schoology: Exempt green, Late red, Absent slate gray, Incomplete amber,
+     Missing red (outlined). The solid color is a symbol's disc and name; -bg is the pale badge fill. */
+  --flag-exempt: #047857;
+  --flag-exempt-bg: var(--badge-green-bg);
   --flag-late: var(--badge-red-text);
   --flag-late-bg: var(--badge-red-bg);
+  --flag-absent: #64748b;
+  --flag-absent-bg: #e2e8f0;
   --flag-incomplete: #b45309;
+  --flag-incomplete-bg: var(--badge-amber-bg);
   --flag-missing: #b91c1c;
+  --flag-missing-bg: var(--badge-red-bg);
+  --flag-glyph: #fff;
   --badge-resubmit-bg: #e6effe;
   --badge-resubmit-text: #1d4ed8;
   --summative-bg: #fef3c7;
@@ -669,10 +674,6 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
 .late-clock--badge { position: absolute; top: -6px; right: -6px; width: 15px; height: 15px; padding: 2px; border-radius: 50%;
   background: var(--badge-red-text); color: #fff; border: 1.5px solid var(--card-bg); box-sizing: border-box; }
 .late-clock--corner { position: absolute; top: 2px; right: 2px; width: 10px; height: 10px; color: var(--badge-red-text); opacity: 0.75; }
-.late-clock--flagged svg path { stroke: var(--card-bg); }
-.late-clock--flagged.late-clock--corner { opacity: 1; }
-/* The badge is already a red disc; the flagged form drops the ring so the fill and the badge are one. */
-.late-clock--badge.late-clock--flagged { color: var(--badge-red-text); }
 .status-pill-wrap { position: relative; display: inline-flex; }
 /* Gradebook cell comment markers (layout A, 18/10/2026): one spot, bottom right. The
    submission-thread bubble (SubmissionComments cell) is purple, amber when the student
@@ -1512,11 +1513,28 @@ img.file-viewer-media { background: transparent; }
 .feedback-modal--wide { max-width: 1100px; }
 
 /* A gradebook score that opens the feedback modal: looks like the plain score. */
-.exception-chip { display: inline-block; min-width: 24px; box-sizing: border-box; padding: 0.1rem 0.4rem; border-radius: 4px;
-  background: var(--card-bg); border: 1.5px dashed currentColor; font-weight: 500; }
-.exception-chip--excused { color: var(--flag-excused); }
-.exception-chip--incomplete { color: var(--flag-incomplete); }
-.exception-chip--missing { color: var(--flag-missing); }
+/* Flag symbols (#40): a round, color-coded disc (18px, 12px glyph) with the flag's name in tiny
+   capitals under it. Never a chip, so a flag cannot be read as a grade. Missing is the
+   outlined one (white disc, red ring). `--flag-c` is the flag's color. The popover is .help-pop. */
+.flag-symbol { --flag-c: var(--flag-late); display: inline-flex; flex-direction: column; align-items: center; gap: 1px;
+  line-height: 1; vertical-align: middle; cursor: help; }
+.flag-symbol:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.flag-symbol__disc { box-sizing: border-box; width: 18px; height: 18px; border-radius: 50%; display: inline-flex;
+  align-items: center; justify-content: center; background: var(--flag-c); color: var(--flag-glyph); }
+.flag-symbol__disc svg { width: 12px; height: 12px; }
+.flag-symbol__name { font-size: 8.5px; font-weight: 700; letter-spacing: 0.03em; color: var(--flag-c); }
+.flag-symbol--inline .flag-symbol__disc { width: 16px; height: 16px; }
+.flag-symbol--inline .flag-symbol__disc svg { width: 10px; height: 10px; }
+.flag-symbol--exempt { --flag-c: var(--flag-exempt); }
+.flag-symbol--late { --flag-c: var(--flag-late); }
+.flag-symbol--absent { --flag-c: var(--flag-absent); }
+.flag-symbol--incomplete { --flag-c: var(--flag-incomplete); }
+.flag-symbol--missing { --flag-c: var(--flag-missing); }
+.flag-symbol--missing .flag-symbol__disc { background: var(--card-bg); color: var(--flag-missing); border: 1.5px solid var(--flag-missing); }
+.flag-pop__name { font-weight: 700; }
+.flag-pop__line { display: block; }
+.flag-pop__line + .flag-pop__line { margin-top: 0.25rem; }
+.badge-slate { background: var(--flag-absent-bg); color: var(--flag-absent); }
 button.cell-open { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
 button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 

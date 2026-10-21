@@ -56,7 +56,7 @@ describe('timelineParts', () => {
   });
 
   it('excused, and work not handed in online, say so or nothing', () => {
-    expect(texts(t({ submission: { ...t().submission, state: 'excused' } }))).toEqual(['Due 06/10 15:00', 'Excused']);
+    expect(texts(t({ submission: { ...t().submission, state: 'excused' } }))).toEqual(['Due 06/10 15:00', 'Exempt']);
     expect(texts(t({ submission: { ...t().submission, state: 'untracked' } }))).toEqual(['Due 06/10 15:00']);
   });
 
@@ -107,13 +107,11 @@ describe('lateText (the late clock\'s hover)', () => {
     expect(lateText(null)).toBe('Late');
   });
 
-  it('the Late flag says "Marked late with Flags"; with a late submission, both lines', () => {
+  it('lateText is the submission lateness only: the Late flag is a symbol, not a clock', () => {
     const flagged = (extra) => t({ submission: { ...t().submission, flagged: true, ...extra } });
-    expect(lateText(flagged({ late: false }))).toBe('Marked late with Flags');
-    expect(lateText(flagged({ late: null }))).toBe('Marked late with Flags');
-    expect(lateText(flagged({ late: true, day: 3 }))).toBe('Marked late with Flags\n2 school days late');
-    expect(lateText(flagged({ late: true, lateMinutes: 83 }))).toBe('Marked late with Flags\n1 h 23 min late');
-    expect(lateText(null, { flagged: true })).toBe('Marked late with Flags');
+    expect(lateText(flagged({ late: true, day: 3 }))).toBe('2 school days late');
+    expect(lateText(flagged({ late: true, lateMinutes: 83 }))).toBe('1 h 23 min late');
+    expect(lateText(flagged({ late: null }))).toBe('Late');
   });
 
   it('the flag does not change the submission line', () => {

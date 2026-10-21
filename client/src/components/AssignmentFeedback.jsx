@@ -16,12 +16,13 @@ import SubmissionTimeline from './SubmissionTimeline.jsx';
 import CompactRubric from './CompactRubric.jsx';
 import RubricDescriptorGrid from './RubricDescriptorGrid.jsx';
 import { feedbackDescriptorRows, feedbackRowView } from '../lib/rubricDescriptorRows.js';
-import ExceptionChip from './ExceptionChip.jsx';
+import FlagSymbol from './FlagSymbol.jsx';
+import { FLAGS, isFlag } from '../lib/flags.js';
 import { LEVELS, LEVEL_COLORS, CELL_TEXT, masteryCodeForLevel } from '../lib/masteryLevels.js';
 
-// Schoology deletes rubric scores while one of these exceptions is set (the
-// gradebook and /assessment/ lock the same three).
-const RUBRIC_LOCKING_EXCEPTIONS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing' };
+// Schoology removes the rubric scores while any flag is set (Exempt, Incomplete, Missing,
+// Absent, Late: the gradebook and /assessment/ lock the same five).
+const lockName = (exception) => (isFlag(exception) ? FLAGS[Number(exception)].name : null);
 
 const HEADER = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].headerFill]));
 const BORDER = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].finalBorder]));
@@ -29,10 +30,10 @@ const DRAFT = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].draftFill
 
 // A gradeLabel() result for an unaligned task: a level chip in the level's colour
 // for General Academic levels, the raw text otherwise, red when it matches no level.
-// An exception (Excused/Incomplete/Missing) shows the dashed chip in the score's place.
-// savedLevel: the grade Prism saved while the task is excused (null when none).
-export function ScoreLabel({ label, savedLevel = null }) {
-  if (label.kind === 'exception') return <ExceptionChip exception={label.exception} savedLevel={savedLevel} />;
+// A flag (Exempt/Incomplete/Missing/Absent/Late) shows its symbol in the score's place.
+// savedLevel: the grade Prism saved when the flag was set (null when none).
+export function ScoreLabel({ label, savedLevel = null, firstName = null }) {
+  if (label.kind === 'exception') return <FlagSymbol code={label.exception} size="inline" showName firstName={firstName} savedLevel={savedLevel} />;
   const code = label.kind === 'scale' ? masteryCodeForLevel(label.text) : null;
   const c = code ? LEVEL_COLORS[code] : null;
   const style = label.kind === 'mismatch' ? { color: 'var(--danger)' }
@@ -54,10 +55,12 @@ export default function AssignmentFeedback({
   timeline = null, timelineHelp = true, due = null,
   topics = [], attachment = null, palette = {}, exception = 0,
   score = null,
+  savedLevel = null, // the grade Prism saved before a flag removed it (shown in the flag's popover)
+  firstName = null, // the student's first name, for the flag's popover
   comment = '',
 }) {
   const hasBadges = status.length > 0 || flags.length > 0 || resubmitted || !!links;
-  const lock = topics.length > 0 ? RUBRIC_LOCKING_EXCEPTIONS[exception] : null;
+  const lock = topics.length > 0 ? lockName(exception) : null;
   const rows = lock ? null : feedbackDescriptorRows(topics, attachment);
   const gradeByTopic = Object.fromEntries(topics.map((t) => [t.topic_id, t.grade]));
   // Feedback rows: an unaligned score-scale task with a rubric attached in Prism.
@@ -82,7 +85,7 @@ export default function AssignmentFeedback({
         {score && (
           <div className="assignment-feedback__score">
             <span className="assignment-feedback__label">Overall:</span>
-            <ScoreLabel label={score} />
+            <ScoreLabel label={score} savedLevel={savedLevel} firstName={firstName} />
           </div>
         )}
       </>
@@ -91,7 +94,7 @@ export default function AssignmentFeedback({
     rubric = (
       <div className="assignment-feedback__notice text-sm">
         <strong>{lock}</strong>
-        {', rubric hidden because Schoology deletes scores when an exception is set.'}
+        {', rubric hidden because Schoology deletes scores when a flag is set.'}
       </div>
     );
   } else if (rows) {
@@ -114,7 +117,7 @@ export default function AssignmentFeedback({
     rubric = (
       <div className="assignment-feedback__score">
         <span className="assignment-feedback__label">Score:</span>
-        <ScoreLabel label={score} />
+        <ScoreLabel label={score} savedLevel={savedLevel} firstName={firstName} />
       </div>
     );
   }

@@ -875,7 +875,7 @@ describe('AssessmentSummaryPage — score-scale class tools (#41)', () => {
     getFeedbackForAssignment.mockResolvedValue({
       1: { feedback_parsed: { scale_level: 'C', evidence: 'done' } },   // differs from synced I → counts
       2: { feedback_parsed: { scale_level: 'C', evidence: 'done' } },   // ungraded → counts
-      3: { feedback_parsed: { scale_level: 'C', evidence: 'done' } },   // Excused → locked, skipped
+      3: { feedback_parsed: { scale_level: 'C', evidence: 'done' } },   // Exempt → locked, skipped
     });
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true }, { uid: 'uid-2', ok: true }] });
     renderPage();
@@ -2172,11 +2172,11 @@ describe('StudentRubricCard — submission timeline', () => {
     expect(within(row).getByRole('img', { name: /school days after the due date/ })).toBeInTheDocument();
   });
 
-  it('the Late flag is a filled clock on the status pill, not a badge of its own', () => {
-    renderCard({ student: { ...makeStudent(), exception: 4, submission_type: 'drop' }, assignmentRow: { id: 50, accepts_submissions: 1, mastery_grading_period_id: 1, mastery_grading_category_id: 2 } });
+  it('the Late flag (6) is a red Late pill with no clock of its own; the outline clock belongs to a late submission', () => {
+    renderCard({ student: { ...makeStudent(), exception: 6, submission_type: 'drop' }, assignmentRow: { id: 50, accepts_submissions: 1, mastery_grading_period_id: 1, mastery_grading_category_id: 2 } });
     expect(screen.queryByText('Marked late in Schoology')).not.toBeInTheDocument();
-    const clock = screen.getByRole('img', { name: 'Marked late with Flags' });
-    expect(clock).toHaveClass('late-clock--flagged');
+    expect(screen.queryByRole('img', { name: 'Marked late with Flags' })).not.toBeInTheDocument();
+    expect(document.querySelector('.late-clock--flagged')).toBeNull();
   });
 
   it('no timeline, no row', () => {
@@ -2465,7 +2465,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     expect(screen.queryByRole('button', { name: /Use the rubric average/ })).not.toBeInTheDocument();
   });
 
-  it('a locked student (Excused) with every row final stages no average', () => {
+  it('a locked student (Exempt) with every row final stages no average', () => {
     const handlers = {};
     card({
       student: { ...makeStudent(), exception: 1, scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) },
@@ -2477,11 +2477,16 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     expect(handlers['uid-1'].getEntry()).toBeNull();
   });
 
-  it.each([[1, 'Excused', 'badge-green'], [2, 'Incomplete', 'badge-amber'], [3, 'Missing', 'badge-red']])(
-    'exception %i shows its "%s, rubric locked" badge in its flag color (%s)', (exception, label, cls) => {
+  it.each([[1, 'Exempt', 'badge-green'], [2, 'Incomplete', 'badge-amber'], [3, 'Missing', 'badge-red'], [5, 'Absent', 'badge-slate'], [6, 'Late', 'badge-red']])(
+    'flag %i shows its "%s, rubric locked" badge in its flag color (%s)', (exception, label, cls) => {
       card({ student: { ...makeStudent(), exception, scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
       expect(screen.getByText(`${label}, rubric locked`)).toHaveClass(cls);
     });
+
+  it('exception 4 (invalid in Schoology) locks nothing', () => {
+    card({ student: { ...makeStudent(), exception: 4, scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
+    expect(screen.queryByText(/rubric locked/)).not.toBeInTheDocument();
+  });
 
   it('a published student with an IE row and nothing pending shows no IE hint', () => {
     card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,

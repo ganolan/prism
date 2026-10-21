@@ -1,7 +1,9 @@
+import { FLAGS } from './flags.js';
+
 // Resolve a grade to its display label given the assignment's grading scale.
 // Returns { text, kind } where kind is one of:
-//   'exception' — score overridden by Schoology exception flag (Excused/Incomplete/Missing); `exception`
-//                 carries 1-3 for the chip (ExceptionChip). The Late flag (4) is not one: it keeps the grade and shows a filled clock (#40).
+//   'exception' — score removed by a Schoology flag (Exempt 1, Incomplete 2, Missing 3, Absent 5, Late 6);
+//                 `exception` carries the code for the FlagSymbol (#40). Code 4 is invalid in Schoology and labels nothing.
 //   'pending'   — assignment not yet graded
 //   'numeric'   — scale has no levels; render raw score / max
 //   'scale'     — score matches a defined scale level (display the level name)
@@ -11,23 +13,17 @@
 // indicate a problem in Schoology and should surface visibly so the teacher
 // can investigate and fix.
 
-const EXCEPTION_LABELS = {
-  1: 'Excused',
-  2: 'Incomplete',
-  3: 'Missing',
-};
-// Flag colors follow Schoology (#40): Excused green, Incomplete amber, Missing red. The
-// Late flag (4) is red too, but it is a clock, not a chip or a status.
-export const EXCEPTION_TONE = { 1: 'green', 2: 'amber', 3: 'red' };
-const LATE_EXCEPTION = 4;
+const EXCEPTION_LABELS = Object.fromEntries(Object.entries(FLAGS).map(([code, f]) => [code, f.name]));
+// Flag colors (#40): Exempt green, Late red, Absent slate gray, Incomplete amber, Missing red.
+export const EXCEPTION_TONE = { 1: 'green', 2: 'amber', 3: 'red', 5: 'slate', 6: 'red' };
 
 // Derive submission-state badges for an assignment row. Returns an array of
 // { kind, label, tone, late? } badges; tone ∈ 'red' | 'blue' | 'amber' | 'green' |
 // 'yellow' | 'neutral'. Graded cells return [] (gradeLabel shows the score).
 // Late is not a status of its own (17/10/2026): it rides on the status it qualifies
-// as `late: true` (a clock badge on the pill, a clock in the cell corner, LateClock).
-// The teacher's Late flag (exception 4) rides the same way as `flagged: true`, the
-// filled form of the clock. A late flag with no status to attach to shows nothing.
+// as `late: true` (a clock badge on the pill, a clock in the cell corner, LateClock). That is
+// the submission's lateness only; the Late flag (exception 6) is a flag like the others, an
+// exception badge that replaces the status (it removes the grade, #40).
 //
 // lti_submission work (#62): state comes from `lti_submission_state`
 // ('submitted' | 'in_progress' | 'not_started'), read from the grader's
@@ -52,12 +48,12 @@ function dueProximity(due_date, today) {
   return 'early';
 }
 
-function ltiBadges(state, submission_type, due_date, today, late, flagged) {
+function ltiBadges(state, submission_type, due_date, today, late) {
   // GHD covered the cell but the document fetch didn't: trust "submitted".
   if (state == null && submission_type) state = 'submitted';
   const prox = dueProximity(due_date, today);
   if (state === 'submitted') {
-    return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}), ...(flagged ? { flagged: true } : {}) }];
+    return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}) }];
   }
   if (state === 'in_progress') {
     return [{ kind: 'in-progress', label: 'In Progress', tone: prox === 'overdue' ? 'yellow' : 'blue' }];
@@ -73,23 +69,22 @@ function ltiBadges(state, submission_type, due_date, today, late, flagged) {
   return [];
 }
 
-function nonLtiBadges({ submission_type, late, flagged, due_date, today }) {
+function nonLtiBadges({ submission_type, late, due_date, today }) {
   const submitted = !!submission_type;
-  if (submitted) return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}), ...(flagged ? { flagged: true } : {}) }];
+  if (submitted) return [{ kind: 'submitted', label: 'Submitted', tone: 'green', ...(late ? { late: true } : {}) }];
   if (dueProximity(due_date, today) === 'overdue') return [{ kind: 'overdue', label: 'Overdue', tone: 'red' }];
-  return []; // a late flag with no submission is a stale value, not a state
+  return [];
 }
 
 export function submissionStatus({ score, exception, late, draft, submitted_at, submission_type, is_lti_submission, lti_submission_state, due_date, accepts_submissions, is_test, today = new Date() }) {
   const exLabel = EXCEPTION_LABELS[exception];
-  const flagged = Number(exception) === LATE_EXCEPTION;
   if (exLabel) {
     return [{ kind: 'exception', label: exLabel, tone: EXCEPTION_TONE[exception] }];
   }
   if (score != null) return []; // graded — gradeLabel renders the score
-  if (is_lti_submission) return ltiBadges(lti_submission_state, submission_type, due_date, today, late, flagged);
+  if (is_lti_submission) return ltiBadges(lti_submission_state, submission_type, due_date, today, late);
   if (accepts_submissions === 0 && !is_test) return []; // no submission channel
-  return nonLtiBadges({ submission_type, late, flagged, due_date, today });
+  return nonLtiBadges({ submission_type, late, due_date, today });
 }
 
 // True when an lti_submission assignment's document fetch failed at the last

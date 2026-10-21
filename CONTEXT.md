@@ -62,7 +62,7 @@ touches them — they are **import-once**.
   once that date has passed**; the resulting date is stored (`until`). Extending overdue work always gives a
   future deadline.
 - **Waive (a referral)** — the teacher's decision not to refer work that was handed in late past the limit.
-  Recorded in `referrals` as the legacy `exempt` action, shown as "waived". Not Schoology's *Excused*.
+  Recorded in `referrals` as the legacy `exempt` action, shown as "waived". Not Schoology's *Exempt* flag.
 
 ### Proficiency levels (standards-based grading)
 

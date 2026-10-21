@@ -45,13 +45,10 @@ describe('gradingStateOf', () => {
   it('some missing is partial', () =>
     expect(gradingStateOf(stu({ scores: { t1: { grade: 'EX' } }, grade_comment: 'x' }), TOPICS)).toBe('partial'));
   it('excepted is complete', () => expect(gradingStateOf(stu({ exception: 3 }), TOPICS)).toBe('complete'));
-  it('Excused, Incomplete and Missing are complete', () => {
-    for (const exception of [1, 2, 3]) expect(gradingStateOf(stu({ exception }), TOPICS)).toBe('complete');
-  });
-  it('Late (4) is a flag, not a grade: ungraded until graded (server parity, #40)', () => {
-    expect(gradingStateOf(stu({ exception: 4 }), TOPICS)).toBe('ungraded');
-    expect(gradingStateOf(stu({ exception: 4 }), [])).toBe('ungraded');
-    expect(gradingStateOf(stu({ exception: 4, scores: { t1: { grade: 'EX' }, t2: { grade: 'D' } }, grade_comment: 'x' }), TOPICS)).toBe('complete');
+  it('every flag is complete: Exempt, Incomplete, Missing, Absent and Late (server parity, #40)', () => {
+    for (const exception of [1, 2, 3, 5, 6]) expect(gradingStateOf(stu({ exception }), TOPICS)).toBe('complete');
+    expect(gradingStateOf(stu({ exception: 6 }), [])).toBe('complete');
+    expect(gradingStateOf(stu({ exception: '6' }), TOPICS)).toBe('complete');
   });
   // Final review M3 (server gradingState parity): Prism's own status line is not feedback.
   it('a comment that is only the stored status line is not a comment', () => {
@@ -123,7 +120,7 @@ describe('pillTone / TONE_VARS', () => {
     expect(pillTone('not_started', overdue)).toBe('red');
   });
   it('every tone has CSS vars', () => {
-    ['green', 'blue', 'amber', 'yellow', 'red', 'neutral', 'resubmit'].forEach(t => {
+    ['green', 'blue', 'amber', 'yellow', 'red', 'neutral', 'slate', 'resubmit'].forEach(t => {
       expect(TONE_VARS[t]).toHaveProperty('bg');
       expect(TONE_VARS[t]).toHaveProperty('text');
     });

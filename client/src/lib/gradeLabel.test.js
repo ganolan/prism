@@ -66,7 +66,7 @@ describe('submissionStatus — lti true state (#62)', () => {
   });
   it('a non-late exception still takes precedence', () => {
     expect(submissionStatus({ score: null, is_lti_submission: 1, exception: 1, due_date: PAST }))
-      .toEqual([{ kind: 'exception', label: 'Excused', tone: 'green' }]);
+      .toEqual([{ kind: 'exception', label: 'Exempt', tone: 'green' }]);
   });
 });
 
@@ -118,7 +118,7 @@ describe('gradeLabel', () => {
     expect(gradeLabel({ score: 8, max_points: 10 })).toEqual({ text: '8 / 10', kind: 'numeric' });
   });
 
-  it('the Late flag (exception 4) keeps the grade: it shows the scale level, never "Late"', () => {
+  it('exception 4 is invalid in Schoology: it labels nothing and the grade shows as usual', () => {
     const scales = { 7: { levels: [{ name: 'Exhibiting', average: 87.5 }, { name: 'Developing', average: 62.5 }] } };
     expect(gradeLabel({ score: 87.5, max_points: 100, exception: 4, grading_scale_id: 7, scales }))
       .toEqual({ text: 'Exhibiting', kind: 'scale' });
@@ -126,36 +126,36 @@ describe('gradeLabel', () => {
     expect(gradeLabel({ score: null, exception: 4 })).toEqual({ text: 'Pending', kind: 'pending' });
   });
 
-  it('Excused, Incomplete and Missing still replace the grade', () => {
-    expect(gradeLabel({ score: 5, exception: 1 })).toEqual({ text: 'Excused', kind: 'exception', exception: 1 });
-    expect(gradeLabel({ score: 5, exception: 2 })).toEqual({ text: 'Incomplete', kind: 'exception', exception: 2 });
-    expect(gradeLabel({ score: 5, exception: 3 })).toEqual({ text: 'Missing', kind: 'exception', exception: 3 });
-  });
+  it.each([[1, 'Exempt'], [2, 'Incomplete'], [3, 'Missing'], [5, 'Absent'], [6, 'Late']])(
+    'flag %i replaces the grade with the label %s', (exception, text) => {
+      expect(gradeLabel({ score: 5, exception })).toEqual({ text, kind: 'exception', exception });
+      expect(gradeLabel({ score: null, exception })).toEqual({ text, kind: 'exception', exception });
+      expect(gradeLabel({ score: 5, exception: String(exception) })).toEqual({ text, kind: 'exception', exception });
+    });
 });
 
-describe('submissionStatus: the Late flag (exception 4)', () => {
-  it('keeps the submission badge, marks it flagged, and is never an exception badge', () => {
-    const b = submissionStatus({ score: null, exception: 4, is_lti_submission: 0, submission_type: 'drop', due_date: PAST });
-    expect(b).toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green', flagged: true }]);
-    expect(b.some((x) => x.kind === 'exception')).toBe(false);
+describe('submissionStatus: flags', () => {
+  it('Late (6) is an exception badge like the others: it removes the grade, so it replaces the status', () => {
+    expect(submissionStatus({ score: null, exception: 6, is_lti_submission: 0, submission_type: 'drop', due_date: PAST }))
+      .toEqual([{ kind: 'exception', label: 'Late', tone: 'red' }]);
   });
-  it('flagged and submitted late carries both marks', () => {
-    expect(submissionStatus({ score: null, exception: 4, late: true, is_lti_submission: 1, lti_submission_state: 'submitted', due_date: PAST }))
-      .toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green', late: true, flagged: true }]);
-  });
-  it('flagged with nothing submitted still shows the status it already had (no late badge of its own)', () => {
+  it('exception 4 (invalid) is no flag: the usual status shows, with no flagged mark', () => {
+    expect(submissionStatus({ score: null, exception: 4, is_lti_submission: 0, submission_type: 'drop', due_date: PAST }))
+      .toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green' }]);
     expect(submissionStatus({ score: null, exception: 4, is_lti_submission: 0, due_date: PAST }).map((b) => b.kind)).toEqual(['overdue']);
-    expect(submissionStatus({ score: 9, exception: 4, is_lti_submission: 0, submission_type: 'drop', due_date: PAST })).toEqual([]);
+  });
+  it('a late submission with no flag keeps its late mark (the outline clock)', () => {
+    expect(submissionStatus({ score: null, late: true, is_lti_submission: 1, lti_submission_state: 'submitted', due_date: PAST }))
+      .toEqual([{ kind: 'submitted', label: 'Submitted', tone: 'green', late: true }]);
   });
 });
 
-describe('exception tones (Excused green, Incomplete amber, Missing red)', () => {
+describe('flag tones (Exempt green, Late red, Absent slate, Incomplete amber, Missing red)', () => {
   it('EXCEPTION_TONE names them', () => {
-    expect(EXCEPTION_TONE).toEqual({ 1: 'green', 2: 'amber', 3: 'red' });
+    expect(EXCEPTION_TONE).toEqual({ 1: 'green', 2: 'amber', 3: 'red', 5: 'slate', 6: 'red' });
   });
   it('the status badge takes the tone', () => {
-    expect(submissionStatus({ score: null, exception: 1 })[0].tone).toBe('green');
-    expect(submissionStatus({ score: null, exception: 2 })[0].tone).toBe('amber');
-    expect(submissionStatus({ score: null, exception: 3 })[0].tone).toBe('red');
+    const tone = (exception) => submissionStatus({ score: null, exception })[0].tone;
+    expect([1, 6, 5, 2, 3].map(tone)).toEqual(['green', 'red', 'slate', 'amber', 'red']);
   });
 });

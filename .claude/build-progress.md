@@ -1731,8 +1731,15 @@ Commits `c481c5b` and `610a40e` (server) and `76f679e` (client), then the docs (
 
 ## Flag for review removed (#40, 2026-10-21)
 
-- **Why:** Graham dropped Flag for review completely. Prism's flags are now Schoology's (Excused, Late), set from one Flags menu on the card.
+- **Why:** Graham dropped Flag for review completely. Prism's flags are now Schoology's (Exempt, Late, Absent, Incomplete, Missing), set from one Flags menu on the card.
 - **Removed:** `server/routes/flags.js` (and `/api/flags`), the `flags` table (gone from `schema.sql`; `DROP TABLE IF EXISTS flags` in `MIGRATIONS`, which also removes prod's 8 stale automatic "Below 50%" rows), `purgeLegacyAutoFlags`, `purgeStudentScopedFlags` and `migrateResubmitFlags` (the last had already run in prod on 2026-10-03). Gradebook `review_needed`, assessment-card `review_flag`, `getFlagsByStudent`'s `review_needed`, Triage's `flagged` count and reason, the `flagged` reason and `review` refine pill in `assessmentFilters.js`, `HeaderPill`, `createFlag`/`deleteFlag`, and the "Review:" badge in `SubmissionBadges`.
 - **Kept:** the AI suggestion's `reviewer_flags` / `reviewer_flags_brief`, `resubmit_requested` in `get_assignment_context` (from `resubmissions`), and the student page's open-request entries (still returned under `flags`). `feedback.flag_for_review` / `flag_reason` are old columns of the AI feedback table, unused by the code and left alone.
 - **Old links:** a `?filter=flagged` or `review` link is ignored by `parseFilterParam` (no filter).
 - **Slot:** the card header's right-hand cluster now starts with Refer; the Flags menu goes first in it.
+
+## Flag codes, symbols and Late as a flag (#40, 2026-10-21, after the live probes)
+
+- **Why:** the probes (`.claude/schoology-api-reference.md` "Grade exceptions (flags)") showed codes 1 Exempt, 2 Incomplete, 3 Missing, 5 Absent, 6 Late, 4 invalid, and every flag removes the grade. The earlier #40 commits assumed Late was 4 and kept the grade.
+- **Changed:** `client/src/lib/flags.js` (`FLAGS`, `FLAG_ORDER`, `FLAGS_MENU_HEADING`, `flagGuide`, `isFlag`) and `server/lib/flags.js` (`FLAG_CODES`) are the one list of codes. `FlagSymbol` (round disc, glyph, tiny capital name, popover on hover, focus and tap) replaces `ExceptionChip`; `gradeLabel` labels 1, 2, 3, 5, 6 and nothing for 4; tones add `slate` for Absent. Every flag is feedback and "handled" (`hasFeedback`, `fingerprint`, `gradingState`, `gradingStateOf`); every flag locks the rubric (card, gradebook, shared view) and the lock badge reads "Exempt, rubric locked" and so on.
+- **Removed from the first pass:** `feedbackException` and the exception-4 special case, the `"e":4` fingerprint rewrite in `MIGRATIONS` (never shipped; prod holds no 4), the filled `LateClock` form (`flagged`, `late-clock--flagged`) and the "Marked late with Flags" hover line. The server timeline keeps `submission.flagged`, now true for exception 6 only (nothing in the client reads it).
+- **Words:** "Exempt" replaces "Excused" in every label, tooltip and the timeline line; the PrisMCP state value stays `excused`, its description names the flags and codes.

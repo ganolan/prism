@@ -5,12 +5,6 @@
 // never change the fingerprint.
 import { teacherText } from './statusLines.js';
 
-// Schoology exception 4 is Late: a visible flag, not feedback (#40). It counts as no exception
-// everywhere feedback is judged (fingerprints, hasFeedback, grading state). 1 Excused,
-// 2 Incomplete and 3 Missing still count. Defined here, re-exported by resubmission.js,
-// because resubmission.js imports this file (a definition there would be a cycle).
-export const feedbackException = (e) => (Number(e) === 4 ? 0 : Number(e) || 0);
-
 // Normalise a score so 80, '80' and 80.0 (same grade, different representations coming from
 // Schoology vs. SQLite vs. Prism's own writes) all collapse to one fingerprint value.
 function normaliseScore(score) {
@@ -22,7 +16,7 @@ function normaliseScore(score) {
 // levels: array of { topic_id, grade } — pass mastery_scores rows straight through.
 export function fingerprint({ score = null, exception = 0, comment = '', commentStatus = 0, levels = [], storedLine = null } = {}) {
   const s = normaliseScore(score);
-  const e = feedbackException(exception);
+  const e = Number(exception) || 0; // every flag (1 Exempt, 2 Incomplete, 3 Missing, 5 Absent, 6 Late) is visible feedback (#40)
   const l = (levels || []).map((level) => `${String(level.topic_id)}:${String(level.grade)}`).sort();
   const visible = Number(commentStatus) === 1;
   const c = visible ? teacherText(comment, storedLine) : '';
@@ -40,5 +34,5 @@ export function hasPriorFeedback(fingerprintString) {
     return false;
   }
   const { s, e, l, c } = parsed || {};
-  return s != null || feedbackException(e) > 0 || (Array.isArray(l) && l.length > 0) || Boolean(c);
+  return s != null || Number(e) > 0 || (Array.isArray(l) && l.length > 0) || Boolean(c);
 }

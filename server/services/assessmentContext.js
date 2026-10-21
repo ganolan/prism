@@ -13,7 +13,6 @@ import { resolveAssignmentId } from './idResolvers.js';
 import { preferredFirstName } from './studentNames.js';
 import { resubmissionByStudent } from './resubmissions.js';
 import { teacherText } from '../lib/statusLines.js';
-import { feedbackException } from '../lib/resubmission.js';
 import { getFeedbackRows, getRowLevels, ROW_PREFIX } from './feedbackRows.js';
 import { rubricAverage } from '../lib/rubricAverage.js';
 import { timelineContext, agentTimeline } from './submissionTimeline.js';
@@ -54,11 +53,11 @@ export function normalizeSubmissionStatus({
   return 'not_started';
 }
 
-// Grading completeness on the published finals. Excepted students (Excused,
-// Incomplete, Missing; a Late flag (4) is not an exception here) count as handled → 'complete'. Complete = every aligned topic has a
+// Grading completeness on the published finals. A flagged student (Exempt, Incomplete, Missing,
+// Absent or Late) counts as handled → 'complete'. Complete = every aligned topic has a
 // level AND a comment is present. Empty = nothing entered. Otherwise partial.
 export function gradingState({ scoredCount, topicsCount, hasComment, exception } = {}) {
-  if (feedbackException(exception)) return 'complete';
+  if (Number(exception) > 0) return 'complete';
   if (scoredCount === 0 && !hasComment) return 'ungraded';
   if (topicsCount === 0) return 'complete'; // no rubric topics to score; a comment/score-bearing row is handled
   if (scoredCount === topicsCount && hasComment) return 'complete';

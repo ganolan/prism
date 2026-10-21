@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { hasFeedback, feedbackException, isResubmitted, resubmissionStateFromSnapshot, sqliteUtcToEpoch, changedParts, feedbackAnswered, wroteAfter, absorbParts, PART_SCORE, PART_LEVELS, PART_COMMENT } from './resubmission.js';
+import { hasFeedback, isResubmitted, resubmissionStateFromSnapshot, sqliteUtcToEpoch, changedParts, feedbackAnswered, wroteAfter, absorbParts, PART_SCORE, PART_LEVELS, PART_COMMENT } from './resubmission.js';
 import { fingerprint } from './feedbackFingerprint.js';
 
 describe('isResubmitted', () => {
@@ -19,8 +19,9 @@ describe('isResubmitted', () => {
     expect(isResubmitted({ score: null, exception: 3, submitted_at: 1000, latest_revision_at: 2000 })).toBe(true);
   });
 
-  test('false for a Late-only row: Late is a flag, not feedback (#40)', () => {
-    expect(isResubmitted({ score: null, exception: 4, submitted_at: 1000, latest_revision_at: 2000 })).toBe(false);
+  test('true for a Late- or Absent-flagged row: every flag is feedback (#40)', () => {
+    expect(isResubmitted({ score: null, exception: 6, submitted_at: 1000, latest_revision_at: 2000 })).toBe(true);
+    expect(isResubmitted({ score: null, exception: 5, submitted_at: 1000, latest_revision_at: 2000 })).toBe(true);
   });
 
   test('false when submitted_at is 0 (grade time unknown)', () => {
@@ -50,24 +51,9 @@ describe('hasFeedback', () => {
     expect(hasFeedback(null)).toBe(false);
   });
 
-  test('a Late flag (exception 4) is not feedback; Excused, Incomplete and Missing are', () => {
-    expect(hasFeedback({ score: null, exception: 4, grade_comment: '' })).toBe(false);
-    expect(hasFeedback({ score: null, exception: '4', grade_comment: '' })).toBe(false);
-    expect(hasFeedback({ score: 80, exception: 4 })).toBe(true);
-    expect(hasFeedback({ score: null, exception: 4, grade_comment: 'Good start' })).toBe(true);
-    expect(hasFeedback({ exception: 1 })).toBe(true);
-    expect(hasFeedback({ exception: 2 })).toBe(true);
-    expect(hasFeedback({ exception: 3 })).toBe(true);
-  });
-});
-
-describe('feedbackException', () => {
-  test('4 (Late) counts as 0, everything else is itself', () => {
-    expect(feedbackException(4)).toBe(0);
-    expect(feedbackException('4')).toBe(0);
-    expect([0, 1, 2, 3].map(feedbackException)).toEqual([0, 1, 2, 3]);
-    expect(feedbackException(null)).toBe(0);
-    expect(feedbackException(undefined)).toBe(0);
+  test('every flag (Exempt, Incomplete, Missing, Absent, Late) is feedback (#40)', () => {
+    for (const exception of [1, 2, 3, 5, 6, '6']) expect(hasFeedback({ score: null, exception, grade_comment: '' })).toBe(true);
+    expect(hasFeedback({ score: null, exception: 0, grade_comment: '' })).toBe(false);
   });
 });
 
@@ -212,8 +198,8 @@ describe('resubmissionStateFromSnapshot', () => {
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('v2 is better'), ...g })).toBe(null);
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis(null, { score: 90 }), ...g })).toBe(null);
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { exception: 3 }), ...g })).toBe(null);
-    // Late (4) is a flag, not feedback: it does not acknowledge the resubmission (#40).
-    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { exception: 4 }), ...g })).toBe('arrived');
+    // Late (6) is a flag like the others, so it acknowledges too (#40).
+    expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { exception: 6 }), ...g })).toBe(null);
     // A level change needs a Prism save after the arrival that changed levels (round 4).
     expect(resubmissionStateFromSnapshot({ snapshot, currentFingerprint: vis('Good start', { levels: [{ topic_id: 't', grade: 'EX' }] }), ...g })).toBe('arrived');
     expect(resubmissionStateFromSnapshot({ snapshot: { ...snapshot, arrival_parts: PART_LEVELS }, currentFingerprint: vis('Good start', { levels: [{ topic_id: 't', grade: 'EX' }] }), ...g })).toBe(null);

@@ -43,7 +43,7 @@ function submissionLine(t) {
     return { key: 'submission', text: `${prefix} (${days(t.overdue.day - 1)} overdue${over})`, tone: t.overdue.overLimit ? 'over' : 'late' };
   };
   switch (s.state) {
-    case 'excused': return { key: 'submission', text: 'Excused' };
+    case 'excused': return { key: 'submission', text: 'Exempt' };
     case 'in_progress': return clock(t.overdue ? 'In progress, not submitted' : 'In progress');
     case 'not_started': return clock('Not started');
     case 'not_submitted': return t.overdue ? clock('Not submitted') : null;
@@ -94,16 +94,9 @@ function submissionLateText(s) {
   return 'Late, before the next school day';
 }
 
-export const FLAGGED_LATE_TEXT = 'Marked late with Flags';
-
-// The late clock's hover. A late submission says how late ("1 h 23 min late"); the teacher's
-// Late flag says "Marked late with Flags", and with both the flag line comes first, then the
-// submission line. `flagged` overrides the timeline's own (a cell may have no timeline).
-export function lateText(t, { flagged = Boolean(t?.submission?.flagged) } = {}) {
-  const s = t?.submission;
-  if (!flagged) return submissionLateText(s);
-  return s?.late ? `${FLAGGED_LATE_TEXT}\n${submissionLateText(s)}` : FLAGGED_LATE_TEXT;
-}
+// The late clock's hover: how late the submission was. The Late flag is a symbol of its own
+// (FlagSymbol), never a clock, so it has no line here (#40).
+export const lateText = (t) => submissionLateText(t?.submission);
 
 // → [{ key, text, tone?: 'late' | 'over', title? }] in reading order.
 export function timelineParts(t, { showDue = true } = {}) {

@@ -15,6 +15,7 @@ export const TONE_VARS = {
   yellow:   { bg: 'var(--badge-amber-bg)',    text: 'var(--badge-amber-text)' },
   red:      { bg: 'var(--badge-red-bg)',      text: 'var(--badge-red-text)' },
   neutral:  { bg: 'var(--badge-gray-bg)',     text: 'var(--badge-gray-text)' },
+  slate:    { bg: 'var(--flag-absent-bg)',    text: 'var(--flag-absent)' }, // the Absent flag
   resubmit: { bg: 'var(--badge-resubmit-bg)', text: 'var(--badge-resubmit-text)' },
 };
 
@@ -32,8 +33,8 @@ export function normalizedSubmissionState(student, assignment) {
 }
 
 export function gradingStateOf(student, topics) {
-  // Excused, Incomplete, Missing (1 to 3) count as handled; Late (4) is a flag only (server gradingState parity, #40).
-  if (student.exception && Number(student.exception) !== 4) return 'complete';
+  // Any flag (Exempt, Incomplete, Missing, Absent, Late) counts as handled (server gradingState parity, #40).
+  if (Number(student.exception) > 0) return 'complete';
   const scores = student.scores || {};
   const scoredCount = topics.filter(t => scores[t.id] != null).length;
   // Prism's own status line (student.status_line) is not teacher feedback (final review M3).

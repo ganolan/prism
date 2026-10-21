@@ -42,6 +42,7 @@ import { formatDateTime } from '../lib/formatDate.js';
 import { workLinkText, workLinksStatusText } from '../lib/workLink.js';
 import { briefFlags, textSignature } from '../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../lib/statusLines.js';
+import { FLAGS, isFlag } from '../lib/flags.js';
 import { afterRefresh } from '../lib/assessmentFreshness.js';
 import SyncStatus from '../components/SyncStatus.jsx';
 import SyncHelp from '../components/SyncHelp.jsx';
@@ -49,9 +50,9 @@ import { useSyncFacts } from '../hooks/useSyncFacts.js';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import SyncDialog from '../components/SyncDialog.jsx';
 
-const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
-// The rubric-locked badge takes the flag's color (#40): Excused green, Incomplete amber, Missing red.
-const LOCK_BADGE = { 1: 'badge-green', 2: 'badge-amber', 3: 'badge-red' };
+// The rubric-locked badge takes the flag's color (#40): Exempt green, Incomplete amber, Missing red,
+// Absent slate gray, Late red.
+const LOCK_BADGE = { 1: 'badge-green', 2: 'badge-amber', 3: 'badge-red', 5: 'badge-slate', 6: 'badge-red' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
 const SUGGEST = { fill: 'var(--ai-suggest-wash)', ring: 'var(--ai-suggest)', glyph: 'var(--ai-suggest)' };
 // Sentinel stored in pending[topicId] to stage a synced final for removal (Slice 2).
@@ -265,17 +266,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState(null);
 
-  // Exception (Excused/Incomplete/Missing) on the underlying grade locks the
-  // rubric grid: setting one of these in Schoology deletes the score, so any
-  // proficiency a teacher selected here would be wiped on the next sync.
-  // Comments and the Display-to-student toggle stay editable — Schoology
-  // allows those for flagged students, and they add important context for
-  // students/parents. Late (4) doesn't lock anything.
-  const exceptionLabel = EXCEPTION_LABELS[student.exception];
-  // Rubric-locking exceptions only. Schoology disables rubric editing for
-  // Excused/Incomplete/Missing but leaves the comment + display-to-student
-  // flag editable — Prism mirrors that. Late (4) does NOT lock the rubric.
-  const isRubricLocked = student.exception === 1 || student.exception === 2 || student.exception === 3;
+  // A flag on the underlying grade (Exempt, Incomplete, Missing, Absent or Late) locks the
+  // rubric grid: setting one in Schoology removes the score, so any proficiency a teacher
+  // selected here would be wiped on the next sync. Comments and the Display-to-student
+  // toggle stay editable — Schoology allows those for flagged students, and they add
+  // important context for students/parents.
+  const isRubricLocked = isFlag(student.exception);
+  const exceptionLabel = isRubricLocked ? FLAGS[Number(student.exception)].name : null;
 
   // Comment publish state, verified against the synced Schoology value mirrored
   // in the local DB (grades.grade_comment → student.grade_comment). After a
@@ -298,7 +295,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     }
   }
   const average = hasFeedbackRows ? rubricAverage(scoreScale, topics.map((t) => rowName(t.id)), effectiveRows) : { level: null, reason: null };
-  // Never on a locked student (Excused/Incomplete/Missing): a grade would be
+  // Never on a flagged student: a grade would be
   // written over the exception.
   const autoScale = hasFeedbackRows && !isRubricLocked && student.scale_level == null && pending[SCALE] == null ? average.level : null;
   const stagedScale = scoreScale ? (pending[SCALE] ?? autoScale) : null;
@@ -1004,13 +1001,13 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             status line to the student's Schoology comment after a confirm (spec Amendment B).
             Not offered on an archived/excluded course (the server refuses those). */}
         {/* Extend (late work, or a missed test's make-up): before or after the due date.
-            Summative or Schoology test only, in a current course, not for an excused student. */}
+            Summative or Schoology test only, in a current course, not for an exempt student. */}
         {/* Refer / Waive at the referral limit, the same row the dashboard's Late work shows. */}
         {resubmitEnabled && (
           <ReferControl student={student} assignmentId={assignmentRow?.id} panelHost={panelHost} onChange={handlePairChange} />
         )}
         {/* Hidden once the work is in: there is no deadline left to extend. */}
-        {resubmitEnabled && (topics.length > 0 || assignmentRow?.is_test === 1) && student.exception !== 1
+        {resubmitEnabled && (topics.length > 0 || assignmentRow?.is_test === 1) && Number(student.exception) !== 1
           && student.timeline?.submission?.state !== 'submitted' && (
           <ExtendControl student={student} assignment={assignmentRow || {}} courseId={courseId} panelHost={panelHost} onChange={handleExtensionChange} />
         )}
@@ -1024,7 +1021,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           onChange={handleResubmitChange}
         />}
         {isRubricLocked && (
-          <span className={`badge ${LOCK_BADGE[student.exception]}`} style={{ fontSize: '0.68rem' }} title="Exception set in Schoology: score data is deleted while the exception is active">
+          <span className={`badge ${LOCK_BADGE[student.exception]}`} style={{ fontSize: '0.68rem' }} title="Flag set in Schoology: the grade is removed while the flag is set">
             {exceptionLabel}, rubric locked
           </span>
         )}
@@ -2199,7 +2196,7 @@ export default function AssessmentSummaryPage() {
   // differs from the grade, or (feedback rows) a row level that differs from
   // the row's final.
   const openScaleSuggestions = scoreScale ? students.filter(s => {
-    if ([1, 2, 3].includes(s.exception)) return false;
+    if (isFlag(s.exception)) return false;
     const parsed = feedbackByStudent[s.id]?.feedback_parsed;
     const lv = parsed?.scale_level;
     if (lv && lv !== s.scale_level) return true;

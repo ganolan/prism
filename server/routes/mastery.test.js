@@ -1849,14 +1849,14 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
 
   test('write-comment with points writes the grade + comment in one PUT, echoing the exception', async () => {
     vi.mocked(getSectionGrades).mockResolvedValue([
-      { assignment_id: 'sa-C', enrollment_id: 'eB', grade: null, exception: 4, timestamp: '1700000000' },
+      { assignment_id: 'sa-C', enrollment_id: 'eB', grade: null, exception: 6, timestamp: '1700000000' },
     ]);
     const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'eB', assignmentId: 'sa-C', points: 100, comment: 'Done', commentStatus: true,
     });
     expect(status).toBe(200);
     expect(pushGradeComments).toHaveBeenCalledWith('sec-S', [{
-      assignment_id: 'sa-C', enrollment_id: 'eB', comment: 'Done', comment_status: 1, grade: '100', exception: 4,
+      assignment_id: 'sa-C', enrollment_id: 'eB', comment: 'Done', comment_status: 1, grade: '100', exception: 6,
     }]);
     const row = getDb().prepare(
       `SELECT g.score, g.grade_comment FROM grades g JOIN students s ON s.id = g.student_id WHERE s.schoology_uid = 'uid-B'`

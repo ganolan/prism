@@ -258,7 +258,7 @@ function courseAssessments(db, student, courseId, { includeTeacherDrafts }) {
     const labels = [];
     if (a.published === 0) labels.push('assignment is unpublished in Schoology');
     if (comment.trim() && a.comment_status === 0) labels.push('comment is hidden from the student');
-    if ((a.exception ?? 0) !== 0) labels.push(`Schoology exception code ${a.exception} (excused / incomplete / missing)`);
+    if ((a.exception ?? 0) !== 0) labels.push(`Schoology exception code ${a.exception} (1 Exempt, 2 Incomplete, 3 Missing, 5 Absent, 6 Late)`);
     if (lineRemoved) labels.push('a Prism status line was removed from the comment; the rest is verbatim');
 
     const item = {

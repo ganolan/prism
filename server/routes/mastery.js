@@ -484,7 +484,7 @@ router.get('/:courseId/assignment/:assignmentId', (req, res) => {
   const scoreMap = getScoreMap(db, assignmentId, topics.map(t => t.id));
 
   // Grade comments + exception + comment_status from the regular grades table.
-  // Exception (1=Excused, 2=Incomplete, 3=Missing, 4=Late) deletes any
+  // Exception (1=Exempt, 2=Incomplete, 3=Missing, 5=Absent, 6=Late) removes any
   // existing score in Schoology when set — surfaced on the assessment page so
   // the rubric can be locked while an exception is active.
   // comment_status drives the Display-to-student toggle (#34): integer 1 = visible,

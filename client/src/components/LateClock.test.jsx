@@ -12,10 +12,11 @@ describe('LateClock', () => {
     expect(clock.querySelector('circle')).toHaveAttribute('fill', 'none');
   });
 
-  it.each(['corner', 'badge'])('the %s variant has a filled flagged form', (variant) => {
-    render(<LateClock variant={variant} flagged title="Marked late with Flags" />);
-    const clock = screen.getByRole('img', { name: 'Marked late with Flags' });
-    expect(clock).toHaveClass(`late-clock--${variant}`, 'late-clock--flagged');
-    expect(clock.querySelector('circle')).toHaveAttribute('fill', 'currentColor');
+  it.each(['corner', 'badge'])('the %s variant is always the outline clock: the Late flag is a symbol, not a filled clock (#40)', (variant) => {
+    render(<LateClock variant={variant} flagged title="ignored" />);
+    const clock = screen.getByRole('img');
+    expect(clock).toHaveClass(`late-clock--${variant}`);
+    expect(clock).not.toHaveClass('late-clock--flagged');
+    expect(clock.querySelector('circle')).toHaveAttribute('fill', 'none');
   });
 });

@@ -56,18 +56,14 @@ describe('fingerprint', () => {
   });
 });
 
-describe('Late (exception 4) is not feedback', () => {
-  test('a Late exception fingerprints like no exception', () => {
-    expect(fingerprint({ exception: 4 })).toBe(fingerprint({ exception: 0 }));
-    expect(fingerprint({ exception: '4', score: 5 })).toBe(fingerprint({ exception: 0, score: 5 }));
+describe('every flag is feedback (#40)', () => {
+  test('Exempt, Incomplete, Missing, Absent and Late each change the fingerprint', () => {
+    for (const e of [1, 2, 3, 5, 6]) expect(fingerprint({ exception: e })).not.toBe(fingerprint({ exception: 0 }));
+    expect(fingerprint({ exception: '6' })).toBe(fingerprint({ exception: 6 }));
   });
-  test('Excused, Incomplete and Missing still change the fingerprint', () => {
-    for (const e of [1, 2, 3]) expect(fingerprint({ exception: e })).not.toBe(fingerprint({ exception: 0 }));
-  });
-  test('a stored baseline with only a Late exception is not prior feedback', () => {
-    expect(hasPriorFeedback('{"s":null,"e":4,"l":[],"c":""}')).toBe(false);
-    expect(hasPriorFeedback('{"s":null,"e":1,"l":[],"c":""}')).toBe(true);
-    expect(hasPriorFeedback('{"s":3,"e":4,"l":[],"c":""}')).toBe(true);
+  test('a stored baseline with only a flag is prior feedback', () => {
+    for (const e of [1, 2, 3, 5, 6]) expect(hasPriorFeedback(`{"s":null,"e":${e},"l":[],"c":""}`)).toBe(true);
+    expect(hasPriorFeedback('{"s":null,"e":0,"l":[],"c":""}')).toBe(false);
   });
 });
 

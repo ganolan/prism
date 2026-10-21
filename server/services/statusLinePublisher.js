@@ -9,12 +9,13 @@
 // and nothing is written; a failed PUT → SCHOOLOGY_WRITE_FAILED and nothing in
 // Prism changes. Publishing always sets Display on (comment_status 1); removing
 // a line keeps the fresh comment_status.
-import { getSectionGrades, pushGradeComments } from './schoology.js';
+import { getSectionGrades, pushGradeUpdates } from './schoology.js';
 import { composeComment, teacherText, plainLine, isPlainLine } from '../lib/statusLines.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 import { TriageError } from './triageCommon.js';
 
-export const STATUS_LINE_KINDS = ['ask', 'extend_resubmission', 'grade_stands', 'extension', 'make_up', 'received'];
+// 'flag' (#40): a Schoology flag's reason line (server/services/gradeFlags.js), removed when the flag clears.
+export const STATUS_LINE_KINDS = ['ask', 'extend_resubmission', 'grade_stands', 'extension', 'make_up', 'received', 'flag'];
 
 const normalise = (text) => String(text ?? '').replace(/\r\n/g, '\n');
 
@@ -40,8 +41,8 @@ export function setStatusLineSource(db, { studentId, assignmentId, type, id }) {
     .run(type, Number(id), Number(studentId), Number(assignmentId));
 }
 
-// Student, assignment, section and Schoology enrolment for one pair.
-function pairTarget(db, studentId, assignmentId) {
+// Student, assignment, section and Schoology enrolment for one pair (also the flag write's, gradeFlags.js).
+export function pairTarget(db, studentId, assignmentId) {
   const sid = Number(studentId);
   const aid = Number(assignmentId);
   const student = Number.isInteger(sid) && sid > 0 ? db.prepare('SELECT id FROM students WHERE id = ?').get(sid) : null;
@@ -75,7 +76,7 @@ const storedRow = (db, t) => db.prepare('SELECT line, kind, source_type, source_
 // But if Prism holds a score or exception for the pair, a missing record means the
 // read didn't find it (ids drifted, partial response): writing without the echo
 // would wipe that grade, so treat it as a failed read.
-async function freshGrade(db, t) {
+export async function freshGrade(db, t) {
   let all;
   try {
     all = await getSectionGrades(t.sectionId);
@@ -118,7 +119,7 @@ async function putComment(t, fresh, comment, commentStatus) {
   if (fresh && fresh.exception != null) payload.exception = fresh.exception;
   let result;
   try {
-    result = await pushGradeComments(t.sectionId, [payload]);
+    result = await pushGradeUpdates(t.sectionId, [payload]);
   } catch (err) {
     console.error(`[status line] comment PUT failed: ${err.message}`);
     throw new TriageError('SCHOOLOGY_WRITE_FAILED', `Schoology did not accept the comment: nothing was changed (${err.message})`);

@@ -8,7 +8,7 @@ vi.mock('./masterySync.js', () => ({
   writeMasteryScores: vi.fn(), writeMasteryScoresBatch: vi.fn(), writeMasteryOverride: vi.fn(),
   getMasteryForCourse: vi.fn(), getRubricScoresForStudent: vi.fn(), interactiveLogin: vi.fn(),
 }));
-vi.mock('./schoology.js', () => ({ pushGradeComments: vi.fn(), getSectionGrades: vi.fn() }));
+vi.mock('./schoology.js', () => ({ pushGradeUpdates: vi.fn(), getSectionGrades: vi.fn() }));
 vi.mock('./oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }));
 
 import { getDb } from '../db/index.js';

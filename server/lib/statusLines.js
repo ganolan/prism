@@ -3,6 +3,7 @@
 // Templates are plain printable ASCII (since 2026-10-03): no special character is ever sent
 // to Schoology, so no encoding round-trip can alter a stored line. Prism's own UI may still
 // show the ⟳ glyph on its pills and tags.
+import { FLAG_VERBS } from './flags.js';
 export function lineDate(iso) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: '2-digit' }).replace(',', '');
 }
@@ -27,6 +28,12 @@ export const gradeStandsLine = ({ until }) => `Resubmission deadline (${lineDate
 export const extensionLine = ({ until, lessons, note }) => withNote(`Extension - now due ${lineDate(until)} (${lessons} ${Number(lessons) === 1 ? 'school day' : 'school days'}).`, note);
 export const makeUpLine = ({ until, note }) => withNote(`Make-up - sit by ${lineDate(until)}.`, note);
 export const receivedLine = ({ on }) => `Resubmission received ${shortDate(on)} - regraded.`;
+// #40: a flag's reason line, e.g. "Marked exempt on Tue 20/10. Medical leave." (written only with a reason).
+export const flagLine = ({ code, on, note }) => {
+  const verb = FLAG_VERBS[Number(code)];
+  if (!verb) throw new Error(`Not a flag code: ${code}`);
+  return withNote(`Marked ${verb} on ${lineDate(on)}.`, note);
+};
 
 // Remove the exact stored line from the start (if still there verbatim), then prepend newLine.
 export function composeComment(current, storedLine, newLine) {

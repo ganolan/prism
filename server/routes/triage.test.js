@@ -3,11 +3,11 @@ import express from 'express';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 // Status-line publishing reads/writes the student's Schoology comment — never for real.
-vi.mock('../services/schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments: vi.fn() }));
+vi.mock('../services/schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeUpdates: vi.fn() }));
 
 import router from './triage.js';
 import { getDb } from '../db/index.js';
-import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
+import { getSectionGrades, pushGradeUpdates } from '../services/schoology.js';
 import { addDays, todayLocal } from '../lib/schoolDays.js';
 import { storeSchoolDays, loadCalendar } from '../services/schoolCalendar.js';
 import { settleResubmissions, recordSchoologyUnsubmit } from '../services/resubmissions.js';
@@ -198,7 +198,7 @@ describe('status lines on triage actions (Amendment B)', () => {
   const LINE = 'Resubmission requested - due Thu 09/10. Fix the loop.';
   const fresh = (over = {}) => ({ assignment_id: 'a1', enrollment_id: 'enr', grade: '2', exception: 1, comment: 'Teacher note.', comment_status: 1, ...over });
   const storedLine = () => getDb().prepare('SELECT line, kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId) || null;
-  const payload = () => pushGradeComments.mock.calls.at(-1)[1][0];
+  const payload = () => pushGradeUpdates.mock.calls.at(-1)[1][0];
   const count = (table) => getDb().prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n;
   const ask = (body = {}) => call('POST', '/api/triage/resubmissions', { studentId, assignmentId, lessons: 2, ...body });
   const backdate = (id) => getDb().prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(id);
@@ -207,7 +207,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     vi.clearAllMocks();
     getDb().prepare(`UPDATE enrolments SET schoology_enrolment_id = 'enr' WHERE student_id = ?`).run(studentId);
     getSectionGrades.mockResolvedValue([fresh()]);
-    pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+    pushGradeUpdates.mockResolvedValue({ status: 207, data: {} });
   });
 
   test('ask with commentLine: publishes (fresh read, echoes grade/exception, comment_status 1), then records', async () => {
@@ -222,7 +222,7 @@ describe('status lines on triage actions (Amendment B)', () => {
   test('without commentLine nothing touches Schoology (Prism-only, as before)', async () => {
     expect((await ask()).status).toBe(201);
     expect(getSectionGrades).not.toHaveBeenCalled();
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(storedLine()).toBeNull();
   });
 
@@ -231,7 +231,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     const res = await ask({ commentLine: LINE });
     expect(res).toMatchObject({ status: 409, body: { code: 'ALREADY_OPEN' } });
     expect(getSectionGrades).not.toHaveBeenCalled();
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(storedLine()).toBeNull();
   });
 
@@ -239,7 +239,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     expect(await ask({ lessons: 0, commentLine: LINE })).toMatchObject({ status: 400, body: { code: 'BAD_LESSONS' } });
     getDb().prepare('UPDATE courses SET archived = 1').run();
     expect(await ask({ commentLine: LINE })).toMatchObject({ status: 409, body: { code: 'NOT_ELIGIBLE' } });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('Review Focus 4: the fresh read fails → 502, nothing published, nothing recorded', async () => {
@@ -247,13 +247,13 @@ describe('status lines on triage actions (Amendment B)', () => {
     const res = await ask({ commentLine: LINE });
     expect(res).toMatchObject({ status: 502, body: { code: 'SCHOOLOGY_READ_FAILED' } });
     expect(res.body.error).toMatch(/nothing was published/);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(count('resubmissions')).toBe(0);
     expect(storedLine()).toBeNull();
   });
 
   test('the PUT fails → 502, nothing recorded', async () => {
-    pushGradeComments.mockResolvedValue({ status: 401, data: 'nope' });
+    pushGradeUpdates.mockResolvedValue({ status: 401, data: 'nope' });
     expect(await ask({ commentLine: LINE })).toMatchObject({ status: 502, body: { code: 'SCHOOLOGY_WRITE_FAILED' } });
     expect(count('resubmissions')).toBe(0);
     expect(storedLine()).toBeNull();
@@ -261,7 +261,7 @@ describe('status lines on triage actions (Amendment B)', () => {
 
   test('published but the Prism record then fails → 500 saying the comment WAS published', async () => {
     // A concurrent ask lands between validation and record (e.g. a second tab).
-    pushGradeComments.mockImplementation(async () => {
+    pushGradeUpdates.mockImplementation(async () => {
       getDb().prepare(`INSERT INTO resubmissions (student_id, assignment_id, course_id, kind, status, requested_at, lessons, source) VALUES (?, ?, ?, 'request', 'open', datetime('now'), 2, 'app')`)
         .run(studentId, assignmentId, courseId);
       return { status: 207, data: {} };
@@ -294,7 +294,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     getDb().prepare(`UPDATE resubmissions SET status = 'done'`).run();
     expect(await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { lessons: 3, commentLine: LINE }))
       .toMatchObject({ status: 409, body: { code: 'NOT_ELIGIBLE' } });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('grade stands: NOT_AT_DEADLINE before any PUT; after the deadline publishes kind grade_stands and closes', async () => {
@@ -303,7 +303,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     expect(await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { gradeStands: true, commentLine: stands }))
       .toMatchObject({ status: 409, body: { code: 'NOT_AT_DEADLINE' } });
     expect(getSectionGrades).not.toHaveBeenCalled();
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     backdate(asked.body.id);
     const res = await call('PUT', `/api/triage/resubmissions/${asked.body.id}`, { gradeStands: true, commentLine: stands });
     expect(res.status).toBe(200);
@@ -331,7 +331,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     expect(count('resubmissions')).toBe(1);
     expect(storedLine()).not.toBeNull();
     expect((await call('DELETE', `/api/triage/resubmissions/${first.body.id}`)).body).toEqual({ deleted: true });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(storedLine()).not.toBeNull();
   });
 
@@ -360,7 +360,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     vi.clearAllMocks();
     expect(await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 0, commentLine: 'x' }))
       .toMatchObject({ status: 400, body: { code: 'BAD_LESSONS' } });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     const x = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2 });
     expect((await call('DELETE', `/api/triage/extensions/${x.body.id}?removeLine=1`)).body).toMatchObject({ deleted: true, statusLine: { removed: false, comment: null } });
     expect(getSectionGrades).not.toHaveBeenCalled();
@@ -386,7 +386,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     getSectionGrades.mockResolvedValue([fresh({ comment: `${second}\n\nTeacher note.` })]);
     const undo1 = await call('DELETE', `/api/triage/resubmissions/${first.body.id}?removeLine=1`);
     expect(undo1.body).toMatchObject({ deleted: true, statusLine: { removed: false } });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(storedLine()).toEqual({ line: second, kind: 'ask' });
     const undo2 = await call('DELETE', `/api/triage/resubmissions/${asked2.body.id}?removeLine=1`);
     expect(undo2.body).toMatchObject({ deleted: true, statusLine: { removed: true, comment: 'Teacher note.' } });
@@ -395,9 +395,9 @@ describe('status lines on triage actions (Amendment B)', () => {
 
   test('I-3: a second action on the same pair while one is publishing → 409 BUSY before any read; released after', async () => {
     let finishPut;
-    pushGradeComments.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207, data: {} }); }));
+    pushGradeUpdates.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207, data: {} }); }));
     const first = ask({ commentLine: LINE });
-    await vi.waitFor(() => expect(pushGradeComments).toHaveBeenCalled());
+    await vi.waitFor(() => expect(pushGradeUpdates).toHaveBeenCalled());
     const busy = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 2, commentLine: 'Extension.' });
     expect(busy).toMatchObject({ status: 409, body: { code: 'BUSY' } });
     expect(getSectionGrades).toHaveBeenCalledTimes(1);
@@ -409,7 +409,7 @@ describe('status lines on triage actions (Amendment B)', () => {
   test('a removal that succeeds before the undo fails → 500 saying the line WAS removed', async () => {
     const asked = await ask({ commentLine: LINE });
     getSectionGrades.mockResolvedValue([fresh({ comment: `${LINE}\n\nTeacher note.` })]);
-    pushGradeComments.mockImplementationOnce(async () => {
+    pushGradeUpdates.mockImplementationOnce(async () => {
       getDb().exec(`CREATE TEMP TRIGGER no_delete BEFORE DELETE ON resubmissions BEGIN SELECT RAISE(ABORT, 'boom'); END;`);
       return { status: 207, data: {} };
     });
@@ -438,7 +438,7 @@ describe('status lines on triage actions (Amendment B)', () => {
     getSectionGrades.mockRejectedValue(new Error('down'));
     expect(await call('GET', `/api/triage/status-line/preview?studentId=${studentId}&assignmentId=${assignmentId}&line=x`))
       .toMatchObject({ status: 502, body: { code: 'SCHOOLOGY_READ_FAILED' } });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test("GET status-line/preview names the stored line's source record (the Undo modal checks it)", async () => {
@@ -514,7 +514,7 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     db.prepare('UPDATE assignments SET is_lti_submission = 1 WHERE id = ?').run(assignmentId);
     db.prepare(`INSERT INTO grades (student_id, assignment_id, score, lti_submission_state) VALUES (?, ?, 2, 'submitted')`).run(studentId, assignmentId);
     getSectionGrades.mockResolvedValue([fresh()]);
-    pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+    pushGradeUpdates.mockResolvedValue({ status: 207, data: {} });
     fake = fakeLtiUnsubmit({ uid: 'u1', aid: 'a1' });
     sessionDeps.openJar = vi.fn(() => fake.jar);
     sessionDeps.fetch = (...args) => fake.fetchImpl(...args);
@@ -525,14 +525,14 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     const res = await ask();
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ outcome: 'asked', statusLine: { line: LINE }, unsubmit: { ok: true }, unsubmitError: null });
-    expect(pushGradeComments).toHaveBeenCalledTimes(1);
+    expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
     expect(fake.requests.find((q) => q.method === 'POST')).toMatchObject({ path: '/iapi2/assignments/a1/submission-action/u1', body: '{"isSubmit":false}' });
     expect(ltiState()).toBe('in_progress');
   });
 
   test('order: the line is published before the unsubmit', async () => {
     const order = [];
-    pushGradeComments.mockImplementation(async () => { order.push('publish'); return { status: 207, data: {} }; });
+    pushGradeUpdates.mockImplementation(async () => { order.push('publish'); return { status: 207, data: {} }; });
     sessionDeps.openJar = vi.fn(() => { order.push('unsubmit'); return fake.jar; });
     await ask();
     expect(order).toEqual(['publish', 'unsubmit']);
@@ -548,7 +548,7 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
       unsubmit: { ok: false, code: 'SCHOOLOGY_SESSION', error: 'Schoology connection expired: reconnect in Settings', url },
       unsubmitError: 'Schoology connection expired: reconnect in Settings', unsubmitUrl: url, unsubmitUncertain: false,
     });
-    expect(pushGradeComments).toHaveBeenCalledTimes(1);
+    expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
     expect(getDb().prepare('SELECT unsubmit_error FROM resubmissions').get().unsubmit_error).toMatch(/expired/);
     expect(ltiState()).toBe('submitted');
     // The triage row carries the failure + link too.
@@ -577,11 +577,11 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     await call('POST', '/api/triage/resubmissions', { studentId, assignmentId, lessons: 2 });
     expect(await ask()).toMatchObject({ status: 409, body: { code: 'ALREADY_OPEN' } });
     expect(sessionDeps.openJar).not.toHaveBeenCalled();
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('a failed publish → nothing unsubmitted, nothing recorded', async () => {
-    pushGradeComments.mockResolvedValue({ status: 401, data: 'nope' });
+    pushGradeUpdates.mockResolvedValue({ status: 401, data: 'nope' });
     expect(await ask()).toMatchObject({ status: 502, body: { code: 'SCHOOLOGY_WRITE_FAILED' } });
     expect(sessionDeps.openJar).not.toHaveBeenCalled();
     expect(getDb().prepare('SELECT COUNT(*) AS n FROM resubmissions').get().n).toBe(0);

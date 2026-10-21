@@ -737,7 +737,7 @@ CREATE TABLE IF NOT EXISTS status_lines (
   student_id INTEGER NOT NULL REFERENCES students(id),
   assignment_id INTEGER NOT NULL REFERENCES assignments(id),
   line TEXT NOT NULL,                 -- the exact text Prism published (after the teacher's edits)
-  kind TEXT NOT NULL,                 -- 'ask' | 'extend_resubmission' | 'grade_stands' | 'extension' | 'make_up' | 'received'
+  kind TEXT NOT NULL,                 -- 'ask' | 'extend_resubmission' | 'grade_stands' | 'extension' | 'make_up' | 'received' | 'flag'
   written_at TEXT NOT NULL DEFAULT (datetime('now')),
   source_type TEXT,                   -- 'resubmission' | 'extension': the record whose action published it
   source_id INTEGER,                  -- that record's id (undo removes the line only for its own record)
@@ -886,3 +886,19 @@ CREATE TABLE IF NOT EXISTS context_serves (
 );
 CREATE INDEX IF NOT EXISTS idx_context_serves_assignment ON context_serves(assignment_id, served_at);
 CREATE INDEX IF NOT EXISTS idx_context_serves_served_at ON context_serves(served_at);
+
+-- #40: the grade a Schoology flag removes, kept until it is restored or replaced. Saved from the fresh
+-- pre-write read before the flag is written (the write goes ahead only once this row is stored), so
+-- clearing the flag can restore it as the card's draft (server/services/gradeFlags.js). One row per
+-- pair. saved_json: { score, max_points, comment, comment_status, topics: { topicId: level },
+-- rows: { criterion: level }, scale_level }. flag: the code set over it. restored_at: when the copy
+-- went into the draft (NULL = still waiting).
+CREATE TABLE IF NOT EXISTS excused_grades (
+  student_id INTEGER NOT NULL,
+  assignment_id INTEGER NOT NULL,
+  flag INTEGER NOT NULL,
+  saved_json TEXT NOT NULL,
+  saved_at TEXT NOT NULL,
+  restored_at TEXT,
+  PRIMARY KEY (student_id, assignment_id)
+);

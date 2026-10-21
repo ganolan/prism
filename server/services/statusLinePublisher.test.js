@@ -1,10 +1,10 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
-vi.mock('./schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments: vi.fn() }));
+vi.mock('./schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeUpdates: vi.fn() }));
 
 import { getDb } from '../db/index.js';
-import { getSectionGrades, pushGradeComments } from './schoology.js';
+import { getSectionGrades, pushGradeUpdates } from './schoology.js';
 import { previewStatusLine, publishStatusLine, removeStatusLine, lockPair, setStatusLineSource, checkLine } from './statusLinePublisher.js';
 import { captureFeedbackSnapshots, currentFingerprints, snapshotMap } from './feedbackSnapshots.js';
 import { resubmissionStateFromSnapshot } from '../lib/resubmission.js';
@@ -16,7 +16,7 @@ let db, s, a;
 const fresh = (over = {}) => ({ assignment_id: 'sa', enrollment_id: 'enr', grade: '2', exception: 0, comment: '', comment_status: 1, ...over });
 const stored = () => db.prepare('SELECT line, kind FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(s, a) || null;
 const gradeRow = () => db.prepare('SELECT score, exception, grade_comment, comment_status FROM grades WHERE student_id = ? AND assignment_id = ?').get(s, a);
-const sentPayload = () => pushGradeComments.mock.calls.at(-1)[1][0];
+const sentPayload = () => pushGradeUpdates.mock.calls.at(-1)[1][0];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -27,7 +27,7 @@ beforeEach(() => {
   db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr')`).run(s, c);
   a = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa', 'CP2')`).run(c).lastInsertRowid;
   db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, grade_comment, comment_status) VALUES (?, ?, 'enr', 1, 'stale', 1)`).run(s, a);
-  pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+  pushGradeUpdates.mockResolvedValue({ status: 207, data: {} });
 });
 
 describe('publishStatusLine', () => {
@@ -39,8 +39,8 @@ describe('publishStatusLine', () => {
     const out = await publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'ask' });
     expect(out.comment).toBe(`${L1}\n\nGood start.`);
     expect(getSectionGrades).toHaveBeenCalledWith('sec');
-    expect(pushGradeComments).toHaveBeenCalledTimes(1);
-    expect(pushGradeComments.mock.calls[0][0]).toBe('sec');
+    expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
+    expect(pushGradeUpdates.mock.calls[0][0]).toBe('sec');
     expect(sentPayload()).toEqual({
       assignment_id: 'sa', enrollment_id: 'enr', comment: `${L1}\n\nGood start.`, comment_status: 1, grade: '3', exception: 2,
     });
@@ -74,7 +74,7 @@ describe('publishStatusLine', () => {
     getSectionGrades.mockRejectedValue(new Error('Schoology down'));
     await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'ask' }))
       .rejects.toMatchObject({ code: 'SCHOOLOGY_READ_FAILED' });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(stored()).toBeNull();
     expect(gradeRow().grade_comment).toBe('stale');
     expect(db.prepare('SELECT COUNT(*) AS n FROM feedback_snapshots').get().n).toBe(0);
@@ -82,13 +82,13 @@ describe('publishStatusLine', () => {
 
   test('a failed PUT (HTTP error or a failed entry) → SCHOOLOGY_WRITE_FAILED, nothing recorded', async () => {
     getSectionGrades.mockResolvedValue([fresh()]);
-    pushGradeComments.mockResolvedValueOnce({ status: 500, data: 'oops' });
+    pushGradeUpdates.mockResolvedValueOnce({ status: 500, data: 'oops' });
     await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'ask' }))
       .rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
-    pushGradeComments.mockResolvedValueOnce({ status: 207, data: { grades: { grade: [{ response_code: 400 }] } } });
+    pushGradeUpdates.mockResolvedValueOnce({ status: 207, data: { grades: { grade: [{ response_code: 400 }] } } });
     await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'ask' }))
       .rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
-    pushGradeComments.mockRejectedValueOnce(new Error('network'));
+    pushGradeUpdates.mockRejectedValueOnce(new Error('network'));
     await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'ask' }))
       .rejects.toMatchObject({ code: 'SCHOOLOGY_WRITE_FAILED' });
     expect(stored()).toBeNull();
@@ -100,7 +100,7 @@ describe('publishStatusLine', () => {
     await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'ask' })).rejects.toMatchObject({ code: 'SCHOOLOGY_READ_FAILED' });
     db.prepare('UPDATE grades SET score = NULL, exception = 1 WHERE student_id = ?').run(s);
     await expect(publishStatusLine(db, { studentId: s, assignmentId: a, line: L1, kind: 'ask' })).rejects.toMatchObject({ code: 'SCHOOLOGY_READ_FAILED' });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(stored()).toBeNull();
   });
 
@@ -237,7 +237,7 @@ describe('previewStatusLine', () => {
       resultingComment: `${L1}\n\nPrivate: talk to parents`, hiddenWarning: true,
       normalisedLine: L1, lineProblem: null,
     });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('a hidden comment holding only the stored line → no warning; visible comment → no warning', async () => {
@@ -275,7 +275,7 @@ describe('previewStatusLine', () => {
       expect(await previewStatusLine(db, { studentId: s, assignmentId: a, line: blank }))
         .toMatchObject({ normalisedLine: '', lineProblem: 'BAD_LINE', lineProblemMessage: 'The status line is empty' });
     }
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('a failed read → SCHOOLOGY_READ_FAILED', async () => {
@@ -323,7 +323,7 @@ describe('removeStatusLine', () => {
     db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(s, a, L1);
     getSectionGrades.mockResolvedValue([fresh({ comment: `${L1}!\n\nNote` })]);
     expect(await removeStatusLine(db, { studentId: s, assignmentId: a })).toMatchObject({ removed: false, comment: `${L1}!\n\nNote` });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(stored()).toBeNull();
   });
 
@@ -331,7 +331,7 @@ describe('removeStatusLine', () => {
     db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(s, a, L1);
     getSectionGrades.mockRejectedValue(new Error('down'));
     await expect(removeStatusLine(db, { studentId: s, assignmentId: a })).rejects.toMatchObject({ code: 'SCHOOLOGY_READ_FAILED' });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(stored()).not.toBeNull();
   });
 });

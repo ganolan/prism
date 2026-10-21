@@ -3,12 +3,12 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 // Status-line publishing (Amendment B) reads/writes the student's Schoology
 // comment — never for real in tests.
-vi.mock('../server/services/schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeComments: vi.fn() }));
+vi.mock('../server/services/schoology.js', () => ({ getSectionGrades: vi.fn(), pushGradeUpdates: vi.fn() }));
 
 import { getDb } from '../server/db/index.js';
 import { withDataTime } from '../server/routes/feedback.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
-import { getSectionGrades, pushGradeComments } from '../server/services/schoology.js';
+import { getSectionGrades, pushGradeUpdates } from '../server/services/schoology.js';
 import { listCourses, listAssignments, listStudents, writeRubric, attachRubricTool, assertSchoologyWritable } from './handlers.js';
 import {
   resolveCourseRef, getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool,
@@ -469,7 +469,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getSectionGrades.mockResolvedValue([fresh()]);
-    pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+    pushGradeUpdates.mockResolvedValue({ status: 207, data: {} });
   });
 
   test('request_resubmission publishes via the mocked publisher when comment_line is given', async () => {
@@ -477,7 +477,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     const { studentId, assignmentId } = seedEligiblePair(db);
     const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2, comment_line: LINE });
     expect(getSectionGrades).toHaveBeenCalledWith('s');
-    expect(pushGradeComments).toHaveBeenCalledTimes(1);
+    expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
     expect(r.statusLine).toMatchObject({ comment: `${LINE}\n\nTeacher note.`, line: LINE });
     expect(storedLine(db, studentId, assignmentId)).toEqual({ line: LINE, kind: 'ask' });
   });
@@ -495,7 +495,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     await expect(gradeStandsTool(db, { id: 1, comment_line: 'x' })).rejects.toEqual(notConfigured);
     await expect(undoExtensionTool(db, { id: 1, remove_line: true })).rejects.toEqual(notConfigured);
     expect(getSectionGrades).not.toHaveBeenCalled();
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(db.prepare('SELECT COUNT(*) AS n FROM resubmissions').get().n).toBe(0);
     expect(db.prepare('SELECT COUNT(*) AS n FROM extensions').get().n).toBe(0);
     // Prism-only actions (no comment_line) still work without them.
@@ -520,7 +520,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     await expect(gradeStandsTool(db, { id: 1, comment_line: 'x' }, dev)).rejects.toEqual(devCopy);
     await expect(undoExtensionTool(db, { id: 1, remove_line: true }, dev)).rejects.toEqual(devCopy);
     expect(getSectionGrades).not.toHaveBeenCalled();
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(db.prepare('SELECT COUNT(*) AS n FROM resubmissions').get().n).toBe(0);
     expect(db.prepare('SELECT COUNT(*) AS n FROM extensions').get().n).toBe(0);
     await expect(previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'ask', lessons: 2 }, dev)).resolves.toBeTruthy();
@@ -532,7 +532,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     const { studentId, assignmentId } = seedEligiblePair(db);
     const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
     expect(getSectionGrades).not.toHaveBeenCalled();
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(r.statusLine).toBeUndefined();
     expect(storedLine(db, studentId, assignmentId)).toBeNull();
   });
@@ -543,7 +543,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     const r = await requestResubmissionTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 2 });
     vi.clearAllMocks();
     getSectionGrades.mockResolvedValue([fresh()]);
-    pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+    pushGradeUpdates.mockResolvedValue({ status: 207, data: {} });
     const EXT = 'Resubmission requested - now due Mon 13/10.';
     const res = await extendDeadlineTool(db, { resubmission_id: r.id, lessons: 5, comment_line: EXT });
     expect(res.statusLine).toMatchObject({ line: EXT });
@@ -564,7 +564,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     const { studentId, assignmentId } = seedEligiblePair(db);
     const res = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 5 });
     expect(getSectionGrades).not.toHaveBeenCalled();
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(res.statusLine).toBeUndefined();
   });
 
@@ -585,7 +585,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     db.prepare(`UPDATE resubmissions SET requested_at = '2020-01-06 04:00:00' WHERE id = ?`).run(r.id);
     vi.clearAllMocks();
     getSectionGrades.mockResolvedValue([fresh()]);
-    pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+    pushGradeUpdates.mockResolvedValue({ status: 207, data: {} });
     const STANDS = 'Resubmission deadline (Thu 09/10) passed - your grade stands.';
     const res = await gradeStandsTool(db, { id: r.id, comment_line: STANDS });
     expect(getSectionGrades).toHaveBeenCalled();
@@ -600,7 +600,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     const created = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 5, comment_line: EXT });
     vi.clearAllMocks();
     getSectionGrades.mockResolvedValue([fresh({ comment: `${EXT}\n\nTeacher note.` })]);
-    pushGradeComments.mockResolvedValue({ status: 207, data: {} });
+    pushGradeUpdates.mockResolvedValue({ status: 207, data: {} });
     const res = await undoExtensionTool(db, { id: created.id, remove_line: true });
     expect(res).toMatchObject({ deleted: true, statusLine: { removed: true, comment: 'Teacher note.' } });
     expect(storedLine(db, studentId, assignmentId)).toBeNull();
@@ -609,7 +609,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
     vi.clearAllMocks();
     expect(await undoExtensionTool(db, { id: another.id })).toEqual({ deleted: true });
     expect(getSectionGrades).not.toHaveBeenCalled();
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   describe('preview_status_line renders the line server-side (review I1)', () => {
@@ -620,7 +620,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
       expect(preview.line).toBe(askLine({ until: preview.until, note: 'Fix the loop.' }));
       expect(preview.resultingComment).toBe(`${preview.line}\n\nTeacher note.`);
       expect(preview).toMatchObject({ normalisedLine: preview.line, lineProblem: null });
-      expect(pushGradeComments).not.toHaveBeenCalled();
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
       // A candidate line publish would refuse is flagged at preview time.
       const bad = await previewStatusLineTool(db, { student_id: studentId, assignment_id: assignmentId, kind: 'ask', lessons: 2, note: 'Fix the loop.', line: '\u27F3 Resubmit please' });
       expect(bad).toMatchObject({ line: preview.line, lineProblem: 'BAD_LINE' });
@@ -679,7 +679,7 @@ describe('status lines on resubmission/extension tools (Amendment B)', () => {
       expect(preview.resultingComment).toBe(`${edited}\n\nTeacher note.`);
       expect(preview.line).not.toBe(edited);
       expect(preview.line).toMatch(/^Resubmission requested - due /);
-      expect(pushGradeComments).not.toHaveBeenCalled();
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
     });
 
     test('an unknown kind is rejected before any Schoology read', async () => {

@@ -8,3 +8,11 @@ export const isFlagCode = (code) => FLAG_CODES.includes(Number(code)) && code !=
 // Exempt (1) and Absent (5): the student is not doing this task, so it is never owed, late,
 // referred, made up or waiting on feedback. Incomplete, Missing and Late still leave work owed.
 export const isNotDoingTask = (code) => isFlagCode(code) && (Number(code) === 1 || Number(code) === 5);
+
+// Names and status-line verbs, as client/src/lib/flags.js FLAGS has them (UI word "Exempt").
+export const FLAG_NAMES = { 1: 'Exempt', 2: 'Incomplete', 3: 'Missing', 5: 'Absent', 6: 'Late' };
+export const FLAG_VERBS = { 1: 'exempt', 2: 'incomplete', 3: 'missing', 5: 'absent', 6: 'late' };
+
+// Every flag but Missing makes Schoology remove the score AND blank every topic level (each
+// observation's points become null). Missing sets the score to 0 and keeps the levels (probe).
+export const removesLevels = (code) => isFlagCode(code) && Number(code) !== 3;

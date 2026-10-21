@@ -24,7 +24,7 @@ vi.mock('../services/feedbackRows.js', async (importOriginal) => {
   return { ...real, saveRowLevels: vi.fn(real.saveRowLevels) };
 });
 vi.mock('../services/schoology.js', () => ({
-  pushGradeComments: vi.fn(),
+  pushGradeUpdates: vi.fn(),
   getSectionGrades: vi.fn(),
 }));
 // The OneDrive lookup drives a real browser — never launch one in tests (#120).
@@ -38,7 +38,7 @@ import triageRouter from './triage.js';
 import { getDb } from '../db/index.js';
 import { saveRowLevels } from '../services/feedbackRows.js';
 import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
-import { getSectionGrades, pushGradeComments } from '../services/schoology.js';
+import { getSectionGrades, pushGradeUpdates } from '../services/schoology.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { getLtiSubmissionApp, getSubmittedDocuments } from '../services/ltiSubmissionApps.js';
 import { requestResubmission, resubmissionByStudent } from '../services/resubmissions.js';
@@ -536,7 +536,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     assignmentId = db.prepare(
       `INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-wc', 'Project')`
     ).run(courseId).lastInsertRowid;
-    pushGradeComments.mockResolvedValue({ status: 207 });
+    pushGradeUpdates.mockResolvedValue({ status: 207 });
   });
 
   // The bug (#60): grading on the assessment page calls write-comment, which
@@ -926,7 +926,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
   test('statusLine: honours statusLineKind; refuses a line that is not the comment\'s first line (no PUT)', async () => {
     const db = getDb();
     db.exec('DELETE FROM status_lines');
-    pushGradeComments.mockClear();
+    pushGradeUpdates.mockClear();
     getSectionGrades.mockResolvedValue([]);
     const bad = await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Note first\nLine X', statusLine: 'Line X',
@@ -936,7 +936,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
       enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Line X', statusLine: 'Line X', statusLineKind: 'bogus',
     });
     expect(badKind.status).toBe(400);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Line X', statusLine: 'Line X', statusLineKind: 'ask',
     });
@@ -946,27 +946,27 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
   test('statusLine (ASCII guarantee): write-comment normalises a typographic line in the stored line and the sent comment; refuses other non-ASCII', async () => {
     const db = getDb();
     db.exec('DELETE FROM status_lines');
-    pushGradeComments.mockClear();
+    pushGradeUpdates.mockClear();
     getSectionGrades.mockResolvedValue([]);
     const ok = await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Resubmission received 03/10 \u2013 regraded.\n\nGood.', statusLine: 'Resubmission received 03/10 \u2013 regraded.',
     });
     expect(ok.status).toBe(200);
-    expect(pushGradeComments.mock.calls.at(-1)[1][0].comment).toBe('Resubmission received 03/10 - regraded.\n\nGood.');
+    expect(pushGradeUpdates.mock.calls.at(-1)[1][0].comment).toBe('Resubmission received 03/10 - regraded.\n\nGood.');
     expect(db.prepare('SELECT line FROM status_lines WHERE student_id = ?').get(studentId).line).toBe('Resubmission received 03/10 - regraded.');
-    pushGradeComments.mockClear();
+    pushGradeUpdates.mockClear();
     const bad = await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: '\u27F3 X', statusLine: '\u27F3 X',
     });
     expect(bad).toMatchObject({ status: 400, body: { code: 'BAD_LINE', error: 'Use plain characters in the status line' } });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('statusLine is not stored when Schoology rejects the PUT; no statusLine → nothing stored', async () => {
     const db = getDb();
     db.exec('DELETE FROM status_lines');
     getSectionGrades.mockResolvedValue([]);
-    pushGradeComments.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
+    pushGradeUpdates.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
     const rejected = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Line X', statusLine: 'Line X' });
     expect(rejected.status).toBe(502);
     await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'plain' });
@@ -980,7 +980,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     const db = getDb();
     db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, grade_comment) VALUES (?, ?, 'enr-wc', 80, 'old')`).run(studentId, assignmentId);
     getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 80, exception: 0, timestamp: 1 }]);
-    pushGradeComments.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
+    pushGradeUpdates.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
     const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'New comment' });
     expect(res.status).toBe(502);
     expect(res.body.error).toBe('Schoology rejected the update: nothing was recorded in Prism');
@@ -992,7 +992,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     const db = getDb();
     db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, grade_comment) VALUES (?, ?, 'enr-wc', 80, 'old')`).run(studentId, assignmentId);
     getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 80, exception: 0, timestamp: 1 }]);
-    pushGradeComments.mockResolvedValueOnce({ status: 207, data: { grade: [{ response_code: 400 }] } });
+    pushGradeUpdates.mockResolvedValueOnce({ status: 207, data: { grade: [{ response_code: 400 }] } });
     const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'New comment' });
     expect(res.status).toBe(502);
     const row = db.prepare('SELECT grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?').get(studentId, assignmentId);
@@ -1006,7 +1006,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
        VALUES (?, ?, 'enr-wc', 88, 1779000000)`
     ).run(studentId, assignmentId);
     getSectionGrades.mockRejectedValue(new Error('Schoology down'));
-    pushGradeComments.mockClear();
+    pushGradeUpdates.mockClear();
 
     const res = await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'enr-wc',
@@ -1015,7 +1015,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     });
     expect(res.status).toBe(502);
     expect(res.body.error).toMatch(/nothing was saved/);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
 
     const row = db.prepare(
       'SELECT score, submitted_at, grade_comment FROM grades WHERE student_id = ? AND assignment_id = ?'
@@ -1029,13 +1029,13 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     const db = getDb();
     db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score) VALUES (?, ?, 'enr-wc', 88)`).run(studentId, assignmentId);
     getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'someone-else', grade: 50, exception: 0 }]);
-    pushGradeComments.mockClear();
+    pushGradeUpdates.mockClear();
     const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Hi' });
     expect(res.status).toBe(502);
     expect(res.body.error).toBe('Schoology has no grade record Prism expected: sync, then try again');
     db.prepare('UPDATE grades SET score = NULL, exception = 2 WHERE student_id = ?').run(studentId);
     expect((await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Hi' })).status).toBe(502);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(db.prepare('SELECT grade_comment FROM grades WHERE student_id = ?').get(studentId).grade_comment).toBeNull();
   });
 
@@ -1043,11 +1043,11 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     const db = getDb();
     db.prepare(`INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception) VALUES (?, ?, 'enr-wc', NULL, 0)`).run(studentId, assignmentId);
     getSectionGrades.mockResolvedValue([]);
-    pushGradeComments.mockClear();
+    pushGradeUpdates.mockClear();
     const res = await post(`/api/mastery/${courseId}/write-comment`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'First note' });
     expect(res.status).toBe(200);
-    expect(pushGradeComments).toHaveBeenCalledTimes(1);
-    expect(pushGradeComments.mock.calls[0][1][0]).toEqual({ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', comment: 'First note', comment_status: 1 });
+    expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
+    expect(pushGradeUpdates.mock.calls[0][1][0]).toEqual({ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', comment: 'First note', comment_status: 1 });
     expect(db.prepare('SELECT grade_comment FROM grades WHERE student_id = ?').get(studentId).grade_comment).toBe('First note');
   });
 
@@ -1066,7 +1066,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     expect(db.prepare('SELECT line, kind, source_type, source_id FROM status_lines WHERE student_id = ?').get(studentId))
       .toEqual({ line: received, kind: 'received', source_type: null, source_id: null });
 
-    pushGradeComments.mockClear();
+    pushGradeUpdates.mockClear();
     getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 3, exception: 0, comment: `${received}\n\nBetter.`, comment_status: 1 }]);
     const app = express();
     app.use(express.json());
@@ -1077,29 +1077,29 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
       expect(r.status).toBe(200);
       expect(await r.json()).toMatchObject({ deleted: true, statusLine: { removed: false } });
     } finally { server.close(); }
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(db.prepare('SELECT line FROM status_lines WHERE student_id = ?').get(studentId).line).toBe(received);
   });
 
   test('statusLine with a line break → 400 BAD_LINE, no read or PUT', async () => {
     getSectionGrades.mockClear();
-    pushGradeComments.mockClear();
+    pushGradeUpdates.mockClear();
     const res = await post(`/api/mastery/${courseId}/write-comment`, {
       enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Line A\nB', statusLine: 'Line A\nB',
     });
     expect(res).toMatchObject({ status: 400, body: { code: 'BAD_LINE' } });
     expect(getSectionGrades).not.toHaveBeenCalled();
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('statusLine holds the per-pair lock: an overlapping status-line write → 409 BUSY before any read', async () => {
     getSectionGrades.mockClear();
     let finishPut;
-    pushGradeComments.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207 }); }));
+    pushGradeUpdates.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207 }); }));
     getSectionGrades.mockResolvedValue([]);
     const body = { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Line R', statusLine: 'Line R' };
     const first = post(`/api/mastery/${courseId}/write-comment`, body);
-    await vi.waitFor(() => expect(pushGradeComments).toHaveBeenCalled());
+    await vi.waitFor(() => expect(pushGradeUpdates).toHaveBeenCalled());
     const second = await post(`/api/mastery/${courseId}/write-comment`, body);
     expect(second).toMatchObject({ status: 409, body: { code: 'BUSY' } });
     expect(getSectionGrades).toHaveBeenCalledTimes(1);
@@ -1143,8 +1143,8 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
 
     writeMasteryScoresBatch.mockReset();
     writeMasteryScoresBatch.mockResolvedValue(undefined);
-    pushGradeComments.mockReset();
-    pushGradeComments.mockResolvedValue({ status: 207 });
+    pushGradeUpdates.mockReset();
+    pushGradeUpdates.mockResolvedValue({ status: 207 });
     getSectionGrades.mockReset();
     getSectionGrades.mockResolvedValue([
       { assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 95, exception: 0, timestamp: 1779418446 },
@@ -1176,8 +1176,8 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
 
     // …and one bulk comment PUT covering both students.
     expect(getSectionGrades).toHaveBeenCalledTimes(1);
-    expect(pushGradeComments).toHaveBeenCalledTimes(1);
-    const [, comments] = pushGradeComments.mock.calls[0];
+    expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
+    const [, comments] = pushGradeUpdates.mock.calls[0];
     expect(comments).toHaveLength(2);
   });
 
@@ -1194,7 +1194,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     // The rubric scores (step 1) already went — say so.
     expect(res.body.error).toBe('Schoology has no grade record Prism expected: nothing was recorded in Prism; rubric scores may already be in Schoology, sync, then check');
     expect(res.body.results).toEqual([{ uid: 'uid-ada', ok: false }, { uid: 'uid-bob', ok: false }]);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(db.prepare('SELECT score, grade_comment FROM grades WHERE student_id = ?').get(bobId)).toEqual({ score: 70, grade_comment: 'old' });
     expect(db.prepare('SELECT COUNT(*) AS n FROM grades WHERE student_id = ?').get(adaId).n).toBe(0);
     expect(db.prepare('SELECT COUNT(*) AS n FROM mastery_scores').get().n).toBe(0);
@@ -1210,8 +1210,8 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
       entries: [entry('uid-ada', 'enr-ada', { scores: false }), entry('uid-bob', 'enr-bob', { scores: false })],
     });
     expect(res.status).toBe(200);
-    expect(pushGradeComments).toHaveBeenCalledTimes(1);
-    const bob = pushGradeComments.mock.calls[0][1].find((p) => p.enrollment_id === 'enr-bob');
+    expect(pushGradeUpdates).toHaveBeenCalledTimes(1);
+    const bob = pushGradeUpdates.mock.calls[0][1].find((p) => p.enrollment_id === 'enr-bob');
     expect(bob).toEqual({ assignment_id: 'sa-1', enrollment_id: 'enr-bob', comment: 'note uid-bob', comment_status: 1 });
   });
 
@@ -1220,7 +1220,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
       entries: [entry('uid-ada', 'enr-ada'), entry('uid-bob', 'enr-bob')],
     });
 
-    const [, comments] = pushGradeComments.mock.calls[0];
+    const [, comments] = pushGradeUpdates.mock.calls[0];
     const ada = comments.find(c => c.enrollment_id === 'enr-ada');
     const bob = comments.find(c => c.enrollment_id === 'enr-bob');
     // Grades come from the single getSectionGrades read (95 / 80), echoed so the
@@ -1300,7 +1300,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     const withScores = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
     expect(withScores.status).toBe(502);
     expect(withScores.body.error).toBe('Schoology down: nothing was recorded in Prism; rubric scores may already be in Schoology, sync, then check');
-    pushGradeComments.mockResolvedValue({ status: 400 });
+    pushGradeUpdates.mockResolvedValue({ status: 400 });
     getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-1', enrollment_id: 'enr-ada', grade: 95, exception: 0, timestamp: 1 }]);
     const rejected = await post(`/api/mastery/${courseId}/send-all`, { entries: [entry('uid-ada', 'enr-ada')] });
     expect(rejected.body.error).toMatch(/rubric scores may already be in Schoology/);
@@ -1319,7 +1319,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     expect(status).toBe(502);
     expect(body.results.every(r => r.ok === false)).toBe(true);
     // No comment PUT, and nothing mirrored locally.
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     const scores = db.prepare(`SELECT COUNT(*) AS n FROM mastery_scores`).get();
     expect(scores.n).toBe(0);
     const grades = db.prepare(`SELECT COUNT(*) AS n FROM grades`).get();
@@ -1334,7 +1334,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     });
 
     expect(status).toBe(502);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('score-only entries are excluded from the comment PUT', async () => {
@@ -1345,7 +1345,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
       ],
     });
 
-    const [, comments] = pushGradeComments.mock.calls[0];
+    const [, comments] = pushGradeUpdates.mock.calls[0];
     expect(comments).toHaveLength(1);
     expect(comments[0].enrollment_id).toBe('enr-bob');
   });
@@ -1413,7 +1413,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
       }],
     });
     expect(res.status).toBe(400);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     expect(writeMasteryScoresBatch).not.toHaveBeenCalled();
   });
 
@@ -1425,7 +1425,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
       }],
     });
     expect(res.status).toBe(400);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('statusLine (ASCII guarantee): a typographic line is normalised in the stored line and the sent comment', async () => {
@@ -1433,14 +1433,14 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     const plain = 'Resubmission received 03/10 - regraded.';
     const { status } = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(typed)] });
     expect(status).toBe(200);
-    expect(pushGradeComments.mock.calls[0][1][0].comment).toBe(`${plain}\n\nBetter.`);
+    expect(pushGradeUpdates.mock.calls[0][1][0].comment).toBe(`${plain}\n\nBetter.`);
     expect(getDb().prepare('SELECT line FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(adaId, assignmentRowId).line).toBe(plain);
   });
 
   test('statusLine (ASCII guarantee): a non-ASCII line → 400 BAD_LINE, no write', async () => {
     const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry('\u27F3 Received')] });
     expect(res).toMatchObject({ status: 400, body: { code: 'BAD_LINE', error: 'Use plain characters in the status line' } });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('statusLine: a line with a line break → 400 BAD_LINE, no write (minor)', async () => {
@@ -1448,14 +1448,14 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
       entries: [statusLineEntry('Line A\nB', { comment: 'Line A\nB\n\nBetter.' })],
     });
     expect(res).toMatchObject({ status: 400, body: { code: 'BAD_LINE' } });
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   // I1: apiPut never throws on an HTTP error — send-all must check the result,
   // same as write-comment, or it would mirror a comment Schoology rejected.
   test('I1: a rejected comment PUT (HTTP error) → 502, nothing mirrored, no status_lines', async () => {
     const line = 'Resubmission received 03/10 - regraded.';
-    pushGradeComments.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
+    pushGradeUpdates.mockResolvedValueOnce({ status: 403, data: 'forbidden' });
     const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(line)] });
     expect(res.status).toBe(502);
     expect(res.body.results).toEqual([{ uid: 'uid-ada', ok: false }]);
@@ -1466,7 +1466,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
 
   test('I1: a 207 with a failed entry (per-item response_code) → 502, nothing mirrored', async () => {
     const line = 'Resubmission received 03/10 - regraded.';
-    pushGradeComments.mockResolvedValueOnce({ status: 207, data: { grade: [{ response_code: 400 }] } });
+    pushGradeUpdates.mockResolvedValueOnce({ status: 207, data: { grade: [{ response_code: 400 }] } });
     const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(line)] });
     expect(res.status).toBe(502);
     const db = getDb();
@@ -1478,7 +1478,7 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
     getSectionGrades.mockRejectedValueOnce(new Error('Schoology down'));
     const res = await post(`/api/mastery/${courseId}/send-all`, { entries: [statusLineEntry(line)] });
     expect(res.status).toBe(502);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
     const db = getDb();
     expect(db.prepare('SELECT COUNT(*) AS n FROM status_lines').get().n).toBe(0);
   });
@@ -1488,10 +1488,10 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
   test('I2: statusLine holds the per-pair lock — an overlapping send-all for the same pair → 409 BUSY', async () => {
     const line = 'Resubmission received 03/10 - regraded.';
     let finishPut;
-    pushGradeComments.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207 }); }));
+    pushGradeUpdates.mockImplementationOnce(() => new Promise((resolve) => { finishPut = () => resolve({ status: 207 }); }));
     const body = { entries: [statusLineEntry(line)] };
     const first = post(`/api/mastery/${courseId}/send-all`, body);
-    await vi.waitFor(() => expect(pushGradeComments).toHaveBeenCalled());
+    await vi.waitFor(() => expect(pushGradeUpdates).toHaveBeenCalled());
     const second = await post(`/api/mastery/${courseId}/send-all`, body);
     expect(second).toMatchObject({ status: 409, body: { code: 'BUSY' } });
     finishPut();
@@ -1801,8 +1801,8 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
 
   beforeEach(() => {
     // A real apiPut response always carries a status (send-all now checks it,
-    // I1) — {} isn't a shape pushGradeComments can actually return.
-    vi.mocked(pushGradeComments).mockReset().mockResolvedValue({ status: 207 });
+    // I1) — {} isn't a shape pushGradeUpdates can actually return.
+    vi.mocked(pushGradeUpdates).mockReset().mockResolvedValue({ status: 207 });
     vi.mocked(getSectionGrades).mockReset();
     const db = getDb();
     db.exec(
@@ -1855,7 +1855,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
       enrollmentId: 'eB', assignmentId: 'sa-C', points: 100, comment: 'Done', commentStatus: true,
     });
     expect(status).toBe(200);
-    expect(pushGradeComments).toHaveBeenCalledWith('sec-S', [{
+    expect(pushGradeUpdates).toHaveBeenCalledWith('sec-S', [{
       assignment_id: 'sa-C', enrollment_id: 'eB', comment: 'Done', comment_status: 1, grade: '100', exception: 6,
     }]);
     const row = getDb().prepare(
@@ -1869,7 +1869,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
       enrollmentId: 'eB', assignmentId: 'sa-C', points: 80, comment: '', commentStatus: true,
     });
     expect(status).toBe(400);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('write-comment refuses points on an assignment Prism does not grade by scale', async () => {
@@ -1877,7 +1877,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
       enrollmentId: 'eB', assignmentId: 'sa-L', points: 100, comment: '', commentStatus: true,
     });
     expect(status).toBe(400);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('write-comment with points stops if the current Schoology grade cannot be read', async () => {
@@ -1886,7 +1886,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
       enrollmentId: 'eB', assignmentId: 'sa-C', points: 100, comment: '', commentStatus: true,
     });
     expect(status).toBe(502);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   test('send-all carries a scale grade into the PUT payload and mirrors the score', async () => {
@@ -1899,7 +1899,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
     });
     expect(status).toBe(200);
     expect(body.results).toEqual([{ uid: 'uid-B', ok: true, resubmissionFields: { resubmission: null, resubmit_flag: null, resubmitted: false, arrived_on: null } }]);
-    expect(pushGradeComments).toHaveBeenCalledWith('sec-S', [expect.objectContaining({ grade: '0', comment_status: null })]);
+    expect(pushGradeUpdates).toHaveBeenCalledWith('sec-S', [expect.objectContaining({ grade: '0', comment_status: null })]);
     const row = getDb().prepare(
       `SELECT g.score FROM grades g JOIN students s ON s.id = g.student_id WHERE s.schoology_uid = 'uid-B'`
     ).get();
@@ -1912,7 +1912,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
         grade: { points: 55 }, comment: { comment: '', commentStatus: true } }],
     });
     expect(status).toBe(400);
-    expect(pushGradeComments).not.toHaveBeenCalled();
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
   });
 
   describe('feedback rows (spec 2026-10-13)', () => {
@@ -1924,7 +1924,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
       db.prepare(`INSERT INTO rubric_criteria (rubric_id, position, criterion_name) VALUES (?, 1, 'Features and Code'), (?, 2, 'Playtesting')`).run(rubricId, rubricId);
       db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'sa-F', ?, 'now')`).run(rubricId, courseId);
       vi.mocked(getSectionGrades).mockResolvedValue([{ assignment_id: 'sa-F', enrollment_id: 'eB', grade: null, exception: 0, timestamp: '0' }]);
-      vi.mocked(pushGradeComments).mockResolvedValue({ status: 207 });
+      vi.mocked(pushGradeUpdates).mockResolvedValue({ status: 207 });
     });
     const rowsOf = (uid) => Object.fromEntries(getDb().prepare(
       `SELECT criterion_name, level FROM rubric_row_levels WHERE assignment_schoology_id = 'sa-F' AND student_uid = ?`).all(uid).map(r => [r.criterion_name, r.level]));
@@ -1972,13 +1972,13 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
         rowLevels: { 'Features and Code': 'EX', Playtesting: 'D' },
       });
       expect(status).toBe(200);
-      const sent = vi.mocked(pushGradeComments).mock.calls[0][1][0];
+      const sent = vi.mocked(pushGradeUpdates).mock.calls[0][1][0];
       expect(sent).toEqual({ assignment_id: 'sa-F', enrollment_id: 'eB', comment: 'Good', comment_status: 1, grade: '75', exception: 0 });
       expect(rowsOf('uid-B')).toEqual({ 'Features and Code': 'EX', Playtesting: 'D' });
     });
 
     test('write-comment stores no rows when Schoology rejects the write', async () => {
-      vi.mocked(pushGradeComments).mockResolvedValue({ status: 500, data: {} });
+      vi.mocked(pushGradeUpdates).mockResolvedValue({ status: 500, data: {} });
       const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
         enrollmentId: 'eB', assignmentId: 'sa-F', points: 75, comment: '', commentStatus: true, rowLevels: { Playtesting: 'D' },
       });
@@ -1992,7 +1992,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
       });
       expect(status).toBe(400);
       expect(getSectionGrades).not.toHaveBeenCalled();
-      expect(pushGradeComments).not.toHaveBeenCalled();
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
     });
 
     test('send-all with only row changes makes no Schoology call and stores the rows', async () => {
@@ -2001,12 +2001,12 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
       });
       expect(status).toBe(200);
       expect(getSectionGrades).not.toHaveBeenCalled();
-      expect(pushGradeComments).not.toHaveBeenCalled();
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
       expect(rowsOf('uid-B')).toEqual({ Playtesting: 'EX' });
     });
 
     test('send-all stores rows only after the comment PUT succeeds', async () => {
-      vi.mocked(pushGradeComments).mockResolvedValue({ status: 500, data: {} });
+      vi.mocked(pushGradeUpdates).mockResolvedValue({ status: 500, data: {} });
       await post(`/api/mastery/${courseId}/send-all`, {
         entries: [{ uid: 'uid-B', enrollmentId: 'eB', assignmentId: 'sa-F', scores: null,
           grade: { points: 75 }, comment: { comment: 'Good', commentStatus: true }, rowLevels: { Playtesting: 'EX' } }],

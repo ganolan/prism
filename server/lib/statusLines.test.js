@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { lineDate, plainLine, isPlainLine, askLine, gradeStandsLine, extensionLine, makeUpLine, receivedLine, extendResubmissionLine, composeComment, teacherText } from './statusLines.js';
+import { lineDate, plainLine, isPlainLine, askLine, gradeStandsLine, extensionLine, makeUpLine, receivedLine, extendResubmissionLine, flagLine, composeComment, teacherText } from './statusLines.js';
 
 describe('status lines', () => {
   test('templates', () => {
@@ -13,6 +13,17 @@ describe('status lines', () => {
     expect(extensionLine({ until: '2026-10-09', lessons: '1' })).toBe('Extension - now due Fri 09/10 (1 school day).');
     expect(makeUpLine({ until: '2026-10-09', note: '' })).toBe('Make-up - sit by Fri 09/10.');
     expect(receivedLine({ on: '2026-10-14' })).toBe('Resubmission received 14/10 - regraded.');
+  });
+  // #40: a flag's reason line. 21/10/2026 is a Wednesday (the spec's "Tue 21/10" example is illustrative).
+  test('flagLine: "Marked <verb> on <day>." plus the optional reason', () => {
+    expect(flagLine({ code: 1, on: '2026-10-21', note: 'Medical leave.' })).toBe('Marked exempt on Wed 21/10. Medical leave.');
+    expect(flagLine({ code: 6, on: '2026-10-21' })).toBe('Marked late on Wed 21/10.');
+    expect(flagLine({ code: 1, on: '2026-10-20', note: 'Medical leave from 13 to 24 October.' })).toBe('Marked exempt on Tue 20/10. Medical leave from 13 to 24 October.');
+    expect(flagLine({ code: 5, on: '2026-10-20', note: '  ' })).toBe('Marked absent on Tue 20/10.');
+    expect(flagLine({ code: 2, on: '2026-10-20' })).toBe('Marked incomplete on Tue 20/10.');
+    expect(flagLine({ code: '3', on: '2026-10-20' })).toBe('Marked missing on Tue 20/10.');
+    expect(() => flagLine({ code: 4, on: '2026-10-20' })).toThrow();
+    expect(() => flagLine({ code: 0, on: '2026-10-20' })).toThrow();
   });
   // ASCII-only since 2026-10-03 (teacher decision): nothing Prism sends to Schoology
   // carries a special character, so no encoding round-trip can alter a stored line.
@@ -28,6 +39,7 @@ describe('status lines', () => {
       }
       expect(gradeStandsLine({ until })).toMatch(ascii);
       expect(receivedLine({ on: until })).toMatch(ascii);
+      for (const code of [1, 2, 3, 5, 6]) expect(flagLine({ code, on: until, note: 'see me' })).toMatch(ascii);
     }
   });
   test('plainLine turns typographic punctuation and odd spaces into ASCII; isPlainLine checks printable ASCII', () => {

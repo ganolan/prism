@@ -225,8 +225,12 @@ export async function getSubmissionStatus(sectionId, assignmentId, userId) {
   return summarizeRevisions(data?.revision || []);
 }
 
-export async function pushGradeComments(sectionId, gradeUpdates) {
-  // gradeUpdates: array of { assignment_id, enrollment_id, grade, comment, comment_status }
+// The public bulk grade PUT (renamed from pushGradeComments, #40: it also sets flags).
+// gradeUpdates: array of { assignment_id, enrollment_id, grade, exception, comment, comment_status }.
+// The PUT replaces the whole record: echo every field you are not changing from a fresh
+// read (#46). Never throws on an HTTP error: check status and per-entry response_code
+// (statusLinePublisher.putSucceeded).
+export async function pushGradeUpdates(sectionId, gradeUpdates) {
   return apiPut(`/sections/${sectionId}/grades`, {
     grades: { grade: gradeUpdates },
   });

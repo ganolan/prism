@@ -80,6 +80,7 @@ describe('parity with server/lib/statusLines.js', () => {
           expect(client[fn]({ until, note })).toBe(server[fn]({ until, note }));
         }
         for (const lessons of [1, 4]) expect(client.extensionLine({ until, lessons, note })).toBe(server.extensionLine({ until, lessons, note }));
+        for (const code of [1, 2, 3, 5, 6]) expect(client.flagLine({ code, on: until, note })).toBe(server.flagLine({ code, on: until, note }));
       }
     }
     for (const t of ['', '\u2018q\u2019 \u201Cdq\u201D \u2013 \u2014 \u2026', 'a\u00A0b\u202Fc', 'caf\u00E9', 'plain']) {

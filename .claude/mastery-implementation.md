@@ -111,7 +111,7 @@ Playwright uses a dedicated profile directory (`.playwright-session/`, gitignore
 - [ ] MasteryPerformanceSummary renders when data is present
 - [ ] AssessmentSummaryPage loads and displays student cards
 - [ ] Write-back: proficiency changes POST correctly to Schoology
-- [ ] Comment write-back via pushGradeComments
+- [ ] Comment write-back via pushGradeUpdates
 
 ## Known issues / TODO
 

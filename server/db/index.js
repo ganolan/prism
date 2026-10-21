@@ -206,6 +206,16 @@ const MIGRATIONS = [
   // to `resubmissions` on 2026-10-03). schema.sql no longer creates it; this drops it where it exists.
   // The table's index goes with it.
   `DROP TABLE IF EXISTS flags`,
+  // #40: the grade a flag removes (schema.sql has the same table, with its notes).
+  `CREATE TABLE IF NOT EXISTS excused_grades (
+    student_id INTEGER NOT NULL,
+    assignment_id INTEGER NOT NULL,
+    flag INTEGER NOT NULL,
+    saved_json TEXT NOT NULL,
+    saved_at TEXT NOT NULL,
+    restored_at TEXT,
+    PRIMARY KEY (student_id, assignment_id)
+  )`,
 ];
 
 // Remove mastery score rows with no level. The full mastery sync stored an

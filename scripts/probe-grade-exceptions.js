@@ -27,7 +27,7 @@ const OPS = ['excused', 'excused-nullgrade', 'incomplete', 'missing', 'absent', 
 const [op, cAid, cEnr] = String(process.env.CONFIRM || '').split(':');
 const confirmed = OPS.includes(op) && cAid === aid && cEnr === enrollmentId;
 
-const { getAssignmentGrades, pushGradeComments } = await import('../server/services/schoology.js');
+const { getAssignmentGrades, pushGradeUpdates } = await import('../server/services/schoology.js');
 const { getRubricScoresForStudent } = await import('../server/services/masterySync.js');
 const { cookieJar, getJson } = await import('../server/services/schoologyWeb.js');
 
@@ -102,6 +102,6 @@ switch (op) {
   default: process.exit(1);
 }
 show(`\nPUT (${op})`, entries);
-const result = await pushGradeComments(sectionId, entries);
+const result = await pushGradeUpdates(sectionId, entries);
 show('answer', { status: result?.status, data: result?.data });
 await views('after');

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { hasMasterySession, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent } from '../services/masterySync.js';
-import { pushGradeComments, getSectionGrades } from '../services/schoology.js';
+import { pushGradeUpdates, getSectionGrades } from '../services/schoology.js';
 import { settleResubmissions, resubmissionByStudent, arrivedKeys, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { refreshCourseMastery } from '../services/masteryRefresh.js';
@@ -806,7 +806,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
     if (fresh && fresh.exception != null) payload.exception = fresh.exception;
 
     try {
-      const result = await pushGradeComments(courseRow.schoology_section_id, [payload]);
+      const result = await pushGradeUpdates(courseRow.schoology_section_id, [payload]);
 
       // apiPut never throws on an HTTP error, so the result must be checked —
       // a rejected write (or a 207 with a failed per-item response_code) must
@@ -1086,7 +1086,7 @@ router.post('/:courseId/send-all', async (req, res) => {
       // apiPut never throws on an HTTP error, so the result must be checked —
       // a discarded failure here would mirror a comment Schoology never
       // accepted (the pre-existing send-all gap putSucceeded closes elsewhere).
-      const result = await pushGradeComments(sectionId, payloads);
+      const result = await pushGradeUpdates(sectionId, payloads);
       if (!putSucceeded(result)) {
         console.error('[mastery send-all] comment PUT rejected:', result?.status, JSON.stringify(result?.data)?.slice(0, 500));
         return res.status(502).json({

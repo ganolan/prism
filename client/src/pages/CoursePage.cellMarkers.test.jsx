@@ -94,3 +94,19 @@ describe('gradebook cell: the late clocks', () => {
     expect(document.querySelector('.late-clock')).toBeNull();
   });
 });
+
+describe('gradebook cell: exception chips', () => {
+  it.each([[1, 'Exc', 'excused'], [2, 'Inc', 'incomplete'], [3, 'Miss', 'missing']])(
+    'exception %i shows the dashed chip in a button that opens the pop-up, and no level chip',
+    (exception, text, tone) => {
+      renderGrid({ score: null, exception });
+      const chip = cell().querySelector('.exception-chip');
+      expect(chip).toHaveTextContent(text);
+      expect(chip).toHaveClass(`exception-chip--${tone}`);
+      expect(cell()).not.toHaveTextContent(/Excused|Incomplete|Missing/);
+      const button = chip.closest('button.cell-open');
+      expect(button).not.toBeNull();
+      fireEvent.click(button);
+      expect(screen.getByRole('dialog', { name: 'Ada Lovelace: Essay' })).toBeInTheDocument();
+    });
+});

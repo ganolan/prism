@@ -50,6 +50,8 @@ import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import SyncDialog from '../components/SyncDialog.jsx';
 
 const EXCEPTION_LABELS = { 1: 'Excused', 2: 'Incomplete', 3: 'Missing', 4: 'Late' };
+// The rubric-locked badge takes the flag's color (#40): Excused green, Incomplete amber, Missing red.
+const LOCK_BADGE = { 1: 'badge-green', 2: 'badge-amber', 3: 'badge-red' };
 // Suggestion accent — fuchsia CSS tokens (matches descriptor grid's --ai-suggest).
 const SUGGEST = { fill: 'var(--ai-suggest-wash)', ring: 'var(--ai-suggest)', glyph: 'var(--ai-suggest)' };
 // Sentinel stored in pending[topicId] to stage a synced final for removal (Slice 2).
@@ -1188,7 +1190,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           <span className="text-sm" style={{ color: 'var(--danger)' }}>{flagError}</span>
         )}
         {isRubricLocked && (
-          <span className="badge badge-red" style={{ fontSize: '0.68rem' }} title="Exception set in Schoology: score data is deleted while the exception is active">
+          <span className={`badge ${LOCK_BADGE[student.exception]}`} style={{ fontSize: '0.68rem' }} title="Exception set in Schoology: score data is deleted while the exception is active">
             {exceptionLabel}, rubric locked
           </span>
         )}

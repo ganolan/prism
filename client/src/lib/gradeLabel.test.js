@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { submissionStatus, gradeLabel, ltiStatusUnavailable } from './gradeLabel.js';
+import { submissionStatus, gradeLabel, ltiStatusUnavailable, EXCEPTION_TONE } from './gradeLabel.js';
 
 const PAST = '2020-01-01 00:00:00';
 const FUTURE = '2999-01-01 00:00:00';
@@ -66,7 +66,7 @@ describe('submissionStatus — lti true state (#62)', () => {
   });
   it('a non-late exception still takes precedence', () => {
     expect(submissionStatus({ score: null, is_lti_submission: 1, exception: 1, due_date: PAST }))
-      .toEqual([{ kind: 'exception', label: 'Excused', tone: 'blue' }]);
+      .toEqual([{ kind: 'exception', label: 'Excused', tone: 'green' }]);
   });
 });
 
@@ -126,9 +126,9 @@ describe('gradeLabel', () => {
   });
 
   it('Excused, Incomplete and Missing still replace the grade', () => {
-    expect(gradeLabel({ score: 5, exception: 1 })).toEqual({ text: 'Excused', kind: 'exception' });
-    expect(gradeLabel({ score: 5, exception: 2 })).toEqual({ text: 'Incomplete', kind: 'exception' });
-    expect(gradeLabel({ score: 5, exception: 3 })).toEqual({ text: 'Missing', kind: 'exception' });
+    expect(gradeLabel({ score: 5, exception: 1 })).toEqual({ text: 'Excused', kind: 'exception', exception: 1 });
+    expect(gradeLabel({ score: 5, exception: 2 })).toEqual({ text: 'Incomplete', kind: 'exception', exception: 2 });
+    expect(gradeLabel({ score: 5, exception: 3 })).toEqual({ text: 'Missing', kind: 'exception', exception: 3 });
   });
 });
 
@@ -145,5 +145,16 @@ describe('submissionStatus: the Late flag (exception 4)', () => {
   it('flagged with nothing submitted still shows the status it already had (no late badge of its own)', () => {
     expect(submissionStatus({ score: null, exception: 4, is_lti_submission: 0, due_date: PAST }).map((b) => b.kind)).toEqual(['missing']);
     expect(submissionStatus({ score: 9, exception: 4, is_lti_submission: 0, submission_type: 'drop', due_date: PAST })).toEqual([]);
+  });
+});
+
+describe('exception tones (Excused green, Incomplete amber, Missing red)', () => {
+  it('EXCEPTION_TONE names them', () => {
+    expect(EXCEPTION_TONE).toEqual({ 1: 'green', 2: 'amber', 3: 'red' });
+  });
+  it('the status badge takes the tone', () => {
+    expect(submissionStatus({ score: null, exception: 1 })[0].tone).toBe('green');
+    expect(submissionStatus({ score: null, exception: 2 })[0].tone).toBe('amber');
+    expect(submissionStatus({ score: null, exception: 3 })[0].tone).toBe('red');
   });
 });

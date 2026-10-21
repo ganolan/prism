@@ -1563,3 +1563,9 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **One place to review a suggestion:** the student's card on `/assessment/:id`, next to the rubric and comment it describes. The sidebar's "Feedback Review" entry and the `/feedback` page are gone.
 - **Why:** two review surfaces for the same row let a status or an edit on one page go unseen on the other, and the standalone page had not been used since April 2026.
 
+
+## Exception chips and flag colors (October 2026, #40)
+
+- **A dashed chip means "no grade here".** Excused, Incomplete and Missing replace the grade in the gradebook cell (and the pop-up, student page and assessment card's score slot) with `ExceptionChip`: card background, 1.5px dashed border, the size and radius of a level chip, mixed-case text `Exc` / `Inc` / `Miss`. A level is a filled, colored chip in capitals (ED, EX, ...); the dashed border and the mixed case keep "Exc" apart from the level "EX". The cell is a `cell-open` button that opens the same pop-up a graded cell does.
+- **Flag colors follow Schoology, everywhere a flag shows:** Excused green (`--flag-excused`), Late red (`--flag-late`, both clocks), Incomplete amber (`--flag-incomplete`), Missing red (`--flag-missing`). `EXCEPTION_TONE` in `gradeLabel.js` gives the status pill and the "Excused, rubric locked" badge the same tones. Green is also the level EX and "Submitted"; the words and the dashed chip keep them apart.
+- **`amber` status tone is `badge-amber`.** It was pink while nothing used the tone; Incomplete is the first user.

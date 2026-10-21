@@ -1,7 +1,7 @@
 // Resolve a grade to its display label given the assignment's grading scale.
 // Returns { text, kind } where kind is one of:
-//   'exception' — score overridden by Schoology exception flag (Excused/Incomplete/Missing). The
-//                 Late flag (4) is not one: it keeps the grade and shows a filled clock (#40).
+//   'exception' — score overridden by Schoology exception flag (Excused/Incomplete/Missing); `exception`
+//                 carries 1-3 for the chip (ExceptionChip). The Late flag (4) is not one: it keeps the grade and shows a filled clock (#40).
 //   'pending'   — assignment not yet graded
 //   'numeric'   — scale has no levels; render raw score / max
 //   'scale'     — score matches a defined scale level (display the level name)
@@ -16,6 +16,9 @@ const EXCEPTION_LABELS = {
   2: 'Incomplete',
   3: 'Missing',
 };
+// Flag colors follow Schoology (#40): Excused green, Incomplete amber, Missing red. The
+// Late flag (4) is red too, but it is a clock, not a chip or a status.
+export const EXCEPTION_TONE = { 1: 'green', 2: 'amber', 3: 'red' };
 const LATE_EXCEPTION = 4;
 
 // Derive submission-state badges for an assignment row. Returns an array of
@@ -81,8 +84,7 @@ export function submissionStatus({ score, exception, late, draft, submitted_at, 
   const exLabel = EXCEPTION_LABELS[exception];
   const flagged = Number(exception) === LATE_EXCEPTION;
   if (exLabel) {
-    const tone = exception === 1 ? 'blue' : 'red';
-    return [{ kind: 'exception', label: exLabel, tone }];
+    return [{ kind: 'exception', label: exLabel, tone: EXCEPTION_TONE[exception] }];
   }
   if (score != null) return []; // graded — gradeLabel renders the score
   if (is_lti_submission) return ltiBadges(lti_submission_state, submission_type, due_date, today, late, flagged);
@@ -102,7 +104,7 @@ export function ltiStatusUnavailable({ is_lti_submission, lti_fetch_status, scor
 
 export function gradeLabel({ score, max_points, exception, grading_scale_id, scales }) {
   if (EXCEPTION_LABELS[exception]) {
-    return { text: EXCEPTION_LABELS[exception], kind: 'exception' };
+    return { text: EXCEPTION_LABELS[exception], kind: 'exception', exception: Number(exception) };
   }
   if (score == null) {
     return { text: 'Pending', kind: 'pending' };

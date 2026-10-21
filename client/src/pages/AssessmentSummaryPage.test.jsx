@@ -2569,6 +2569,12 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     expect(handlers['uid-1'].getEntry()).toBeNull();
   });
 
+  it.each([[1, 'Excused', 'badge-green'], [2, 'Incomplete', 'badge-amber'], [3, 'Missing', 'badge-red']])(
+    'exception %i shows its "%s, rubric locked" badge in its flag color (%s)', (exception, label, cls) => {
+      card({ student: { ...makeStudent(), exception, scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
+      expect(screen.getByText(`${label}, rubric locked`)).toHaveClass(cls);
+    });
+
   it('a published student with an IE row and nothing pending shows no IE hint', () => {
     card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
       scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'IE' }) } });

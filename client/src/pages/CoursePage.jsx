@@ -38,10 +38,11 @@ import SubmissionComments from '../components/SubmissionComments.jsx';
 import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import { timelineSummary, lateText } from '../lib/submissionTimeline.js';
 import LateClock from '../components/LateClock.jsx';
+import ExceptionChip from '../components/ExceptionChip.jsx';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', missing: 'M', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
-const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-pink', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
+const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-amber', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
 export default function CoursePage() {
   const { id } = useParams();
@@ -1204,12 +1205,14 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                   student: s, assignment: a, topics, score: lbl,
                   comment: g.grade_comment || '', grade: g, timeline: tl,
                 });
-                const scoreText = c
+                const scoreText = lbl.kind === 'exception'
+                  ? <ExceptionChip exception={lbl.exception} savedLevel={g.saved_level ?? null} />
+                  : c
                   ? <span style={{ background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block', minWidth: 24 }}>{text}</span>
                   : text;
                 // A graded cell without a rubric strip (points only, "50 / 100", or a
                 // scale level) opens the same modal: comment + timeline, no rubric.
-                const opensModal = !showStrip && (lbl.kind === 'numeric' || lbl.kind === 'scale' || lbl.kind === 'mismatch');
+                const opensModal = !showStrip && (lbl.kind === 'numeric' || lbl.kind === 'scale' || lbl.kind === 'mismatch' || lbl.kind === 'exception');
                 const inner = showStrip
                   ? <MiniRubricStrip topics={rubricTopics} onClick={() => openModal(rubricTopics)} />
                   : opensModal

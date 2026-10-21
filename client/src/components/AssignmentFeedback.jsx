@@ -16,6 +16,7 @@ import SubmissionTimeline from './SubmissionTimeline.jsx';
 import CompactRubric from './CompactRubric.jsx';
 import RubricDescriptorGrid from './RubricDescriptorGrid.jsx';
 import { feedbackDescriptorRows, feedbackRowView } from '../lib/rubricDescriptorRows.js';
+import ExceptionChip from './ExceptionChip.jsx';
 import { LEVELS, LEVEL_COLORS, CELL_TEXT, masteryCodeForLevel } from '../lib/masteryLevels.js';
 
 // Schoology deletes rubric scores while one of these exceptions is set (the
@@ -28,7 +29,10 @@ const DRAFT = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].draftFill
 
 // A gradeLabel() result for an unaligned task: a level chip in the level's colour
 // for General Academic levels, the raw text otherwise, red when it matches no level.
-export function ScoreLabel({ label }) {
+// An exception (Excused/Incomplete/Missing) shows the dashed chip in the score's place.
+// savedLevel: the grade Prism saved while the task is excused (null when none).
+export function ScoreLabel({ label, savedLevel = null }) {
+  if (label.kind === 'exception') return <ExceptionChip exception={label.exception} savedLevel={savedLevel} />;
   const code = label.kind === 'scale' ? masteryCodeForLevel(label.text) : null;
   const c = code ? LEVEL_COLORS[code] : null;
   const style = label.kind === 'mismatch' ? { color: 'var(--danger)' }

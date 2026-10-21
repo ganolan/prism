@@ -8,9 +8,9 @@ describe('SubmissionBadges', () => {
     expect(screen.getByText('Missing')).toHaveClass('badge', 'badge-red');
   });
 
-  it('maps the amber tone to badge-pink', () => {
-    render(<SubmissionBadges status={[{ kind: 'not-started', label: 'Not Started', tone: 'amber' }]} />);
-    expect(screen.getByText('Not Started')).toHaveClass('badge', 'badge-pink');
+  it('maps the amber tone to badge-amber (Incomplete, #40; it was pink while nothing used the tone)', () => {
+    render(<SubmissionBadges status={[{ kind: 'exception', label: 'Incomplete', tone: 'amber' }]} />);
+    expect(screen.getByText('Incomplete')).toHaveClass('badge', 'badge-amber');
   });
 
   it('renders a review_needed flag as "⚑ Review: <reason>"', () => {

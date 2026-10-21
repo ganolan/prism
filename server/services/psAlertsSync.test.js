@@ -338,6 +338,17 @@ describe('applyPsGuardians', () => {
 });
 
 describe('applyPsAlerts + reads', () => {
+  test('a contact column missing from the entry keeps its stored value; a null one clears it', () => {
+    const a = addStudent('5001');
+    const full = { dnc_g1: '1', dnc_g2: '1', g1_deceased: null, g2_deceased: '1', correspondence: '1' };
+    applyPsAlerts(db, new Map([['5001', { alerts: [], contact: full }]]), { now: '2026-10-20T00:00:00.000Z' });
+    // The next read has no dnc_g1 key (a renamed field) and clears dnc_g2.
+    applyPsAlerts(db, new Map([['5001', { alerts: [], contact: { dnc_g2: null, g1_deceased: null, g2_deceased: '1', correspondence: '3' } }]]), { now: '2026-10-21T00:00:00.000Z' });
+    expect(db.prepare('SELECT alerts_synced_at, dnc_g1, dnc_g2, g1_deceased, g2_deceased, correspondence FROM student_powerschool WHERE student_id = ?').get(a))
+      .toEqual({ alerts_synced_at: '2026-10-21T00:00:00.000Z', dnc_g1: '1', dnc_g2: null, g1_deceased: null, g2_deceased: '1', correspondence: '3' });
+  });
+
+
   test('stores only students Prism knows; reads give labels, never contact fields', () => {
     const a = addStudent('5001');
     const r = applyPsAlerts(db, new Map([

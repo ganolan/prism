@@ -116,7 +116,8 @@ describe('sectionAlerts', () => {
     const out = sectionAlerts({ plan, roster, values, adv, manual: [] });
     expect([...out.keys()]).toEqual(['5001', '5002']); // 103 had no field record: not read, not listed
     expect(out.get('5001').alerts).toEqual(['accommodation_plan', 'learning_support_2', 'support_summary']);
-    expect(out.get('5001').contact).toEqual({ dnc_g1: null, dnc_g2: '1', g1_deceased: null, g2_deceased: null, correspondence: null });
+    // The records carry no x_homeemail key, so correspondence is left out (kept as stored).
+    expect(out.get('5001').contact).toEqual({ dnc_g1: null, dnc_g2: '1', g1_deceased: null, g2_deceased: null });
     expect(out.get('5002').alerts).toEqual(['epipen', 'allergies']);
     expect(out.get('5002').contact.g2_deceased).toBe('1');
   });
@@ -130,6 +131,14 @@ describe('sectionAlerts', () => {
     const out = sectionAlerts({ plan, roster, values, adv: [], manual });
     expect(out.get('5002').alerts).toEqual(['epipen', 'mobility']);
     expect(out.get('5001').alerts).toEqual(['accommodation_plan', 'learning_support_2']);
+  });
+
+  test('a contact field missing from the record is left out of contact; a null one is null', () => {
+    // A renamed PowerSchool field comes back with no key at all: that must not read as "not set".
+    const rec = { id: 101, dcid: 5001, x_dnc_g1: null, x_g1deceased: null, x_g2deceased: null, x_homeemail: '3' };
+    const out = sectionAlerts({ plan, roster, values: [rec] });
+    expect(out.get('5001').contact).toEqual({ dnc_g1: null, g1_deceased: null, g2_deceased: null, correspondence: '3' });
+    expect('dnc_g2' in out.get('5001').contact).toBe(false);
   });
 
   test('a do-not-contact value is stored but never becomes a badge', () => {

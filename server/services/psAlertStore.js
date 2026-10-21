@@ -9,20 +9,22 @@ import { describeAlerts, CONTACT_FIELDS } from '../lib/psAlerts.js';
  * Store what a sync read. byDcid: Map<PowerSchool student dcid, { alerts, contact }>
  * (server/lib/psAlerts.js sectionAlerts). Each matched student (students.school_uid
  * = '1_' + dcid) gets exactly these alerts and contact fields; students not in the
- * map are untouched. idByKey: Map<alert key, PowerSchool alert type id>.
+ * map are untouched. A contact column missing from `contact` (the read had no key for
+ * its field) keeps its stored value, so a renamed PowerSchool field never clears a flag.
+ * idByKey: Map<alert key, PowerSchool alert type id>.
  * → { students, withAlerts }.
  */
 export function applyPsAlerts(db, byDcid, { now = new Date().toISOString(), idByKey = new Map() } = {}) {
   const find = db.prepare('SELECT id FROM students WHERE school_uid = ?');
   const clear = db.prepare('DELETE FROM student_ps_alerts WHERE student_id = ?');
   const add = db.prepare('INSERT INTO student_ps_alerts (student_id, alert_key, ps_alert_id) VALUES (?, ?, ?)');
-  const cols = CONTACT_FIELDS.map((f) => f.column);
-  const upsert = db.prepare(`
-    INSERT INTO student_powerschool (student_id, alerts_synced_at, ${cols.join(', ')})
-    VALUES (?, ?, ${cols.map(() => '?').join(', ')})
-    ON CONFLICT(student_id) DO UPDATE SET alerts_synced_at = excluded.alerts_synced_at,
-      ${cols.map((c) => `${c} = excluded.${c}`).join(', ')}
-  `);
+  // One statement per set of contact columns present (usually all of them).
+  const upserts = new Map();
+  const upsertFor = (cols) => upserts.get(cols.join()) ?? upserts.set(cols.join(), db.prepare(`
+    INSERT INTO student_powerschool (student_id, alerts_synced_at${cols.map((c) => `, ${c}`).join('')})
+    VALUES (?, ?${cols.map(() => ', ?').join('')})
+    ON CONFLICT(student_id) DO UPDATE SET alerts_synced_at = excluded.alerts_synced_at${cols.map((c) => `, ${c} = excluded.${c}`).join('')}
+  `)).get(cols.join());
   let students = 0; let withAlerts = 0;
   db.transaction(() => {
     for (const [dcid, entry] of byDcid) {
@@ -32,7 +34,9 @@ export function applyPsAlerts(db, byDcid, { now = new Date().toISOString(), idBy
       clear.run(row.id);
       for (const key of entry.alerts) add.run(row.id, key, idByKey.get(key) ?? null);
       if (entry.alerts.length) withAlerts++;
-      upsert.run(row.id, now, ...cols.map((c) => entry.contact?.[c] ?? null));
+      const contact = entry.contact || {};
+      const cols = CONTACT_FIELDS.map((f) => f.column).filter((c) => c in contact);
+      upsertFor(cols).run(row.id, now, ...cols.map((c) => contact[c] ?? null));
     }
   })();
   return { students, withAlerts };

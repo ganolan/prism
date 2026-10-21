@@ -145,7 +145,10 @@ export function advMatchedIds(answer) {
 
 /**
  * One section's alerts, per student. → Map<studentDcid, { alerts: string[] (Prism
- * keys, ALERT_DEFS order), contact: { dnc_g1, dnc_g2, g1_deceased, g2_deceased } }>.
+ * keys, ALERT_DEFS order), contact: { dnc_g1, dnc_g2, g1_deceased, g2_deceased,
+ * correspondence } }>. A contact field the record has no key for at all (say, a field
+ * PowerSchool renamed) is left out of `contact`, so the stored value is kept rather than
+ * cleared (applyPsAlerts); a key whose value is null is null.
  *
  * roster: [{ studentid, studentdcid }] (getStudentsInSection.json)
  * values: stuFieldValues.json records [{ id (studentid), dcid, <field>: value }]
@@ -165,7 +168,7 @@ export function sectionAlerts({ plan, roster, values, adv = [], manual = [] }) {
     for (const t of plan.sf) if (sfAlertFires(t, rec)) keys.add(t.def.key);
     for (const { type, answer } of adv) if (advMatchedIds(answer).has(String(rec.id))) keys.add(type.def.key);
     const contact = {};
-    for (const { field, column } of CONTACT_FIELDS) contact[column] = rec[field] == null ? null : String(rec[field]);
+    for (const { field, column } of CONTACT_FIELDS) if (field in rec) contact[column] = rec[field] == null ? null : String(rec[field]);
     out.set(dcid, { studentId: String(rec.id), alerts: keys, contact });
   }
   const manDefs = new Map(plan.man.map((t) => [String(t.id), t.def]));

@@ -370,6 +370,18 @@ describe('GET /api/tools/emails/:courseId and guardian contact status', () => {
     expect(body.excluded).toBe(1);
   });
 
+  test('feature on: a contactable guardian whose every address is blocked counts as not copied', async () => {
+    on();
+    const a = addStudent({ first: 'Ada', last: 'Sample' });
+    addParent(a, 'p1', 'Robin', null);
+    addSlot(a, 1, 'Sample, Robin', 'family@example.test');
+    addSlot(a, 2, 'Other, Pat', 'family@example.test'); // deceased, and no Prism parent is this guardian
+    setPs(a, { g2_deceased: '1' });
+    const { body } = await parents();
+    expect(body.addresses).toEqual([]);
+    expect(body.excluded).toBe(1);
+  });
+
   test('feature on: two different left-out guardians sharing an address count as two', async () => {
     on();
     const a = addStudent({ first: 'Ada', last: 'Sample' });

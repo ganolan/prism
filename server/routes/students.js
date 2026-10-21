@@ -193,8 +193,9 @@ router.get('/:id', (req, res) => {
   // #66: each guardian's contact status from PowerSchool (may Prism copy the address?),
   // when the feature is on, with the PowerSchool slot's email and phone (contact.ps),
   // the address to show (contact.email) and the addresses the page may link and copy
-  // (contact.copy, empty unless contactable; #173). Off: parents are returned exactly as
-  // stored (the teacher's phone and extra_email are columns, so they arrive either way).
+  // (contact.copy), and the numbers it may make tel: links (contact.tel), both empty unless
+  // contactable (#173). Off: parents are returned exactly as stored (the teacher's phone
+  // and extra_email are columns, so they arrive either way).
   let guardiansSyncedAt;
   if (getFeatures().powerschool_alerts) {
     const contacts = contactsForStudents(db, [student.id]).get(student.id);
@@ -264,15 +265,17 @@ router.put('/:id', (req, res) => {
 
 // PUT /api/students/:id/parents/:parentId — the teacher's additions to a parent (#173):
 // body { phone?, extra_email? }. Only the keys sent are updated; '' or null clears one.
-// An extra email must be one address: an @, and no space, ';', ',', '<' or '>'. → the updated row.
+// An extra email must be one address: exactly one @ with text on both sides, and no
+// whitespace, ';', ',', '<', '>', '?', '&' or '"'. → the updated row.
 const EDITABLE_PARENT_FIELDS = ['phone', 'extra_email'];
+const ONE_ADDRESS = /^[^\s@;,<>?&"]+@[^\s@;,<>?&"]+$/;
 router.put('/:id/parents/:parentId', (req, res) => {
   const db = getDb();
   const body = req.body || {};
   const fields = EDITABLE_PARENT_FIELDS.filter((k) => Object.hasOwn(body, k));
   const values = fields.map((k) => (body[k] == null ? null : String(body[k]).trim() || null));
   const extra = values[fields.indexOf('extra_email')];
-  if (extra && (!extra.includes('@') || /[\s;,<>]/.test(extra))) return res.status(400).json({ error: 'Extra email must be an email address' });
+  if (extra && !ONE_ADDRESS.test(extra)) return res.status(400).json({ error: 'Extra email must be an email address' });
   const where = 'WHERE id = ? AND student_id = ?';
   const found = fields.length
     ? db.prepare(`UPDATE parents SET ${fields.map((k) => `${k} = ?`).join(', ')} ${where}`).run(...values, req.params.parentId, req.params.id).changes

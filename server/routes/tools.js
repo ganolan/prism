@@ -71,11 +71,14 @@ router.get('/emails/:courseId', (req, res) => {
     const contacts = checkContacts ? contactsForStudents(db, students.map(s => s.id)) : null;
     for (const p of parents) {
       const contact = contacts?.get(p.student_id)?.byParent.get(p.id);
-      if (!contacts || contact?.status === 'contactable') {
+      const all = [p.email, contact?.ps?.email, p.extra_email].filter((e) => emailKey(e));
+      // A contactable guardian whose every address is blocked (a flagged guardian holds
+      // it) is not copied either, and counts as the page counts it (StudentPage "not copied").
+      if (!contacts || (contact?.status === 'contactable' && (contact.copy.length || !all.length))) {
         if (!parentsByStudent.has(p.student_id)) parentsByStudent.set(p.student_id, []);
         parentsByStudent.get(p.student_id).push({ ...p, addresses: contacts ? contact.copy : [p.email, p.extra_email].filter(Boolean) });
       } else {
-        withheld.push({ uid: p.schoology_uid, name: fullName(p.first_name, p.last_name), addresses: [p.email, contact?.ps?.email, p.extra_email].filter(Boolean) });
+        withheld.push({ uid: p.schoology_uid, name: fullName(p.first_name, p.last_name), addresses: all });
       }
     }
   }

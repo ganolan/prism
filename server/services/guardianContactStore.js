@@ -12,6 +12,8 @@ const SQL_EMAIL_KEY = (col) => `lower(trim(${col}, char(32, 9, 10, 13, 160)))`;
 // The keys that link a parent row to the same guardian's rows for other children.
 // A PowerSchool flag is set by any value but null and '' (as guardianContacts.js reads it).
 const isFlagged = (v) => v != null && String(v) !== '';
+// A phone number's digits, how two numbers compare ('5550-0100' is '5550 0100').
+const phoneKey = (n) => String(n ?? '').replace(/\D/g, '');
 const keysOf = (p) => [p.schoology_uid && `uid:${p.schoology_uid}`, emailKey(p.email) && `email:${emailKey(p.email)}`].filter(Boolean);
 
 // One student's PowerSchool details per parent: Map<parentId, { email, phone }> for each
@@ -28,7 +30,7 @@ function psDetails(checked, parents, slots) {
 }
 
 /**
- * Map<studentId, { guardiansSyncedAt, byParent: Map<parentId, { status, primary, reason, uncertain?, ps }> }>
+ * Map<studentId, { guardiansSyncedAt, byParent: Map<parentId, { status, primary, reason, uncertain?, ps, email, copy, tel }> }>
  * for each requested student (listed even with no parents). checked = the student has
  * a guardian read (student_powerschool.guardians_synced_at). Each student's own parents
  * are decided by decideParents (server/lib/guardianContacts.js), which also gives a
@@ -59,6 +61,11 @@ function psDetails(checked, parents, slots) {
  * null. copy = the addresses that may be linked and copied: [] unless the status is
  * contactable, else [email, extra_email] without blocked or empty ones, de-duplicated
  * (emailKey).
+ *
+ * tel (#173, controller's ruling 3): the numbers that may be a tel: link. A number is
+ * blocked when a do_not_contact or deceased guardian holds it, compared by its digits.
+ * tel = [] unless the status is contactable, else [ps.phone, phone] without blocked or
+ * empty ones, de-duplicated by digits.
  */
 export function contactsForStudents(db, studentIds) {
   const ids = [...new Set((studentIds || []).map(Number))];
@@ -80,7 +87,7 @@ export function contactsForStudents(db, studentIds) {
   const decide = [...known];
 
   const q = marks(decide.length);
-  const parents = db.prepare(`SELECT id, student_id, schoology_uid, first_name, last_name, email, extra_email
+  const parents = db.prepare(`SELECT id, student_id, schoology_uid, first_name, last_name, email, extra_email, phone
     FROM parents WHERE student_id IN (${q}) ORDER BY id`).all(...decide);
   const slotRows = db.prepare(`SELECT student_id, slot, name, email, phone FROM student_ps_guardians WHERE student_id IN (${q})`).all(...decide);
   const psRows = db.prepare(`SELECT student_id, guardians_synced_at, dnc_g1, dnc_g2, g1_deceased, g2_deceased, correspondence
@@ -128,24 +135,33 @@ export function contactsForStudents(db, studentIds) {
   }
   const details = new Map(decide.map((sid) => [sid, psDetails(ps.get(sid)?.guardians_synced_at != null, parentsOf.get(sid) || [], slots.get(sid) || {})]));
 
-  // Addresses held by a do_not_contact or deceased guardian (controller's ruling, #173):
-  // a flagged row's Schoology email, extra email and PowerSchool email, and the email of
-  // every flagged slot on a decided student's record, whether or not a parent is placed
-  // in it. No guardian's address in this set is copied or linked: two guardians can share
-  // a family mailbox, and a flagged one's mail must not reach it through the other.
+  // Addresses and numbers held by a do_not_contact or deceased guardian (controller's
+  // rulings, #173): a flagged row's Schoology email, extra email and PowerSchool email,
+  // its extra phone and PowerSchool phone, and the email and phone of every flagged slot
+  // on a decided student's record, whether or not a parent is placed in it. No guardian's
+  // address or number in these sets is copied or linked: two guardians can share a family
+  // mailbox or a home phone, and a flagged one must not be reached through the other.
   const blocked = new Set();
+  const blockedPhones = new Set();
   const block = (email) => { if (emailKey(email)) blocked.add(emailKey(email)); };
+  const blockPhone = (phone) => { if (phoneKey(phone)) blockedPhones.add(phoneKey(phone)); };
   for (const p of parents) {
     if (!RANK[finalOf.get(p.id).status]) continue;
-    block(p.email); block(p.extra_email); block(details.get(p.student_id).get(p.id)?.email);
+    const psOf = details.get(p.student_id).get(p.id);
+    block(p.email); block(p.extra_email); block(psOf?.email);
+    blockPhone(p.phone); blockPhone(psOf?.phone);
   }
   for (const sid of decide) {
     const flags = ps.get(sid) || {};
     for (const slot of [1, 2]) {
-      if (isFlagged(flags[`dnc_g${slot}`]) || isFlagged(flags[`g${slot}_deceased`])) block(slots.get(sid)?.[slot]?.email);
+      if (isFlagged(flags[`dnc_g${slot}`]) || isFlagged(flags[`g${slot}_deceased`])) {
+        block(slots.get(sid)?.[slot]?.email);
+        blockPhone(slots.get(sid)?.[slot]?.phone);
+      }
     }
   }
   const open = (email) => !!emailKey(email) && !blocked.has(emailKey(email));
+  const openPhone = (phone) => !!phoneKey(phone) && !blockedPhones.has(phoneKey(phone));
 
   for (const sid of ids) {
     const byParent = new Map();
@@ -154,10 +170,12 @@ export function contactsForStudents(db, studentIds) {
       const psOf = details.get(sid).get(p.id) ?? null;
       const email = [psOf?.email, p.email].find(open) ?? ([psOf?.email, p.email].find((e) => emailKey(e)) || null);
       const copy = [];
+      const tel = [];
       if (contact.status === 'contactable') {
         for (const e of [email, p.extra_email]) if (open(e) && !copy.some((c) => emailKey(c) === emailKey(e))) copy.push(e);
+        for (const n of [psOf?.phone, p.phone]) if (openPhone(n) && !tel.some((t) => phoneKey(t) === phoneKey(n))) tel.push(n);
       }
-      byParent.set(p.id, { ...contact, ps: psOf, email, copy });
+      byParent.set(p.id, { ...contact, ps: psOf, email, copy, tel });
     }
     out.set(sid, { guardiansSyncedAt: ps.get(sid)?.guardians_synced_at ?? null, byParent });
   }

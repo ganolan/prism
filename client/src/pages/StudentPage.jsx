@@ -222,9 +222,12 @@ export function CourseSection({
 // as contactable is left out of Copy all. The reason is shown as the API sends it.
 // #173: contact.email is the address to show (PowerSchool's, else Schoology's) and
 // contact.copy the only addresses that may get a mailto link, a copy button or a place in
-// Copy all ([] unless contactable; never one a flagged guardian holds). contact.ps.phone is
-// PowerSchool's number; parents.phone and parents.extra_email are the teacher's own,
-// labelled "Added in Prism". Off: the Schoology email and the extra email, both copied.
+// Copy all ([] unless contactable; never one a flagged guardian holds), and contact.tel the
+// only numbers that may get a tel: link (the same rule, numbers compared by digits).
+// contact.ps.phone is PowerSchool's number; parents.phone and parents.extra_email are the
+// teacher's own, labelled "Added in Prism", and left out when they repeat the number or
+// address already shown. Off: the Schoology email and the extra email, both copied, and
+// the teacher's phone linked.
 // See docs/design-language.md "PowerSchool alerts".
 const REVEAL_ONLY = new Set(['do_not_contact', 'deceased']);
 const NOT_CHECKED = { status: 'not_checked', primary: false, reason: 'Not checked against PowerSchool yet' };
@@ -232,6 +235,7 @@ const NOT_CHECKED = { status: 'not_checked', primary: false, reason: 'Not checke
 const withContact = (p, checking) => (checking && !p.contact ? { ...p, contact: NOT_CHECKED } : p);
 const isRevealOnly = (p) => REVEAL_ONLY.has(p.contact?.status);
 const emailKey = (e) => (e || '').trim().toLowerCase();
+const phoneKey = (n) => String(n ?? '').replace(/\D/g, '');
 const shownEmail = (p) => (p.contact && p.contact.email !== undefined ? p.contact.email : p.email);
 function copyList(p) {
   // Fail safe: only a contactable guardian is ever copied, whatever copy holds.
@@ -241,6 +245,17 @@ function copyList(p) {
   return out;
 }
 const isCopyable = (p) => copyList(p).length > 0;
+// The numbers that may be tel: links. Fail safe as copyList: only a contactable guardian's.
+function telList(p) {
+  if (p.contact) return p.contact.status === 'contactable' ? p.contact.tel || [] : [];
+  return p.phone ? [p.phone] : [];
+}
+// Copy all: each address once (emailKey), under the first guardian that copies it.
+function copyAllText(parents) {
+  const seen = new Set();
+  return parents.flatMap((p) => copyList(p).filter((e) => !seen.has(emailKey(e)) && seen.add(emailKey(e)))
+    .map((e) => `${p.first_name} ${p.last_name} <${e}>`)).join('; ');
+}
 const hasAddress = (p) => !!(emailKey(shownEmail(p)) || emailKey(p.extra_email));
 
 const AddedInPrism = () => <span className="text-muted contact-added">Added in Prism</span>;
@@ -298,16 +313,22 @@ function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
   }
 
   const status = parent.contact?.status;
-  // Not cleared: no mailto, tel or copy for any detail, so none is one click from an email or a call.
   const restricted = !!status && status !== 'contactable';
   const revealOnly = isRevealOnly(parent);
   if (status === 'deceased' && !revealed) return null;
   const nameOnly = status === 'do_not_contact' && !revealed;
 
+  // Not cleared: copyList and telList are empty, so no detail gets a mailto, tel or copy,
+  // and none is one click from an email or a call.
   const copy = copyList(parent);
   const linked = (e) => copy.some((c) => emailKey(c) === emailKey(e));
+  const tel = telList(parent);
+  const dialable = (n) => tel.some((t) => phoneKey(t) === phoneKey(n));
   const address = shownEmail(parent);
   const psPhone = parent.contact?.ps?.phone;
+  // The teacher's own details, unless they repeat what is already shown.
+  const extraPhone = parent.phone && !(psPhone && phoneKey(parent.phone) === phoneKey(psPhone)) ? parent.phone : null;
+  const extraEmail = parent.extra_email && emailKey(parent.extra_email) !== emailKey(address) ? parent.extra_email : null;
 
   return (
     <div style={{ padding: '0.5rem 0.65rem', background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--border)' }}>
@@ -316,7 +337,7 @@ function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
         {status === 'contactable' && parent.contact.primary && <span className="badge badge-pink">Primary contact</span>}
         {!revealOnly && !editing && (
           <button
-            className="ghost accent tap-target parent-edit-btn" style={{ fontSize: '0.75rem', padding: '0.15rem 0.4rem' }}
+            className="ghost accent tap-target parent-edit-btn"
             onClick={startEditing} aria-label="Edit extra phone and email"
           >Edit</button>
         )}
@@ -326,9 +347,9 @@ function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
           {restricted && parent.contact.reason && <p className="text-sm text-muted">{parent.contact.reason}</p>}
           {address && <ContactEmail email={address} linked={linked(address)} />}
           {parent.relationship && <p className="text-sm text-muted">{parent.relationship}</p>}
-          {psPhone && <ContactPhone phone={psPhone} linked={!restricted} />}
-          {parent.phone && <ContactPhone phone={parent.phone} linked={!restricted} added />}
-          {parent.extra_email && <ContactEmail email={parent.extra_email} linked={linked(parent.extra_email)} added />}
+          {psPhone && <ContactPhone phone={psPhone} linked={dialable(psPhone)} />}
+          {extraPhone && <ContactPhone phone={extraPhone} linked={dialable(extraPhone)} added />}
+          {extraEmail && <ContactEmail email={extraEmail} linked={linked(extraEmail)} added />}
           {editing && (
             <div className="parent-edit">
               <label className="text-sm">
@@ -341,8 +362,8 @@ function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
               </label>
               {error && <p className="alert alert-error text-sm parent-edit__error" role="alert">{error}</p>}
               <div className="parent-edit__actions">
-                <button className="primary" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={save} disabled={saving}>Save</button>
-                <button className="ghost" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }} onClick={() => setEditing(false)}>Cancel</button>
+                <button className="primary" onClick={save} disabled={saving}>Save</button>
+                <button className="ghost" onClick={() => setEditing(false)}>Cancel</button>
               </div>
             </div>
           )}
@@ -577,7 +598,7 @@ export default function StudentPage() {
               {copyableParents.length > 0 && (
                 <span className="family-copy-all">
                   <CopyButton
-                    text={copyableParents.flatMap(p => copyList(p).map(e => `${p.first_name} ${p.last_name} <${e}>`)).join('; ')}
+                    text={copyAllText(copyableParents)}
                     label="Copy all emails"
                   />
                   {notCopied > 0 && <span className="text-sm text-muted">{notCopied} not copied</span>}

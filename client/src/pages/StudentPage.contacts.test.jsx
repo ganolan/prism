@@ -22,10 +22,11 @@ const REASON = {
   contactable: null,
 };
 // contact as the API sends it (#173): ps = the PowerSchool slot's details, email = the
-// address to show, copy = the addresses that may be linked and copied ([] unless contactable).
+// address to show, copy = the addresses that may be linked and copied, tel = the numbers
+// that may be tel: links (both [] unless contactable).
 const contactFor = (n, status, more = {}) => ({
   status, primary: false, reason: REASON[status], ps: null, email: `guardian${n}@example.test`,
-  copy: status === 'contactable' ? [`guardian${n}@example.test`] : [], ...more,
+  copy: status === 'contactable' ? [`guardian${n}@example.test`] : [], tel: [], ...more,
 });
 const parent = (n, status, extra = {}) => ({
   id: n, first_name: 'Guardian', last_name: `Number${n}`, email: `guardian${n}@example.test`, relationship: null, phone: null,
@@ -258,7 +259,7 @@ describe('StudentPage family contacts (#66)', () => {
 describe('StudentPage guardian details from PowerSchool (#173)', () => {
   const PS1 = 'home1@example.test';
   const matched = (more = {}, parentMore = {}) => parent(1, 'contactable', {
-    contact: contactFor(1, 'contactable', { ps: { email: PS1, phone: '0000 1001' }, email: PS1, copy: [PS1], ...more }),
+    contact: contactFor(1, 'contactable', { ps: { email: PS1, phone: '0000 1001' }, email: PS1, copy: [PS1], tel: ['0000 1001'], ...more }),
     ...parentMore,
   });
   beforeEach(() => { updateParent.mockReset(); });
@@ -276,7 +277,7 @@ describe('StudentPage guardian details from PowerSchool (#173)', () => {
   });
 
   it('falls back to the Schoology email', async () => {
-    load({ parents: [parent(1, 'contactable', { contact: contactFor(1, 'contactable', { ps: { email: null, phone: '0000 1001' } }) })] });
+    load({ parents: [parent(1, 'contactable', { contact: contactFor(1, 'contactable', { ps: { email: null, phone: '0000 1001' }, tel: ['0000 1001'] }) })] });
     const { container } = renderPage();
     await screen.findByText('Guardian Number1');
     expect(links(container, 'mailto')).toEqual(['mailto:guardian1@example.test']);
@@ -284,7 +285,7 @@ describe('StudentPage guardian details from PowerSchool (#173)', () => {
   });
 
   it("shows the teacher's extra phone and email with Added in Prism", async () => {
-    load({ parents: [matched({ copy: [PS1, 'extra1@example.test'] }, { phone: '0000 2002', extra_email: 'extra1@example.test' })] });
+    load({ parents: [matched({ copy: [PS1, 'extra1@example.test'], tel: ['0000 1001', '0000 2002'] }, { phone: '0000 2002', extra_email: 'extra1@example.test' })] });
     const { container } = renderPage();
     await screen.findByText('Guardian Number1');
     expect(links(container, 'tel')).toEqual(['tel:0000 1001', 'tel:0000 2002']);
@@ -299,7 +300,12 @@ describe('StudentPage guardian details from PowerSchool (#173)', () => {
     load({ parents: [matched()] });
     updateParent.mockResolvedValue({});
     renderPage();
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit extra phone and email' }));
+    const edit = await screen.findByRole('button', { name: 'Edit extra phone and email' });
+    // Sizes come from app.css classes, not inline styles.
+    expect(edit).toHaveClass('parent-edit-btn');
+    expect(edit).not.toHaveAttribute('style');
+    fireEvent.click(edit);
+    for (const name of ['Save', 'Cancel']) expect(screen.getByRole('button', { name })).not.toHaveAttribute('style');
     fireEvent.change(screen.getByLabelText('Extra phone'), { target: { value: ' 0000 3003 ' } });
     fireEvent.change(screen.getByLabelText('Extra email'), { target: { value: 'extra1@example.test' } });
     const loads = getStudent.mock.calls.length;
@@ -350,8 +356,75 @@ describe('StudentPage guardian details from PowerSchool (#173)', () => {
     expect(screen.getByText('extra2@example.test')).toBeInTheDocument();
     expect(links(container, 'tel')).toEqual([]);
     expect(links(container, 'mailto')).toEqual(['mailto:guardian1@example.test']);
-    expect(screen.queryByRole('button', { name: /Edit/ })).toBeInTheDocument(); // Guardian 1's only
-    expect(screen.getAllByRole('button', { name: /Edit/ })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /Edit/ })).toHaveLength(1); // Guardian 1's only
+  });
+
+  it('a do-not-contact guardian shows none of its details before the reveal', async () => {
+    const dnc = parent(3, 'do_not_contact', {
+      phone: '0000 3002', extra_email: 'extra3@example.test',
+      contact: contactFor(3, 'do_not_contact', { ps: { email: 'ps.guardian3@example.test', phone: '0000 3001' }, email: 'ps.guardian3@example.test' }),
+    });
+    load({ parents: [dnc] });
+    const { container } = renderPage();
+    expect(await screen.findByText('Guardian Number3')).toBeInTheDocument();
+    for (const s of ['ps.guardian3@example.test', '0000 3001', '0000 3002', 'extra3@example.test', 'guardian3@example.test', 'Added in Prism']) {
+      expect(container.textContent).not.toContain(s);
+    }
+    expect(screen.queryByRole('button', { name: /Edit/ })).not.toBeInTheDocument();
+  });
+
+  it('the extra email is not shown again when it is the address shown, feature on or off', async () => {
+    load({ parents: [matched({}, { extra_email: ' HOME1@example.test ' })] });
+    const first = renderPage();
+    await screen.findByText('Guardian Number1');
+    expect(links(first.container, 'mailto')).toEqual([`mailto:${PS1}`]);
+    expect(first.container.textContent).not.toContain('HOME1@example.test');
+    expect(screen.queryByText('Added in Prism')).not.toBeInTheDocument();
+    first.unmount();
+
+    getStudent.mockResolvedValue({ ...base, parents: [{
+      id: 1, first_name: 'Guardian', last_name: 'Number1', email: 'guardian1@example.test', relationship: null,
+      phone: null, extra_email: 'Guardian1@example.test',
+    }] });
+    const { container } = renderPage();
+    await screen.findByText('Guardian Number1');
+    expect(links(container, 'mailto')).toEqual(['mailto:guardian1@example.test']);
+    expect(screen.queryByText('Added in Prism')).not.toBeInTheDocument();
+  });
+
+  it("the extra phone is not shown again when its digits are PowerSchool's number", async () => {
+    load({ parents: [matched({}, { phone: '(0000) 1001' })] });
+    const { container } = renderPage();
+    await screen.findByText('Guardian Number1');
+    expect(links(container, 'tel')).toEqual(['tel:0000 1001']);
+    expect(container.textContent).not.toContain('(0000) 1001');
+    expect(screen.queryByText('Added in Prism')).not.toBeInTheDocument();
+  });
+
+  // Controller's ruling 3: a number a flagged guardian holds is never a tel: link.
+  it('a number the API leaves out of tel is plain text, even on a contactable card', async () => {
+    load({ parents: [matched({ tel: ['0000 1001'] }, { phone: '0000 2002' })] });
+    const { container } = renderPage();
+    expect(await screen.findByText('0000 2002')).toBeInTheDocument();
+    expect(links(container, 'tel')).toEqual(['tel:0000 1001']);
+  });
+
+  it('a guardian not cleared has no tel link, even if tel lists a number', async () => {
+    load({ parents: [parent(4, 'not_matched', { phone: '0000 4002', contact: contactFor(4, 'not_matched', { tel: ['0000 4002'] }) })] });
+    const { container } = renderPage();
+    expect(await screen.findByText('0000 4002')).toBeInTheDocument();
+    expect(links(container, 'tel')).toEqual([]);
+  });
+
+  it('Copy all lists an address once, whichever guardians copy it', async () => {
+    const home = 'home@example.test';
+    load({ parents: [
+      parent(1, 'contactable', { contact: contactFor(1, 'contactable', { email: home, copy: [home] }) }),
+      parent(2, 'contactable', { contact: contactFor(2, 'contactable', { email: home, copy: [' HOME@example.test', 'extra2@example.test'] }) }),
+    ] });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy all emails' }));
+    await waitFor(() => expect(clipboard).toHaveBeenCalledWith(`Guardian Number1 <${home}>; Guardian Number2 <extra2@example.test>`));
   });
 
   it('a restricted card has no tel or mailto link for any detail', async () => {

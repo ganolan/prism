@@ -668,6 +668,8 @@ function feedbackRowsFor(db, courseId, assignmentId) {
 
 // A row save that failed after Schoology accepted the grade (spec 2026-10-13 §5).
 const ROWS_NOT_SAVED = 'Published to Schoology, but the feedback rows were not saved in Prism: save again';
+// Levels published over a marker, but Prism could not read Schoology back to settle it (#177).
+const SETTLE_NOT_READ = 'Levels published to Schoology, but Prism could not read the flag again, so its line may still be in the comment. Sync, then check the comment.';
 
 // The student's schoology_uid for an enrolment id, or null.
 function uidForEnrolment(db, enrollmentId) {
@@ -1309,12 +1311,15 @@ router.post('/:courseId/send-all', async (req, res) => {
 
     // Rubric-only entries over a marker: the fresh state after the mastery batch (one read, shared
     // with the comment entries when there are any). A failed read leaves them unsettled: their
-    // levels are published, and the next save or sync catches up.
+    // levels are published, Prism still holds the marker and its line, and each result carries a
+    // warning for its card (#177); the next sync catches up.
+    let settleReadFailed = false;
     if (settleEntries.length > 0 && commentEntries.length === 0) {
       try {
         for (const g of (await getSectionGrades(sectionId)) || []) freshByKey.set(`${g.assignment_id}::${g.enrollment_id}`, g);
       } catch (err) {
         console.error('[mastery send-all] settle read failed:', err.message);
+        settleReadFailed = true;
       }
     }
     for (const e of settleEntries) {
@@ -1472,8 +1477,10 @@ router.post('/:courseId/send-all', async (req, res) => {
         const p = pairByUid.get(e.uid);
         const resubmissionFields = p ? savedPairFields(db, p.studentId, p.assignmentId, 'send-all') : null;
         const cleared = flagClearedByUid.has(e.uid) ? { flagCleared: flagClearedByUid.get(e.uid) } : {};
-        if (rowsFailed.has(e.uid)) return { uid: e.uid, ok: false, error: ROWS_NOT_SAVED, resubmissionFields, ...cleared };
-        return { uid: e.uid, ok: true, resubmissionFields, ...cleared };
+        // published: the grade and comment are in Schoology and mirrored; only the rows are not.
+        if (rowsFailed.has(e.uid)) return { uid: e.uid, ok: false, published: true, error: ROWS_NOT_SAVED, resubmissionFields, ...cleared };
+        const warning = settleReadFailed && e.settleMarker ? SETTLE_NOT_READ : null;
+        return { uid: e.uid, ok: true, resubmissionFields, ...cleared, ...(warning ? { warning } : {}) };
       }),
     });
   } catch (err) {

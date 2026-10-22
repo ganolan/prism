@@ -1992,7 +1992,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
           grade: { points: 75 }, comment: { comment: 'Good', commentStatus: true }, rowLevels: { Playtesting: 'EX' } }],
       });
       expect(status).toBe(200);
-      expect(body.results[0]).toMatchObject({ uid: 'uid-B', ok: false });
+      expect(body.results[0]).toMatchObject({ uid: 'uid-B', ok: false, published: true });
       expect(body.results[0].error).toMatch(/rows were not saved/i);
     });
 
@@ -2332,6 +2332,24 @@ describe('grading over a flag (#40)', () => {
       expect(copyOf(alignedTask).restored_at).not.toBeNull();
       expect(gradeOf(alignedTask)).toMatchObject({ exception: 0 });
       expect(body.results[0]).toMatchObject({ ok: true, flagCleared: { exception: 0, comment: 'Good start.', status_line: null } });
+      expect(body.results[0].warning).toBeUndefined();
+    });
+
+    test('send-all: the settle read fails: levels published, the marker kept, and the result warns (#177)', async () => {
+      markLate(alignedTask, 'sa-A');
+      // The first read is the final-flag check before any write; the second, after the levels, fails.
+      getSectionGrades.mockImplementationOnce(getSectionGrades.getMockImplementation()).mockRejectedValueOnce(new Error('Schoology down'));
+      const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-F', enrollmentId: 'eF', assignmentId: 'sa-A', settleMarker: true, comment: null,
+          scores: { gradeInfo: { tF: { grade: '100', gradingScaleId: 1 } }, gradingPeriodId: 1, gradingCategoryId: 2 } }],
+      });
+      expect(status).toBe(200);
+      expect(writeMasteryScoresBatch).toHaveBeenCalledTimes(1);
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+      expect(gradeOf(alignedTask).exception).toBe(6);
+      expect(lineOf(alignedTask)).toMatchObject({ kind: 'flag' });
+      expect(body.results[0]).toMatchObject({ ok: true, warning: expect.stringMatching(/Levels published to Schoology.*Sync, then check the comment/) });
+      expect(body.results[0].flagCleared).toBeUndefined();
     });
   });
 

@@ -305,6 +305,16 @@ describe('removeStatusLine', () => {
     expect(stored()).toBeNull();
   });
 
+  test('teacher text remains after the line comes off: Display stays on (#177)', async () => {
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'flag')`).run(s, a, L1);
+    getSectionGrades.mockResolvedValue([fresh({ grade: '2', comment: `${L1}\n\nWell done.`, comment_status: 1 })]);
+    const out = await removeStatusLine(db, { studentId: s, assignmentId: a });
+    expect(out).toMatchObject({ removed: true, comment: 'Well done.' });
+    expect(sentPayload()).toMatchObject({ comment: 'Well done.', comment_status: 1 });
+    expect(gradeRow()).toMatchObject({ grade_comment: 'Well done.', comment_status: 1 });
+    expect(stored()).toBeNull();
+  });
+
   test('no stored line → nothing read or written', async () => {
     expect(await removeStatusLine(db, { studentId: s, assignmentId: a })).toEqual({ removed: false, comment: null });
     expect(getSectionGrades).not.toHaveBeenCalled();

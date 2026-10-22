@@ -59,8 +59,9 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
 
   // Place the menu under the pill (fixed, so neither the card nor the pop-up clips it): its right
   // edge on the pill's in the card header, its left edge on the pill's in the shared view.
-  useLayoutEffect(() => {
-    if (!open || !pillRef.current) return;
+  const placeRef = useRef(() => {});
+  placeRef.current = () => {
+    if (!pillRef.current) return;
     const r = pillRef.current.getBoundingClientRect();
     const vw = window.innerWidth || 0;
     const width = Math.min(MENU_WIDTH, Math.max(0, vw - 2 * GUTTER));
@@ -68,6 +69,9 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
       ? Math.max(GUTTER, Math.min(r.left, vw - GUTTER - width))
       : Math.max(GUTTER, r.right - width);
     setPos({ left, top: r.bottom + 4, width });
+  };
+  useLayoutEffect(() => {
+    if (open) placeRef.current();
   }, [open, size]);
 
   // Focus the ticked flag, else the first, when the menu opens. preventScroll: focusing must not
@@ -89,9 +93,15 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
     };
     const onScroll = (e) => {
       if (e.target instanceof Node && menuRef.current?.contains(e.target)) return;
-      if (Date.now() - openedRef.current.at < OPEN_GUARD_MS) return;
       const now = pillRef.current?.getBoundingClientRect();
       if (!now) return;
+      // The page settling just after opening: the menu follows the pill, and that is where it
+      // belongs now (#177; it stayed where the pill had been until the next scroll closed it).
+      if (Date.now() - openedRef.current.at < OPEN_GUARD_MS) {
+        openedRef.current = { ...openedRef.current, top: now.top, left: now.left };
+        placeRef.current();
+        return;
+      }
       const { top, left } = openedRef.current;
       if (Math.abs(now.top - top) > MOVED_PX || Math.abs(now.left - left) > MOVED_PX) setOpen(false);
     };

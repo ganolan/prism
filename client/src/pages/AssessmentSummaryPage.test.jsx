@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage, { StudentRubricCard, flagClearedPatch } from './AssessmentSummaryPage.jsx';
@@ -2357,6 +2357,19 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     expect(writeMasteryScores).not.toHaveBeenCalled();
   });
 
+  it('published with the rows not saved: the grade shows as published and only the rows stay staged (#177)', async () => {
+    const error = 'Published to Schoology, but the feedback rows were not saved in Prism: save again';
+    writeMasteryComment.mockRejectedValueOnce(Object.assign(new Error(error), { published: true }));
+    const onSaved = vi.fn();
+    card({ onSaved });
+    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    fireEvent.click(screen.getByRole('button', { name: /^exhibiting$/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith('uid-1', expect.objectContaining({ score: 75, scale_level: 'EX', saved_grade: null })));
+    expect(screen.getByText(`error: ${error}`)).toBeInTheDocument();
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+  });
+
   it('a rows-only change on a published student saves in Prism only', async () => {
     card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
       scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
@@ -2961,7 +2974,8 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
   });
 });
 
-// #40 review I2: Publish all skips (never sends) a grade for a student on a final flag, and says who.
+// #40 review I2, #177: Publish all never sends levels for a student on a final flag: their staged
+// levels stay as a draft, the bar does not count them, and the result says who.
 describe('AssessmentSummaryPage: Publish all over a final flag (#40)', () => {
   const topics = [{ id: 't1', title: 'T1', category_title: 'C', external_id: 'X1' }];
   const base = { scores: {}, grade_comment: '', comment_status: 0, submission_type: null, late: 0, draft: 0, submitted_at: 0, resubmit_flag: null, lti_submission_state: 'submitted', attention: { handedIn: true, reasons: [] } };
@@ -2969,7 +2983,7 @@ describe('AssessmentSummaryPage: Publish all over a final flag (#40)', () => {
   const grace = { ...base, id: 2, schoology_uid: 'u2', enrollment_id: 'e2', first_name: 'Grace', last_name: 'H', exception: 1 };
   const draft = (st) => ({ pending: { t1: 'EX' }, comment: '', display: false, displayTouched: false, base: draftBaseline(st, topics, { includeScore: false }) });
 
-  it('the flagged card is left out of the batch and named; the rest publish', async () => {
+  it('the flagged card is not counted or sent, and is named; the rest publish (#177)', async () => {
     getMasteryForAssignment.mockResolvedValue({ assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 }, topics, students: [ada, grace] });
     getDraftsForAssignment.mockResolvedValueOnce({ 1: draft(ada), 2: draft(grace) });
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'u1', ok: true }] });
@@ -2978,10 +2992,31 @@ describe('AssessmentSummaryPage: Publish all over a final flag (#40)', () => {
         <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
       </MR>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(2\)/i }));
+    const publishAll = await screen.findByRole('button', { name: /publish all to schoology \(1\)/i });
+    expect(screen.getByText('2 students with unsaved changes')).toBeInTheDocument();
+    fireEvent.click(publishAll);
     await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
     expect(sendAllGrades.mock.calls[0][1].map((e) => e.uid)).toEqual(['u1']);
-    expect(await screen.findByText(/Skipped Grace H: flagged Exempt in Schoology/)).toBeInTheDocument();
+    expect(await screen.findByText(/Published 1 grade\. Levels kept as a draft until the flag is cleared: Grace H \(Exempt\)\./)).toBeInTheDocument();
+  });
+
+  it('a flagged card with a comment edit sends the comment only; its levels stay staged (#177)', async () => {
+    getMasteryForAssignment.mockResolvedValue({ assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 }, topics, students: [grace] });
+    getDraftsForAssignment.mockResolvedValueOnce({ 2: { ...draft(grace), comment: 'Away this week.' } });
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'u2', ok: true }] });
+    render(
+      <MR initialEntries={['/course/4/assessment/8']}>
+        <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
+      </MR>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
+    await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
+    const [sent] = sendAllGrades.mock.calls[0][1];
+    expect(sent).toMatchObject({ uid: 'u2', scores: null, comment: { comment: 'Away this week.' } });
+    expect(await screen.findByText(/Levels kept as a draft until the flag is cleared: Grace H \(Exempt\)/)).toBeInTheDocument();
+    expect(screen.getByText('1 pending change')).toBeInTheDocument();
+    expect(screen.getByText('Your staged levels stay as a draft until the flag is cleared.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish all to Schoology' })).toBeDisabled();
   });
 
   it('Publish all drops the restore offer of a card whose grade it wrote (22 Oct 2026)', async () => {
@@ -3001,7 +3036,24 @@ describe('AssessmentSummaryPage: Publish all over a final flag (#40)', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Restore saved grade' })).toBeNull());
   });
 
-  it('only flagged cards: nothing is sent, and it says why', async () => {
+  it('a grade published with its feedback rows not saved still drops the restore offer (#177)', async () => {
+    const saved = { score: 75, max_points: 100, topics: { t1: 'EX' }, rows: {}, scale_level: null, flag: 6, savedAt: '2026-10-21 02:00:00', summary: '75 / 100 and 1 topic level', restoreSummary: '1 topic level', notRestored: [] };
+    const withCopy = { ...ada, saved_grade: saved };
+    getMasteryForAssignment.mockResolvedValue({ assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 }, topics, students: [withCopy] });
+    getDraftsForAssignment.mockResolvedValueOnce({ 1: draft(withCopy) });
+    const error = 'Published to Schoology, but the feedback rows were not saved in Prism: save again';
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'u1', ok: false, published: true, error }] });
+    render(
+      <MR initialEntries={['/course/4/assessment/8']}>
+        <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
+      </MR>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Restore saved grade' })).toBeNull());
+    expect(screen.getByText(`error: ${error}`)).toBeInTheDocument();
+  });
+
+  it('only flagged cards with staged levels: Publish all has nothing to send; Discard all still works (#177)', async () => {
     getMasteryForAssignment.mockResolvedValue({ assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok' }, topics, students: [grace] });
     getDraftsForAssignment.mockResolvedValueOnce({ 2: draft(grace) });
     render(
@@ -3009,8 +3061,70 @@ describe('AssessmentSummaryPage: Publish all over a final flag (#40)', () => {
         <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
       </MR>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
-    expect(await screen.findByText(/Skipped Grace H: flagged Exempt in Schoology/)).toBeInTheDocument();
+    expect(await screen.findByText('1 student with unsaved changes')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish all to Schoology' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Discard all/ })).toBeEnabled();
     expect(sendAllGrades).not.toHaveBeenCalled();
+  });
+});
+
+describe('StudentRubricCard: a final flag publishes the comment only (#177)', () => {
+  const flagged = () => ({ ...makeStudent(), exception: 1 });
+  const heldDraft = (st, comment = '') => ({ pending: { t1: 'EX' }, comment, display: false, displayTouched: false, base: draftBaseline(st, TOPICS, { includeScore: false }) });
+  function Harness({ initial, draftRow, onSaved = () => {}, registerCard }) {
+    const [st, set] = useState(initial);
+    return (
+      <MemoryRouter>
+        <StudentRubricCard student={st} topics={TOPICS} courseId="4" assignmentId="8" draftRow={draftRow}
+          assignmentRow={{ id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
+          registerCard={registerCard} unregisterCard={() => {}}
+          onSaved={(uid, patch) => { onSaved(uid, patch); set((prev) => ({ ...prev, ...patch })); }} />
+      </MemoryRouter>
+    );
+  }
+
+  it('"Publish the comment only" sends the comment, never the levels, and the levels stay staged', async () => {
+    const st = flagged();
+    render(<Harness initial={st} draftRow={heldDraft(st, 'Away this week.')} />);
+    expect(screen.getByText('2 pending changes')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Publish the comment only' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    const body = writeMasteryComment.mock.calls[0][1];
+    expect(body).toMatchObject({ enrollmentId: 'enr-1', assignmentId: '8', comment: 'Away this week.' });
+    expect(body.points).toBeUndefined();
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByText('1 pending change')).toBeInTheDocument());
+    expect(screen.getByText('Your staged levels stay as a draft until the flag is cleared.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Publish the comment only' })).toBeDisabled();
+  });
+
+  it('staged levels alone: nothing to publish, no Send all entry, and the card holds levels', () => {
+    const handlers = {};
+    const st = flagged();
+    render(<Harness initial={st} draftRow={heldDraft(st)} registerCard={(uid, h) => { handlers[uid] = h; }} />);
+    expect(screen.getByRole('button', { name: 'Publish the comment only' })).toBeDisabled();
+    expect(handlers['uid-1'].getEntry()).toBeNull();
+    expect(handlers['uid-1'].holdsLevels()).toBe(true);
+  });
+
+  it('Send all: the entry carries the comment only, and a success keeps the levels staged', async () => {
+    const handlers = {};
+    const st = flagged();
+    render(<Harness initial={st} draftRow={heldDraft(st, 'Away.')} registerCard={(uid, h) => { handlers[uid] = h; }} />);
+    const built = handlers['uid-1'].getEntry();
+    expect(built.entry).toMatchObject({ scores: null, comment: { comment: 'Away.', commentStatus: false } });
+    expect(built.patch).toEqual({ grade_comment: 'Away.', comment_status: null });
+    act(() => handlers['uid-1'].applyResult(true, { uid: 'uid-1', ok: true }));
+    expect(screen.getByText('Saved ✓')).toBeInTheDocument();
+    expect(screen.getByText(/pending change/)).toBeInTheDocument();
+  });
+
+  it('Send all: a warning on a published result shows on the card (the marker not settled)', () => {
+    const handlers = {};
+    renderCard({ student: { ...makeStudent(), exception: 6 }, registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {} });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    act(() => handlers['uid-1'].applyResult(true, { uid: 'uid-1', ok: true, warning: 'Levels published to Schoology; Prism could not read the flag back.' }));
+    expect(screen.getByText('error: Levels published to Schoology; Prism could not read the flag back.')).toBeInTheDocument();
+    expect(screen.queryByText(/pending change/)).toBeNull();
   });
 });

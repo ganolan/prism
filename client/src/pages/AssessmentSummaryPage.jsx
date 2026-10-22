@@ -355,9 +355,14 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     ((displayTouched && display !== loadedDisplay) ? 1 : 0)
   );
   const hasPendingChanges = pendingCount > 0;
+  // Under a final flag, staged levels (topics, rows, the overall) wait for the flag to be cleared,
+  // so a publish sends only the comment and Display (#177): "Publish the comment only".
+  const commentOrDisplayChanged = commentDirty || display !== loadedDisplay;
+  const heldLevels = isRubricLocked && Object.keys(pending).length > 0;
+  const canPublish = isRubricLocked ? commentOrDisplayChanged : hasPendingChanges;
   // A save that touches only feedback rows stays in Prism (no Schoology call), so its
   // button reads "Save in Prism"; the condition mirrors handleSave's overallChanged.
-  const rowsOnlySave = hasFeedbackRows && stagedScale == null
+  const rowsOnlySave = !isRubricLocked && hasFeedbackRows && stagedScale == null
     && comment === (student.grade_comment || '') && display === loadedDisplay
     && rowLevelsToSave() != null;
 
@@ -438,6 +443,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   applyRef.current = applySendResult;
   const discardRef = useRef(null);
   discardRef.current = discardChanges;
+  const heldRef = useRef(false);
+  heldRef.current = heldLevels;
   const setDisplayRef = useRef(null);
   setDisplayRef.current = applyDisplay;
   const stageRef = useRef(null);
@@ -445,9 +452,12 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   const acceptRef = useRef(null);
   acceptRef.current = acceptScaleSuggestion;
 
+  // 'publish' while Publish all has something to send for this card; 'held' while its only
+  // changes are levels a final flag holds back (#177), so the bar does not count it.
+  const pendingState = canPublish ? 'publish' : (hasPendingChanges ? 'held' : false);
   useEffect(() => {
-    onPendingChange?.(student.schoology_uid, hasPendingChanges);
-  }, [hasPendingChanges, student.schoology_uid, onPendingChange]);
+    onPendingChange?.(student.schoology_uid, pendingState);
+  }, [pendingState, student.schoology_uid, onPendingChange]);
 
   // Report this card's current visibility up so the page bar's "show all to
   // students" toggle can reflect the class-wide aggregate (all / none / mixed).
@@ -461,6 +471,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       getEntry: () => entryRef.current(),
       applyResult: (ok, result) => applyRef.current(ok, result),
       discard: () => discardRef.current(),
+      holdsLevels: () => heldRef.current,
       setDisplay: (v) => setDisplayRef.current(v),
       stageScaleLevel: (code) => stageRef.current(code),
       acceptScaleSuggestion: () => acceptRef.current(),
@@ -529,7 +540,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // removed (an unsaved edit keeps the teacher's text with the line swapped on top), and a restored
   // copy becomes the card's staged draft.
   // A final flag (Exempt, Missing) locks the rubric: staged levels (topics, rows, the overall) stay
-  // as the card's draft (Publish all skips a flagged card), and the card says so (stagedUnderFlag).
+  // as the card's draft, a publish sends only the comment and Display (#177), and the card says so.
   // A failed refetch throws, so the Flags pill says the page could not refresh.
   async function handleFlagChange(result) {
     const fresh = onRefreshPair ? await onRefreshPair(student.schoology_uid) : null;
@@ -796,6 +807,18 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
   // nothing is unsaved. Same writes as handleSave, expressed as data for the
   // page to collapse into one request (#51).
   function buildSendEntry() {
+    if (isRubricLocked) {
+      // A final flag: the comment and Display only; staged levels stay as the draft (#177).
+      if (!commentOrDisplayChanged) return null;
+      return {
+        entry: {
+          uid: student.schoology_uid, enrollmentId: student.enrollment_id, assignmentId,
+          scores: null, ...(scoreScale ? { grade: null } : {}),
+          comment: { comment, commentStatus: display, ...statusLineFields() },
+        },
+        patch: { grade_comment: comment, comment_status: display ? 1 : null, ...statusLinePatch() },
+      };
+    }
     const scaleCode = stagedScale;
     const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
     const hasCommentChange = comment !== (student.grade_comment || '');
@@ -864,21 +887,54 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
     if (ok) {
       // A grade over a marker: Prism took the flag's line off the comment (#40).
       if (typeof result?.flagCleared?.comment === 'string') setComment(result.flagCleared.comment);
-      setSaveResult('saved');
-      setPending({});
+      // Published, with a part that was not: the marker not settled, or its line still in the comment.
+      const warning = result?.warning || result?.flagCleared?.lineError || null;
+      setSaveResult(warning ? `error: ${warning}` : 'saved');
+      // Levels held by a final flag stay staged; the autosave keeps them as the draft (#177).
+      if (!heldLevels) {
+        setPending({});
+        saverRef.current.remove({ immediate: true });
+      }
       setInsertedLine(null);
       commentHistory.clearHistory(); // undo never crosses a publish (#75)
-      saverRef.current.remove({ immediate: true });
       setNotesCollapsed(true); // published via bulk → tuck the reviewer notes away
+    } else if (result?.published) {
+      // The grade and comment are in Schoology; only the feedback rows did not save in Prism. Keep
+      // just the row picks staged to save again.
+      setPending((p) => Object.fromEntries(Object.entries(p).filter(([k]) => isRowKey(k))));
+      setInsertedLine(null);
+      commentHistory.clearHistory();
+      setSaveResult(`error: ${result.error}`);
     } else {
-      setSaveResult('error: send failed');
+      setSaveResult(result?.error ? `error: ${result.error}` : 'error: send failed');
     }
+  }
+
+  // A final flag (Exempt, Missing): publish the comment and Display only. Staged levels stay
+  // staged, and the autosave keeps them as the card's draft until the flag is cleared (#177).
+  async function publishCommentOnly() {
+    const saved = await writeMasteryComment(courseId, {
+      enrollmentId: student.enrollment_id, assignmentId, comment, commentStatus: display, ...statusLineFields(),
+    });
+    setSaveResult('saved');
+    if (!heldLevels) saverRef.current.remove({ immediate: true });
+    setInsertedLine(null);
+    commentHistory.clearHistory(); // undo never crosses a publish (#75)
+    onSaved?.(student.schoology_uid, {
+      grade_comment: comment,
+      comment_status: display ? 1 : null,
+      ...resubmissionFieldsPatch(saved?.resubmissionFields),
+      ...statusLinePatch(),
+    });
+    setNotesCollapsed(true);
+    return true;
   }
 
   async function handleSave() {
     setSaving(true);
     setSaveResult(null);
     try {
+      if (isRubricLocked) return await publishCommentOnly();
       const scaleCode = stagedScale;
       const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
       const hasCommentChange = comment !== (student.grade_comment || '');
@@ -892,19 +948,40 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         const overallChanged = scaleCode != null || hasCommentChange || hasDisplayChange;
         let saved = null;
         if (overallChanged) {
-          saved = await writeMasteryComment(courseId, {
-            enrollmentId: student.enrollment_id,
-            assignmentId,
-            comment,
-            commentStatus: display,
-            ...(scaleCode ? { points: scalePointsFor(scaleCode) } : {}),
-            ...(rowLevels ? { rowLevels } : {}),
-            ...statusLineFields(),
-          });
+          try {
+            saved = await writeMasteryComment(courseId, {
+              enrollmentId: student.enrollment_id,
+              assignmentId,
+              comment,
+              commentStatus: display,
+              ...(scaleCode ? { points: scalePointsFor(scaleCode) } : {}),
+              ...(rowLevels ? { rowLevels } : {}),
+              ...statusLineFields(),
+            });
+          } catch (err) {
+            if (!err.published) throw err;
+            // The grade and comment are in Schoology (the server retired any saved copy); only the
+            // feedback rows did not save in Prism. Keep just the row picks staged to save again.
+            setPending((p) => Object.fromEntries(Object.entries(p).filter(([k]) => isRowKey(k))));
+            setInsertedLine(null);
+            commentHistory.clearHistory();
+            onSaved?.(student.schoology_uid, {
+              ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode, ...GRADE_WRITTEN_PATCH } : {}),
+              grade_comment: comment,
+              comment_status: display ? 1 : null,
+              ...resubmissionFieldsPatch(err.resubmissionFields),
+              ...statusLinePatch(),
+              ...flagClearedPatch(err.flagCleared),
+            });
+            if (typeof err.flagCleared?.comment === 'string') setComment(err.flagCleared.comment);
+            setSaveResult(`error: ${err.message}`);
+            return false;
+          }
         } else if (rowLevels) {
           await saveRowLevels(assignmentId, student.schoology_uid, rowLevels);
         }
-        setSaveResult('saved');
+        // A grade over a marker whose line stayed in the comment: published, and the card says so.
+        setSaveResult(saved?.flagCleared?.lineError ? `error: ${saved.flagCleared.lineError}` : 'saved');
         setPending({});
         setInsertedLine(null);
         commentHistory.clearHistory(); // undo never crosses a publish (#75)
@@ -1741,10 +1818,14 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           <button
             className="primary"
             onClick={handleSave}
-            disabled={saving || !hasPendingChanges || (!scoreScale && !scale.ready)}
-            title={rowsOnlySave ? 'Save the feedback rows in Prism (nothing is sent to Schoology)' : 'Publish scores & comment to Schoology'}
+            disabled={saving || !canPublish || (!isRubricLocked && !scoreScale && !scale.ready)}
+            title={heldLevels
+              ? 'Publish the comment and Display to Schoology. Your staged levels stay as a draft until the flag is cleared.'
+              : rowsOnlySave ? 'Save the feedback rows in Prism (nothing is sent to Schoology)' : 'Publish scores & comment to Schoology'}
           >
-            {saving ? (rowsOnlySave ? 'Saving...' : 'Publishing...') : (rowsOnlySave ? 'Save in Prism' : 'Publish to Schoology')}
+            {saving
+              ? (rowsOnlySave ? 'Saving...' : 'Publishing...')
+              : (heldLevels ? 'Publish the comment only' : rowsOnlySave ? 'Save in Prism' : 'Publish to Schoology')}
           </button>
 
           {/* Discard — undo arrow + label, always shown, disabled when nothing pending.
@@ -2017,8 +2098,9 @@ export default function AssessmentSummaryPage() {
   const focusedForRef = useRef(null);
   const reloadRubric = async () => setRubricData(await getRubricForAssignment(assignmentId));
 
-  // "Send all" bar state (#51). pendingByUid maps each card's uid → true while
-  // it has unsaved changes; cardsRef holds each card's { getEntry, applyResult }
+  // "Send all" bar state (#51). pendingByUid maps each card's uid → 'publish' while
+  // it has changes to publish, or 'held' while its only changes are levels a final
+  // flag holds back (#177); cardsRef holds each card's { getEntry, applyResult }
   // so the batch can collect entries and report results back per card.
   const [pendingByUid, setPendingByUid] = useState({});
   // Per-card visibility (display-to-student) reported up so the bulk bar's
@@ -2056,11 +2138,11 @@ export default function AssessmentSummaryPage() {
   // Stable registry callbacks (empty deps) so the cards' effects don't churn.
   // The no-op guard keeps a card reporting an unchanged pending state from
   // triggering a re-render loop.
-  const handlePendingChange = useCallback((uid, has) => {
+  const handlePendingChange = useCallback((uid, state) => {
     setPendingByUid(prev => {
-      if (!!prev[uid] === has) return prev;
+      if ((prev[uid] || false) === state) return prev;
       const next = { ...prev };
-      if (has) next[uid] = true; else delete next[uid];
+      if (state) next[uid] = state; else delete next[uid];
       return next;
     });
   }, []);
@@ -2106,8 +2188,10 @@ export default function AssessmentSummaryPage() {
     ? data.students.filter(st => shownUids.has(st.schoology_uid) && !passesFilters(st, activeFilters, filterCtx)).length
     : 0;
 
-  // The class-wide bar acts on the cards shown.
-  const totalPending = Object.keys(pendingByUid).filter(isShown).length;
+  // The class-wide bar acts on the cards shown. Publish all counts the cards it would send;
+  // Discard all and the unsaved count include levels a final flag holds back (#177).
+  const totalPending = Object.keys(pendingByUid).filter(isShown).filter(u => pendingByUid[u] === 'publish').length;
+  const totalUnsaved = Object.keys(pendingByUid).filter(isShown).length;
 
   // Class-wide visibility aggregate for the bulk "show all to students" toggle.
   const visUids = Object.keys(displayByUid).filter(isShown);
@@ -2132,24 +2216,22 @@ export default function AssessmentSummaryPage() {
     // the whole set in one batched request (#51) — one browser session for all
     // score writes + one bulk comment PUT, instead of a per-card loop.
     const items = [];
-    // A grade (levels or a score) for a student on a final flag (Exempt, Missing) is skipped, not
-    // sent: Schoology would clear Exempt, and the server refuses it (FLAGGED) as the backstop.
-    const skipped = [];
+    // A card on a final flag (Exempt, Missing) sends only its comment and Display: its staged
+    // levels stay as its draft (#177), and the result names the student. The server refuses a
+    // grade over a final flag (FLAGGED) as the backstop.
+    const held = [];
     const byUid = new Map((data?.students || []).map((st) => [st.schoology_uid, st]));
     for (const uid of uids) {
-      const built = cardsRef.current[uid]?.getEntry();
-      if (!built) continue;
+      const card = cardsRef.current[uid];
       const st = byUid.get(uid);
-      if (st && isFinalFlag(st.exception) && (built.entry.scores || built.entry.grade)) {
-        skipped.push(`${studentFullName(st)}: flagged ${FLAGS[Number(st.exception)].name} in Schoology`);
-        continue;
-      }
-      items.push({ uid, ...built });
+      if (st && card?.holdsLevels?.()) held.push(`${studentFullName(st)} (${FLAGS[Number(st.exception)]?.name || 'flagged'})`);
+      const built = card?.getEntry();
+      if (built) items.push({ uid, ...built });
     }
-    const skippedText = skipped.length ? ` Skipped ${skipped.join('; ')} (clear the flag to publish a grade).` : '';
+    const heldText = held.length ? ` Levels kept as a draft until the flag is cleared: ${held.join(', ')}.` : '';
     if (items.length === 0) {
       setBulkSaving(false);
-      if (skipped.length) setBulkResult(`Nothing published.${skippedText}`);
+      setBulkResult(`Nothing published.${heldText}`);
       return;
     }
 
@@ -2164,8 +2246,14 @@ export default function AssessmentSummaryPage() {
         // Each saved pair's post-save resubmission state comes back with its result (I2), and a
         // grade that cleared a marker its flagCleared (#40).
         if (success) { handleCardSaved(i.uid, { ...i.patch, ...resubmissionFieldsPatch(r.resubmissionFields), ...flagClearedPatch(r.flagCleared) }); ok++; } else { fail++; }
+        // Published, but its feedback rows did not save in Prism: the grade and comment are in
+        // Schoology (the server retired any saved copy), so the card shows them; the rows stay staged.
+        if (!success && r?.published) {
+          const { row_levels: _rows, ...published } = i.patch;
+          handleCardSaved(i.uid, { ...published, ...resubmissionFieldsPatch(r.resubmissionFields), ...flagClearedPatch(r.flagCleared) });
+        }
       }
-      setBulkResult(`Published ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}.${skippedText}`);
+      setBulkResult(`Published ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}.${heldText}`);
     } catch (err) {
       // All-or-nothing: a non-2xx (incl. the 502 abort) rejects here — mark every
       // card failed and leave them pending so a retry is one click away.
@@ -2732,15 +2820,15 @@ export default function AssessmentSummaryPage() {
             <button
               onClick={handleDiscardAll}
               onMouseLeave={() => setDiscardAllArmed(false)}
-              disabled={bulkSaving || totalPending === 0}
+              disabled={bulkSaving || totalUnsaved === 0}
               title="Discard all unsaved changes across every student"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
                 padding: '0.4rem 0.75rem', borderRadius: 7,
-                border: `1px solid ${totalPending > 0 ? 'var(--danger)' : 'var(--border)'}`,
-                background: discardAllArmed ? 'var(--danger)' : (totalPending > 0 ? 'var(--danger-bg)' : 'var(--card-bg)'),
-                color: discardAllArmed ? '#fff' : (totalPending > 0 ? 'var(--danger)' : 'var(--border)'),
-                cursor: (totalPending > 0 && !bulkSaving) ? 'pointer' : 'default',
+                border: `1px solid ${totalUnsaved > 0 ? 'var(--danger)' : 'var(--border)'}`,
+                background: discardAllArmed ? 'var(--danger)' : (totalUnsaved > 0 ? 'var(--danger-bg)' : 'var(--card-bg)'),
+                color: discardAllArmed ? '#fff' : (totalUnsaved > 0 ? 'var(--danger)' : 'var(--border)'),
+                cursor: (totalUnsaved > 0 && !bulkSaving) ? 'pointer' : 'default',
                 fontSize: '0.8rem', fontWeight: 600, fontFamily: 'inherit',
               }}
             >
@@ -2750,9 +2838,9 @@ export default function AssessmentSummaryPage() {
               </svg>
               {discardAllArmed ? 'Click again to confirm' : 'Discard all'}
             </button>
-            {!bulkSaving && totalPending > 0 && (
+            {!bulkSaving && totalUnsaved > 0 && (
               <span className="text-sm text-muted">
-                {totalPending} student{totalPending !== 1 ? 's' : ''} with unsaved changes
+                {totalUnsaved} student{totalUnsaved !== 1 ? 's' : ''} with unsaved changes
               </span>
             )}
             {bulkResult && (

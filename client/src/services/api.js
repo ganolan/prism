@@ -8,9 +8,11 @@ async function request(path, options = {}) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     // code / published / comment ride along (e.g. triage RECORD_FAILED_AFTER_PUBLISH:
-    // the Schoology comment WAS changed even though the action failed).
+    // the Schoology comment WAS changed even though the action failed); so do a published
+    // grade's flagCleared and resubmissionFields (write-comment with feedback rows not saved).
     throw Object.assign(new Error(err.error || `Request failed: ${res.status}`), {
       status: res.status, code: err.code, published: err.published, comment: err.comment, differences: err.differences,
+      flagCleared: err.flagCleared, resubmissionFields: err.resubmissionFields,
     });
   }
   return res.json();

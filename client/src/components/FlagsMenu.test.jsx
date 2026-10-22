@@ -176,6 +176,21 @@ describe('FlagsMenu: focus and scroll do not close the menu it just opened', () 
     expect(screen.getByRole('menu')).toBeInTheDocument();
   });
 
+  it('a settling scroll moves the menu with its pill, and it stays open there (#177)', () => {
+    renderMenu();
+    mockPillRect({ top: 100, left: 50 });
+    openMenu();
+    expect(screen.getByRole('menu').style.top).toBe('128px');
+    mockPillRect({ top: 20, left: 50 });
+    vi.setSystemTime(Date.now() + 16);
+    fireEvent.scroll(document);
+    expect(screen.getByRole('menu').style.top).toBe('48px');
+    // Measured from where the pill settled, so a later scroll that leaves it there keeps it open.
+    vi.setSystemTime(Date.now() + 500);
+    fireEvent.scroll(document);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+
   it('after the guard time, a scroll that moves the pill closes it', () => {
     renderMenu();
     mockPillRect({ top: 100, left: 50 });

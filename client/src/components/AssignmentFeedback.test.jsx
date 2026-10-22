@@ -170,6 +170,16 @@ describe('AssignmentFeedback', () => {
       expect(screen.getByText(LEVEL_LINE)).toBeInTheDocument();
     });
 
+    it('with levels on only some topics, those show as they are and the rest show none, never IE (#177)', () => {
+      render(<AssignmentFeedback topics={[TOPICS[0], NO_LEVELS[1]]} attachment={null} exception={3} />);
+      expect(within(screen.getByText('Select, analyze').closest('tr')).getByText('EX')).toBeInTheDocument();
+      const ungraded = within(screen.getByText('Reflect').closest('tr')).getAllByRole('cell');
+      expect(ungraded.slice(1).every((c) => c.textContent === '')).toBe(true);
+      expect(missingSymbols(screen.getByRole('table'))).toHaveLength(0);
+      expect(screen.getByText(LEVEL_LINE)).toBeInTheDocument();
+      expect(screen.queryByText(NO_LEVEL_LINE)).not.toBeInTheDocument();
+    });
+
     it('the line carries the Missing symbol with its name', () => {
       render(<AssignmentFeedback topics={NO_LEVELS} attachment={null} exception={3} />);
       expect(screen.getByText('MISSING')).toBeInTheDocument();

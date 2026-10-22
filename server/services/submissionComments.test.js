@@ -188,6 +188,15 @@ describe('refreshAssignment', () => {
     expect(refreshAssignment(db, '8590105935').queued).toBe(0);
   });
 
+  test('a linked section\'s student: the thread is read in their own section (#178)', async () => {
+    const db = getDb(); const { ben } = seed(db);
+    db.prepare(`UPDATE enrolments SET schoology_section_id = '8458134324' WHERE student_id = ?`).run(ben);
+    const job = refreshAssignment(db, '8590105935');
+    await job.done;
+    const bySection = Object.fromEntries(commentDeps.getSubmissionComments.mock.calls.map((c) => [c[2], c[0]]));
+    expect(bySection).toEqual({ 555: '8458134323', 666: '8458134324' });
+  });
+
   test('a second call joins the running job', async () => {
     const db = getDb(); seed(db);
     const a = refreshAssignment(db, '8590105935');

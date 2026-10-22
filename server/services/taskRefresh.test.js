@@ -100,6 +100,25 @@ describe('refreshTasks (#108)', () => {
     expect(getAssignmentSubmissions).toHaveBeenCalledWith('S8', 'OLDT');
   });
 
+  // #178: a course of linked sections. Each section's students are read through their own section.
+  test('a linked course: each section\'s submissions and grades are read through that section', async () => {
+    const course = addCourse('P', 1); // student u-P, enrolment e-P, in the course's own section
+    db.prepare(`INSERT INTO linked_sections (schoology_section_id, course_id) VALUES ('K', ?)`).run(course);
+    const kid = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u-K', 'Alan', 'T')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id, schoology_section_id) VALUES (?, ?, 'e-K', 'K')`).run(kid, course);
+    const task = addTask(course, 'X');
+    getAssignmentSubmissions.mockImplementation(async (sid) => (sid === 'K' ? [{ revision_id: 1, uid: 'u-K', created: 1000, late: 0, draft: 0 }] : []));
+    getAssignmentGrades.mockImplementation(async (sid) => [{ enrollment_id: sid === 'K' ? 'e-K' : 'e-P', assignment_id: 'X', grade: sid === 'K' ? 4 : 3 }]);
+
+    const r = await run([task], { force: true, includeArchived: true });
+
+    expect(r.refreshed).toBe(1);
+    expect(getAssignmentSubmissions.mock.calls.map((c) => c[0]).sort()).toEqual(['K', 'P']);
+    expect(getAssignmentGrades.mock.calls.map((c) => c[0]).sort()).toEqual(['K', 'P']);
+    const rows = db.prepare(`SELECT s.schoology_uid uid, g.score, g.submission_type FROM grades g JOIN students s ON s.id = g.student_id ORDER BY uid`).all();
+    expect(rows).toEqual([{ uid: 'u-K', score: 4, submission_type: 'drop' }, { uid: 'u-P', score: 3, submission_type: null }]);
+  });
+
   test('skips archived-course and removed tasks without error', async () => {
     const old = addTask(addCourse('S9', 1), 'OLD');
     const gone = addTask(c1, 'GONE', { removed: '2026-10-01' });

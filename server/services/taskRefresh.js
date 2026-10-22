@@ -10,6 +10,7 @@ import { getDb } from '../db/index.js';
 import { getAssignmentGrades } from './schoology.js';
 import { readTaskSubmissions } from './taskSubmissions.js';
 import { writeGrades } from './taskGrades.js';
+import { courseSectionIds } from './courseSections.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
 import { FRESH_MS, refreshAssignmentMastery } from './masteryRefresh.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
@@ -55,28 +56,42 @@ async function mapLimit(items, limit, fn) {
 // Read one course's tasks: submissions, then grades, then aligned tasks' mastery.
 // Everything is kept per task, so a caller sharing the batch sees only its own tasks' outcome.
 // → { read: Set<task id>, failed: Map<task id, message>, signIn: Set<task id> }.
+// #178: a course of linked sections is read section by section, each with its own students (a
+// section's read clears the submission state of any student it does not list). A task is read in
+// full only when every section read it.
 async function readCourse(db, tasks, { reader, nowIso, force, mastery, readSince, deps }) {
-  const { course_id: courseId, section_id: sectionId } = tasks[0];
+  const { course_id: courseId, section_id: ownSection } = tasks[0];
   const out = { read: new Set(), failed: new Map(), signIn: new Set() };
   const students = db.prepare(`
-    SELECT e.schoology_enrolment_id AS id, s.schoology_uid AS uid
+    SELECT e.schoology_enrolment_id AS id, s.schoology_uid AS uid, COALESCE(e.schoology_section_id, ?) AS section
     FROM enrolments e JOIN students s ON s.id = e.student_id
     WHERE e.course_id = ? AND e.dropped_at IS NULL AND e.schoology_enrolment_id IS NOT NULL
-  `).all(courseId);
+  `).all(String(ownSection), courseId);
+  const sectionIds = courseSectionIds(db, courseId);
   const fail = (t, err) => { if (!out.failed.has(t.id)) out.failed.set(t.id, String(err?.message || err)); };
 
   let revisionsRead = new Set();
   try {
-    const r = await readTaskSubmissions(db, {
-      sectionId: String(sectionId), now: nowIso, students,
-      native: tasks.filter((t) => t.accepts_submissions === 1 && t.is_lti_submission !== 1).map((t) => t.ext),
-      lti: tasks.filter((t) => t.accepts_submissions === 1 && t.is_lti_submission === 1).map((t) => t.ext),
-      tests: tasks.filter((t) => t.is_test === 1).map((t) => t.ext),
-      fetchDocuments: reader ? (aid) => reader.fetchDocuments(aid) : undefined,
-      fetchTestAttempts: reader ? (sid, uids, items) => reader.fetchTestAttempts(sid, uids, items) : undefined,
-      keepStatusOnFailure: true,
-      failTaskOnError: true,
-    });
+    const reads = [];
+    for (const sectionId of sectionIds) {
+      reads.push(await readTaskSubmissions(db, {
+        sectionId, now: nowIso, students: students.filter((x) => x.section === sectionId).map(({ id, uid }) => ({ id, uid })),
+        native: tasks.filter((t) => t.accepts_submissions === 1 && t.is_lti_submission !== 1).map((t) => t.ext),
+        lti: tasks.filter((t) => t.accepts_submissions === 1 && t.is_lti_submission === 1).map((t) => t.ext),
+        tests: tasks.filter((t) => t.is_test === 1).map((t) => t.ext),
+        fetchDocuments: reader ? (aid) => reader.fetchDocuments(aid) : undefined,
+        fetchTestAttempts: reader ? (sid, uids, items) => reader.fetchTestAttempts(sid, uids, items) : undefined,
+        keepStatusOnFailure: true,
+        failTaskOnError: true,
+      }));
+    }
+    const inAll = (k) => reads.map((x) => x[k]).reduce((a, b) => new Set([...a].filter((id) => b.has(id))));
+    const r = {
+      revisionsRead: inAll('revisionsRead'),
+      readInFull: inAll('readInFull'),
+      failedAssignmentIds: [...new Set(reads.flatMap((x) => x.failedAssignmentIds))],
+      taskErrors: new Map(reads.flatMap((x) => [...x.taskErrors])),
+    };
     revisionsRead = r.revisionsRead;
     for (const t of tasks) {
       if (r.readInFull.has(t.id)) continue;
@@ -94,7 +109,9 @@ async function readCourse(db, tasks, { reader, nowIso, force, mastery, readSince
   const stamp = db.prepare('UPDATE assignments SET submissions_read_at = ? WHERE id = ?');
   for (const t of tasks) {
     try {
-      writeGrades(db, { courseId, grades: await getAssignmentGrades(String(sectionId), t.ext), now: nowIso, enrollIdToUid });
+      for (const sectionId of sectionIds) {
+        writeGrades(db, { courseId, grades: await getAssignmentGrades(sectionId, t.ext), now: nowIso, enrollIdToUid });
+      }
       // A task with no submission channel has nothing else to read.
       if (t.accepts_submissions !== 1 && t.is_test !== 1) stamp.run(nowIso, t.id);
     } catch (err) {

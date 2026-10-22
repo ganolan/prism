@@ -69,7 +69,14 @@ function pairOf(db, { assignmentId, studentId }) {
   if (!student?.schoology_uid) throw new CommentError('NOT_FOUND', `Unknown student ${studentId}`, 404);
   const enrolled = db.prepare('SELECT 1 FROM enrolments WHERE student_id = ? AND course_id = ?').get(student.id, course.id);
   if (!enrolled) throw new CommentError('NOT_FOUND', `Student ${studentId} is not in this course`, 404);
-  return { assignment, course, student };
+  return { assignment, course: { ...course, schoology_section_id: studentSection(db, course, student) }, student };
+}
+
+// #178: the student's own section. In a course of linked sections each student's thread is in their
+// section, and the course's own section answers no thread for a linked section's student.
+function studentSection(db, course, student) {
+  return db.prepare('SELECT schoology_section_id AS s FROM enrolments WHERE student_id = ? AND course_id = ?')
+    .get(student.id, course.id)?.s || course.schoology_section_id;
 }
 
 // A comment's files as stored: the fields Prism uses, or null when it has none.
@@ -90,9 +97,10 @@ function studentName(st) {
 // (after recording the error against the pair).
 async function fetchPair(db, { assignment, course, student }) {
   try {
+    const sectionId = studentSection(db, course, student);
     const [raw, teachers] = await Promise.all([
-      commentDeps.getSubmissionComments(course.schoology_section_id, assignment.schoology_assignment_id, student.schoology_uid),
-      teachersFor(course.schoology_section_id),
+      commentDeps.getSubmissionComments(sectionId, assignment.schoology_assignment_id, student.schoology_uid),
+      teachersFor(sectionId),
     ]);
     const teacherUids = new Set([teachers.myUid, ...teachers.admins.keys()]);
     const rows = raw.map((c) => {

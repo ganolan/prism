@@ -130,6 +130,93 @@ describe('FlagsMenu: the open menu', () => {
   });
 });
 
+// Found live on prod (#40): focusing the first item on open scrolled the document, and the "a scroll
+// closes it" listener took that scroll as a reason to close, so the menu vanished ~16 ms after it
+// opened. jsdom never scrolls, so these tests dispatch the scroll themselves.
+describe('FlagsMenu: focus and scroll do not close the menu it just opened', () => {
+  // Moves the pill: what a real scroll of the page does to its rectangle.
+  function mockPillRect(rect) {
+    const el = pill();
+    el.getBoundingClientRect = () => ({ top: rect.top, left: rect.left, bottom: rect.top + 24, right: rect.left + 80, width: 80, height: 24 });
+    return el;
+  }
+
+  it('focusing an item on open uses preventScroll, so the page does not scroll', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      renderMenu();
+      openMenu();
+      const first = screen.getAllByRole('menuitemradio')[0];
+      expect(first).toHaveFocus();
+      const call = focus.mock.calls.find((_args, i) => focus.mock.contexts[i] === first);
+      expect(call?.[0]).toEqual({ preventScroll: true });
+    } finally { focus.mockRestore(); }
+  });
+
+  it('arrow keys move focus with preventScroll too', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      renderMenu();
+      openMenu();
+      const items = screen.getAllByRole('menuitemradio');
+      focus.mockClear();
+      fireEvent.keyDown(document.activeElement, { key: 'ArrowDown' });
+      expect(items[1]).toHaveFocus();
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    } finally { focus.mockRestore(); }
+  });
+
+  it('a scroll in the first moments after opening keeps it open (the scroll focus caused)', () => {
+    renderMenu();
+    mockPillRect({ top: 100, left: 50 });
+    openMenu();
+    mockPillRect({ top: 20, left: 50 }); // even if the pill did move
+    vi.setSystemTime(Date.now() + 16);
+    fireEvent.scroll(document);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+
+  it('after the guard time, a scroll that moves the pill closes it', () => {
+    renderMenu();
+    mockPillRect({ top: 100, left: 50 });
+    openMenu();
+    vi.setSystemTime(Date.now() + 500);
+    mockPillRect({ top: 60, left: 50 });
+    fireEvent.scroll(document);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('after the guard time, a scroll that sideways-moves the pill closes it', () => {
+    renderMenu();
+    mockPillRect({ top: 100, left: 50 });
+    openMenu();
+    vi.setSystemTime(Date.now() + 500);
+    mockPillRect({ top: 100, left: 40 });
+    fireEvent.scroll(window);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('after the guard time, a scroll that leaves the pill where it was keeps it open', () => {
+    renderMenu();
+    mockPillRect({ top: 100, left: 50 });
+    openMenu();
+    vi.setSystemTime(Date.now() + 500);
+    mockPillRect({ top: 101, left: 49 }); // within 2 px
+    fireEvent.scroll(document);
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+
+  it('a scroll inside the menu never closes it', () => {
+    renderMenu();
+    mockPillRect({ top: 100, left: 50 });
+    openMenu();
+    vi.setSystemTime(Date.now() + 500);
+    mockPillRect({ top: 0, left: 50 });
+    fireEvent.scroll(screen.getByRole('menu'));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+});
+
 describe('FlagsMenu: the panel for setting a flag', () => {
   it('reads Schoology fresh, then: the title, the reason with its preview, the saved-grade note, next steps, buttons', async () => {
     const { onChange } = renderMenu();

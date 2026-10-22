@@ -14,6 +14,10 @@ const REFRESH_FAILED = 'Saved, but the page could not refresh. Reload to see it.
 const AFTER_WRITE = ['READBACK_MISMATCH'];
 const MENU_WIDTH = 304; // 19rem
 const GUTTER = 16;
+// Scrolls this soon after opening are the page settling (focusing an item can scroll), not the
+// teacher scrolling away. Found live on prod: the menu closed 16 ms after it opened (#40).
+const OPEN_GUARD_MS = 150;
+const MOVED_PX = 2; // a scroll that moves the pill less than this leaves the menu where it belongs
 
 const num = (v) => (v == null || v === '' ? null : Number(v));
 const sameScore = (x, y) => (x == null || y == null ? x == null && y == null : Math.abs(x - y) < 1e-9);
@@ -47,6 +51,7 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
   const pillRef = useRef(null);
   const menuRef = useRef(null);
   const itemRefs = useRef([]);
+  const openedRef = useRef({ at: 0, top: 0, left: 0 }); // when the menu opened, and where the pill was
 
   const current = isFlag(exception) ? Number(exception) : 0;
   const flag = current ? FLAGS[current] : null;
@@ -65,21 +70,31 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
     setPos({ left, top: r.bottom + 4, width });
   }, [open, size]);
 
-  // Focus the ticked flag, else the first, when the menu opens.
+  // Focus the ticked flag, else the first, when the menu opens. preventScroll: focusing must not
+  // scroll the page (the scroll would also be read as the teacher scrolling away).
   useEffect(() => {
     if (!open) return;
     const start = Math.max(0, FLAG_ORDER.indexOf(current));
-    itemRefs.current[start]?.focus();
+    itemRefs.current[start]?.focus({ preventScroll: true });
   }, [open, current]);
 
-  // A click outside or a scroll closes it.
+  // A click outside or a scroll that moves the pill closes it.
   useEffect(() => {
     if (!open) return undefined;
+    const r = pillRef.current?.getBoundingClientRect();
+    openedRef.current = { at: Date.now(), top: r?.top ?? 0, left: r?.left ?? 0 };
     const onDown = (e) => {
       if (menuRef.current?.contains(e.target) || pillRef.current?.contains(e.target)) return;
       setOpen(false);
     };
-    const onScroll = (e) => { if (!menuRef.current?.contains(e.target)) setOpen(false); };
+    const onScroll = (e) => {
+      if (e.target instanceof Node && menuRef.current?.contains(e.target)) return;
+      if (Date.now() - openedRef.current.at < OPEN_GUARD_MS) return;
+      const now = pillRef.current?.getBoundingClientRect();
+      if (!now) return;
+      const { top, left } = openedRef.current;
+      if (Math.abs(now.top - top) > MOVED_PX || Math.abs(now.left - left) > MOVED_PX) setOpen(false);
+    };
     document.addEventListener('mousedown', onDown);
     window.addEventListener('scroll', onScroll, { passive: true, capture: true });
     return () => {
@@ -146,10 +161,10 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
     const n = FLAG_ORDER.length;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      itemRefs.current[(i + (e.key === 'ArrowDown' ? 1 : n - 1)) % n]?.focus();
+      itemRefs.current[(i + (e.key === 'ArrowDown' ? 1 : n - 1)) % n]?.focus({ preventScroll: true });
     } else if (e.key === 'Home' || e.key === 'End') {
       e.preventDefault();
-      itemRefs.current[e.key === 'Home' ? 0 : n - 1]?.focus();
+      itemRefs.current[e.key === 'Home' ? 0 : n - 1]?.focus({ preventScroll: true });
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       choose(FLAG_ORDER[i]);

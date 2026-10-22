@@ -15,8 +15,8 @@ const count = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // PUT restamps it, probed 2026-10-21). The copy is retired only when Schoology wrote the record
 // more than RETIRE_SKEW_S after the copy was saved: a read taken before a flag write's PUT (the
 // pre-flag grade, written before the copy) never retires the copy that write just kept. A record
-// with no timestamp retires nothing. Not probed: whether a level entered in Schoology's own
-// gradebook moves the timestamp; if not, the copy keeps waiting (nothing is lost).
+// with no timestamp retires nothing. A grade entered in Schoology's own gradebook restamps the
+// timestamp too (verified 2026-10-22), so the next sync retires a copy the teacher regraded there.
 // → true when a waiting copy was retired.
 export const RETIRE_SKEW_S = 5;
 export function retireCopy(db, { studentId, assignmentId, writtenAt } = {}) {

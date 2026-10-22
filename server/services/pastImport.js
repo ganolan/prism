@@ -1,31 +1,42 @@
-// The background import of the teacher's past (archived) courses after a first run (#171).
+// The background import of the teacher's past (archived) courses: after a first run (#171), and
+// after every full run when a past section is missing (#178).
 //
 // Once per install: the first run on an empty database marks it due (markPastImportDue, 'waiting':
 // syncQueue's ensure, and any kind 'all' run that starts with no course; it lives in
 // pastImportState.js so the queue need not import this file). After the next finished
-// `kind: 'all'` run, the archived sections are discovered (getArchivedSections; no session → it
-// stays waiting for a later run), and each one not yet in `courses` (and with a course code: a
-// section with none is a template or a "not taught" one, as GET /api/courses/archived/discover
-// marks them) is imported, newest school year first. One queue run per course
-// ({ kind: 'import', sectionId }, archivedImportRun.js), one at a time, so page syncs interleave:
-// when an import run finishes, the queue's onRunFinished listener queues the next.
+// `kind: 'all'` run, the archived sections are discovered (getArchivedSections: REST, no session
+// needed; Schoology unreadable → it stays waiting for a later run), and each one not yet held (and
+// with a course code: a section with none is a template or a "not taught" one, as GET
+// /api/courses/archived/discover marks them) is imported, newest school year first. One queue run
+// per course ({ kind: 'import', sectionId }, archivedImportRun.js), one at a time, so page syncs
+// interleave: when an import run finishes, the queue's onRunFinished listener queues the next.
+//
+// #178: a set of linked sections is one course, imported by its parent section (`linked` keeps each
+// parent's linked sections); it is missing until every one of its sections is held (courses or
+// linked_sections). And every finished `kind: 'all'` run with no pass going (no state, or 'done')
+// discovers again and starts a new pass for the sections still missing (recheckPastImport), so a
+// section Prism never held (prod's past courses were imported by hand, and Schoology's own past
+// page, the old source, hid linked sections) is imported without anyone asking.
 //
 // A section whose run did not finish 'completed' (or did, and left no course row) is listed as
 // failed and the import moves on: a run can fail after writing the course row, so the row alone
 // does not prove the import. When the list is through, each failed section is tried once more
-// (`retried`; the import's upsert makes a second try safe), then the import is 'done' for good.
+// (`retried`; the import's upsert makes a second try safe), then the pass is 'done'. A section
+// still missing then is given up (`gaveUp`): later passes leave it out, the Archived tab's Import
+// list still offers it, and `node scripts/check-past-courses.js` reports it.
 // The section whose run is queued or going is kept as `current`: a restart (which marks that run
 // interrupted, and no listener hears it) counts it as an interrupted run. In the first pass it
 // joins the failed list (and is retried at the end), and the import resumes with the sections
 // still missing, never the ones already imported. In the retry pass it was already its retry: the
 // import resumes with the failed section after it. The state is one settings row:
 //   PAST_IMPORT_KEY → { state: 'waiting' | 'importing' | 'done', total, sectionIds, failed,
-//                       retried, current }
+//                       retried, current, linked: { sectionId: [linked section ids] }, gaveUp }
 // with sectionIds in import order. GET /api/sync/status reports pastImportStatus.
 import { enqueue as queueRequest, onRunFinished } from './syncQueue.js';
 import { getArchivedSections } from './archivedCourses.js';
 import { academicYearStart } from '../lib/schoolYear.js';
 import { PAST_IMPORT_KEY, markPastImportDue } from './pastImportState.js';
+import { heldSectionIds } from './courseSections.js';
 
 export { PAST_IMPORT_KEY, markPastImportDue };
 
@@ -42,6 +53,8 @@ function readState(db) {
       failed: Array.isArray(s.failed) ? s.failed.map(String) : [],
       retried: !!s.retried,
       current: s.current == null ? null : String(s.current),
+      linked: s.linked && typeof s.linked === 'object' ? s.linked : {},
+      gaveUp: Array.isArray(s.gaveUp) ? s.gaveUp.map(String) : [],
     };
   } catch {
     return null;
@@ -55,12 +68,12 @@ function writeState(db, state) {
   `).run(PAST_IMPORT_KEY, JSON.stringify(state));
 }
 
-// The section ids of `sectionIds` that are not in courses yet.
-function missingOf(db, sectionIds) {
+// The section ids of `sectionIds` that Prism does not hold in full yet: the section, or one of its
+// linked sections (`linked`), is in neither courses nor linked_sections.
+function missingOf(db, sectionIds, linked = {}) {
   if (!sectionIds.length) return new Set();
-  const known = new Set(db.prepare(`SELECT schoology_section_id AS id FROM courses
-    WHERE schoology_section_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(sectionIds)).map((r) => String(r.id)));
-  return new Set(sectionIds.filter((id) => !known.has(id)));
+  const held = heldSectionIds(db);
+  return new Set(sectionIds.filter((id) => ![id, ...(linked[id] || [])].every((x) => held.has(String(x)))));
 }
 
 // → { state: 'none' | 'waiting' | 'importing' | 'done', done, total }: done counts the sections
@@ -68,24 +81,34 @@ function missingOf(db, sectionIds) {
 export function pastImportStatus(db) {
   const s = readState(db);
   if (!s) return { state: 'none', done: 0, total: 0 };
-  return { state: s.state, done: s.total - missingOf(db, s.sectionIds).size, total: s.total };
+  return { state: s.state, done: s.total - missingOf(db, s.sectionIds, s.linked).size, total: s.total };
 }
 
 // The discovered sections to import, newest school year first (a section whose year cannot be
-// read goes last); within a year, the page's order.
-function importOrder(db, sections) {
-  const seen = new Set();
+// read goes last); within a year, the page's order. Leaves out `skip` (given up). → { sectionIds,
+// linked }: linked holds each listed section's linked sections (only those that have some).
+function importOrder(db, sections, skip = []) {
+  const seen = new Set(skip.map(String));
   const rows = [];
+  const linked = {};
   for (const s of sections) {
     const id = s?.sectionId == null ? '' : String(s.sectionId);
     if (!id || !s.courseCode || seen.has(id)) continue;
     seen.add(id);
     rows.push({ id, year: academicYearStart(s.gradingPeriod ?? null) });
+    if (s.linkedSectionIds?.length) linked[id] = s.linkedSectionIds.map(String);
   }
-  const missing = missingOf(db, rows.map((r) => r.id));
-  return rows.filter((r) => missing.has(r.id))
+  const missing = missingOf(db, rows.map((r) => r.id), linked);
+  const sectionIds = rows.filter((r) => missing.has(r.id))
     .sort((a, b) => (b.year ?? -Infinity) - (a.year ?? -Infinity))
     .map((r) => r.id);
+  return { sectionIds, linked: Object.fromEntries(sectionIds.filter((id) => linked[id]).map((id) => [id, linked[id]])) };
+}
+
+// A new pass over the discovered `sections`, leaving out `gaveUp`.
+function newPass(db, sections, gaveUp) {
+  const { sectionIds, linked } = importOrder(db, sections, gaveUp);
+  return { state: 'importing', total: sectionIds.length, sectionIds, failed: [], retried: false, current: null, linked, gaveUp };
 }
 
 // The next section to import, updating `s` (failed, retried). `finished`: the section whose import
@@ -108,23 +131,49 @@ function nextSection(s, missing, finished, status) {
   return s.failed[from] ?? null;
 }
 
+async function discoverSafely(discover) {
+  try { return await discover(); } catch { return null; }
+}
+
 async function step({ db, discover, enqueue, finished, status }) {
   let s = readState(db);
   if (!s || s.state === 'done') return;
   if (s.state === 'waiting') {
-    let sections = null;
-    try { sections = await discover(); } catch { sections = null; }
-    if (!sections) return; // no session: a later run tries again
-    const sectionIds = importOrder(db, sections);
-    s = { state: 'importing', total: sectionIds.length, sectionIds, failed: [], retried: false, current: null };
-    console.log(`[past import] ${sectionIds.length} past course(s) to import`);
+    const sections = await discoverSafely(discover);
+    if (!sections) return; // Schoology unreadable: a later run tries again
+    s = newPass(db, sections, s.gaveUp);
+    console.log(`[past import] ${s.total} past course(s) to import`);
   }
-  const next = nextSection(s, missingOf(db, s.sectionIds), finished == null ? null : String(finished), status);
+  advance(db, s, enqueue, { finished, status });
+}
+
+// Queue the next section of pass `s`, or end it: a section still missing then is given up.
+function advance(db, s, enqueue, { finished = null, status = null } = {}) {
+  const missing = missingOf(db, s.sectionIds, s.linked);
+  const next = nextSection(s, missing, finished == null ? null : String(finished), status);
   // Kept before the run is queued, so a restart knows which section's run it cut off.
   s.current = next;
-  if (!next) s.state = 'done';
+  if (!next) {
+    s.state = 'done';
+    const lost = s.failed.filter((id) => missing.has(id) && !s.gaveUp.includes(id));
+    if (lost.length) console.log(`[past import] given up after a retry: section(s) ${lost.join(', ')}`);
+    s.gaveUp = [...s.gaveUp, ...lost];
+  }
   writeState(db, s);
   if (next) enqueue({ kind: 'import', sectionId: next, trigger: 'page' });
+}
+
+// #178: with no pass going (no state, or 'done'), discover the past sections and start a pass for
+// the ones still missing (leaving out those given up). Nothing missing → the state is left as it is.
+async function recheck({ db, discover, enqueue }) {
+  const before = readState(db);
+  if (before && before.state !== 'done') return;
+  const sections = await discoverSafely(discover);
+  if (!sections) return;
+  const s = newPass(db, sections, before?.gaveUp ?? []);
+  if (!s.total) return;
+  console.log(`[past import] ${s.total} past course(s) missing: importing them`);
+  advance(db, s, enqueue);
 }
 
 let chain = Promise.resolve();
@@ -138,14 +187,23 @@ export function continuePastImport({ db, discover = getArchivedSections, enqueue
   return run;
 }
 
+// After a finished full run (#178): import the past sections Prism does not hold. Steps run one
+// after another with continuePastImport's.
+export function recheckPastImport({ db, discover = getArchivedSections, enqueue = queueRequest }) {
+  const run = chain.then(() => recheck({ db, discover, enqueue }));
+  chain = run.catch(() => {});
+  return run;
+}
+
 // At server start: listen for finished runs, and resume an import a restart cut off. The section
 // whose run the restart cut off (`current`; markInterruptedRuns marked its run interrupted) counts
 // as an interrupted run. → unsubscribe.
 export function startPastImport({ db, discover = getArchivedSections }) {
   const stop = onRunFinished((request, status) => {
     if (request.kind === 'import') return continuePastImport({ db, discover, finished: request.sectionId, status });
-    if (request.kind === 'all' && readState(db)?.state === 'waiting') return continuePastImport({ db, discover });
-    return undefined;
+    if (request.kind !== 'all') return undefined;
+    if (readState(db)?.state === 'waiting') return continuePastImport({ db, discover });
+    return recheckPastImport({ db, discover });
   });
   const s = readState(db);
   if (s?.state === 'importing') {

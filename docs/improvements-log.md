@@ -14,6 +14,34 @@ systems as they are; never overstate.
 
 ---
 
+## Every past class, linked sections included (#178, October 2026)
+
+**Status quo.** Schoology's page of a teacher's past courses lists one section of each set of linked
+sections. A linked set is two or more sections that share one set of tasks, each with its own students and
+grades.
+
+**The problem.** The students of the other sections in a linked set are missing from that page. Tested on
+23 October 2026: the page lists AI & Machine Learning 4(A-B) for 2023-24 but not 6(A-B), its linked section
+of 11 students. Fourteen AP CSA self-paced sections from 2021-22 and 2022-23 are missing in the same way.
+A record built from that page leaves those students out of a teacher's history.
+
+**What Prism does.**
+- **Lists every past section** from Schoology's own section list, which includes linked sections.
+- **Holds a linked set as one course:** every section's students, with each student's grades and comments.
+- **Imports a missing past class without being asked:** after each full sync, Prism imports any past section
+  it does not hold.
+- **Reports any gap:** `node scripts/check-past-courses.js` lists each past section Prism does not hold, and
+  why.
+
+**Evidence.**
+- Live read, 23 October 2026: 83 sections in the section list; 58 past rows, of which 3 are linked sets
+  (AI & ML 2023-24, and the AP CSA self-paced sets of 2021-22 and 2022-23, 8 sections each).
+- The AI & ML 4(A-B) and 6(A-B) set imported as one course: 23 students, 28 tasks, 644 grades. The 4(A-B)
+  half matches the course Prism already held: 12 students, 336 grades, 82 comments.
+- Record: `.claude/build-progress.md`, "Past courses from the REST section list (#178)".
+
+---
+
 ## Schoology grade flags (#40, October 2026)
 
 **Status quo.** Schoology offers five flags on a grade: Exempt, Late, Absent, Incomplete and Missing. A

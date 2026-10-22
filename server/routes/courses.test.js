@@ -64,8 +64,9 @@ beforeEach(() => {
   db.exec(
     'DELETE FROM student_ps_alerts; DELETE FROM student_powerschool; ' +
     'DELETE FROM feedback_snapshots; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM enrolments; ' +
-    'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
+    'DELETE FROM assignments; DELETE FROM students; DELETE FROM linked_sections; DELETE FROM courses;'
   );
+  db.prepare("DELETE FROM settings WHERE key = 'firstRun.pastImport'").run();
   courseId = db.prepare(
     `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-1', 'Course')`
   ).run().lastInsertRowid;
@@ -349,11 +350,25 @@ describe('GET /api/courses?view= leaves out excluded sections (#171)', () => {
 });
 
 describe('GET /api/courses/archived/discover', () => {
-  test('no session → { available: false }', async () => {
+  test('Schoology cannot be read → { available: false }', async () => {
     getArchivedSections.mockResolvedValue(null);
     const { status, body } = await get('/api/courses/archived/discover');
     expect(status).toBe(200);
-    expect(body).toEqual({ available: false, reason: 'no_session' });
+    expect(body).toEqual({ available: false, reason: 'unavailable' });
+  });
+
+  test('a linked set is imported only when every section is held; given-up sections are marked (#178)', async () => {
+    getDb().prepare(`INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('4', 'AIML', 1)`).run();
+    getDb().prepare(`INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('8', 'MAD', 1)`).run();
+    getDb().prepare(`INSERT INTO linked_sections (schoology_section_id, course_id) VALUES ('9', (SELECT id FROM courses WHERE schoology_section_id = '8'))`).run();
+    getDb().prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('firstRun.pastImport', ?)`).run(JSON.stringify({ state: 'done', gaveUp: ['12'] }));
+    getArchivedSections.mockResolvedValue([
+      { courseTitle: 'AIML', courseCode: 'A', sectionId: '4', linkedSectionIds: ['6'] },
+      { courseTitle: 'MAD', courseCode: 'M', sectionId: '8', linkedSectionIds: ['9'] },
+      { courseTitle: 'PCG', courseCode: 'P', sectionId: '12', linkedSectionIds: [] },
+    ]);
+    const { body } = await get('/api/courses/archived/discover');
+    expect(body.sections.map((s) => [s.sectionId, s.imported, s.givenUp])).toEqual([['4', false, false], ['8', true, false], ['12', false, true]]);
   });
 
   test('annotates imported (already in DB) and noCourseCode', async () => {

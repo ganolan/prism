@@ -9,6 +9,8 @@ vi.mock('./sync.js', () => ({
 }));
 // The block-number service reads PowerSchool: mocked so the import never reaches the network,
 // and so block-on-import (#106) can be asserted.
+// #178: the sections linked to the imported one (none unless a test says so).
+vi.mock('./archivedCourses.js', () => ({ linkedSectionsOf: vi.fn().mockResolvedValue([]) }));
 vi.mock('./psAttendanceSync.js', () => ({ syncPsAttendance: vi.fn().mockResolvedValue({ processed: 1, updated: 1, unchanged: 0, skipped: 0, results: [] }) }));
 
 import { importArchivedCourse } from './archivedImport.js';
@@ -17,6 +19,7 @@ import { classifyEvent } from './syncRuns.js';
 import { apiGet } from './schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from './sync.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
+import { linkedSectionsOf } from './archivedCourses.js';
 
 const section = (over = {}) => ({ id: 'sec-9', course_title: 'Old Bio', section_title: 'A', course_code: 'BIO', active: 0, ...over });
 function schoology({ sec = section(), period = 'Semester 1: 08/14/2024 - 01/11/2025' } = {}) {
@@ -31,6 +34,7 @@ beforeEach(() => {
   migrate(db);
   vi.clearAllMocks();
   schoology();
+  linkedSectionsOf.mockResolvedValue([]);
 });
 
 describe('importArchivedCourse (#70, moved from POST /api/courses/import for #171)', () => {
@@ -164,6 +168,47 @@ describe('importArchivedCourse (#70, moved from POST /api/courses/import for #17
     const at = stamps().synced_at;
     expect(taskStamps()['A-full']).toEqual({ synced: null, attempted: at });
     expect(taskStamps()['A-removed']).toEqual({ synced: null, attempted: null });
+  });
+
+  // #178: linked sections are one course.
+  test('a section with linked sections: one course with every section\'s title, each linked section recorded', async () => {
+    schoology({ sec: section({ section_title: '4(A-B)' }) });
+    linkedSectionsOf.mockResolvedValue([{ sectionId: 'sec-6', sectionTitle: '6(A-B)' }, { sectionId: 'sec-7', sectionTitle: '7(A-B)' }]);
+    const { course } = await importArchivedCourse(db, 'sec-9');
+    expect(linkedSectionsOf).toHaveBeenCalledWith('sec-9');
+    expect(course.section_name).toBe('4(A-B), 6(A-B), 7(A-B)');
+    expect(db.prepare('SELECT schoology_section_id, course_id, section_name FROM linked_sections ORDER BY 1').all()).toEqual([
+      { schoology_section_id: 'sec-6', course_id: course.id, section_name: '6(A-B)' },
+      { schoology_section_id: 'sec-7', course_id: course.id, section_name: '7(A-B)' },
+    ]);
+    // Written before the read, so the read covers every section.
+    expect(finalizeArchivedCourse).toHaveBeenCalledTimes(1);
+  });
+
+  test('importing a linked section imports its parent, with every linked section', async () => {
+    const parent = section({ id: 'sec-4', section_title: '4(A-B)' });
+    apiGet.mockImplementation((p) => {
+      if (p.endsWith('/grading_periods')) return Promise.resolve({ grading_period: [{ title: '2023-2024' }] });
+      if (p === '/sections/sec-6') return Promise.resolve(section({ id: 'sec-6', section_title: '6(A-B)', parent_id: 'sec-4' }));
+      return Promise.resolve(parent);
+    });
+    linkedSectionsOf.mockResolvedValue([{ sectionId: 'sec-6', sectionTitle: '6(A-B)' }]);
+    const { course } = await importArchivedCourse(db, 'sec-6');
+    expect(course).toMatchObject({ schoology_section_id: 'sec-4', section_name: '4(A-B), 6(A-B)' });
+    expect(db.prepare('SELECT COUNT(*) n FROM courses').get().n).toBe(1);
+    expect(db.prepare('SELECT schoology_section_id FROM linked_sections').all()).toEqual([{ schoology_section_id: 'sec-6' }]);
+  });
+
+  test('a section with no parent (parent_id "0") is imported as itself', async () => {
+    schoology({ sec: section({ parent_id: '0' }) });
+    const { course } = await importArchivedCourse(db, 'sec-9');
+    expect(course.schoology_section_id).toBe('sec-9');
+  });
+
+  test('the linked sections cannot be read: the import stops before writing anything', async () => {
+    linkedSectionsOf.mockRejectedValue(new Error('Schoology API 503'));
+    await expect(importArchivedCourse(db, 'sec-9')).rejects.toThrow('503');
+    expect(db.prepare('SELECT COUNT(*) n FROM courses').get().n).toBe(0);
   });
 
   test('a Schoology error is thrown as it came (the route maps 403 and 404)', async () => {

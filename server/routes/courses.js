@@ -4,6 +4,8 @@ import { getGradingScalesMap } from '../db/scales.js';
 import { apiGet } from '../services/schoology.js';
 import { openRequestKeys, arrivedKeys } from '../services/resubmissions.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
+import { heldSectionIds } from '../services/courseSections.js';
+import { pastImportGivenUp } from '../services/pastImportState.js';
 import { importArchivedCourse } from '../services/archivedImport.js';
 import { getSchoologyConfig, getFeatures } from '../middleware/featureGate.js';
 import { psAlertsByStudent } from '../services/psAlertStore.js';
@@ -15,11 +17,12 @@ import { waitingCopies, flagLines } from '../services/savedGrades.js';
 
 const router = Router();
 
-// GET /api/courses/archived/discover — enumerate archived (past) sections by
-// scraping Schoology's /courses/mycourses/past source page (saved session, plain HTTP).
-// Annotates each with whether it's already imported and whether it lacks a
-// course code. The two-segment path can't be captured by `/:id`. "Archived" is
-// the app term; "past" only names Schoology's page (see CONTEXT.md). Issue #5.
+// GET /api/courses/archived/discover — the teacher's archived (past) sections, from Schoology's
+// REST section list (getArchivedSections, #178: a set of linked sections is one row). Each is
+// annotated: imported (every one of its sections is held), noCourseCode (a template, never
+// imported), givenUp (the background import tried it twice and gave up). The Archived tab's
+// Import list and scripts/check-past-courses.js read it. The two-segment path can't be captured
+// by `/:id`. "Archived" is the app term; "past" is Schoology's (see CONTEXT.md). Issue #5.
 router.get('/archived/discover', async (req, res) => {
   let sections;
   try {
@@ -27,17 +30,16 @@ router.get('/archived/discover', async (req, res) => {
   } catch {
     return res.status(500).json({ error: 'Could not check for archived courses' });
   }
-  if (!sections) return res.json({ available: false, reason: 'no_session' });
+  if (!sections) return res.json({ available: false, reason: 'unavailable' });
 
   const db = getDb();
-  // sectionId from the scraper / DB may be numeric or string — compare as strings.
-  const known = new Set(
-    db.prepare('SELECT schoology_section_id FROM courses').all().map((r) => String(r.schoology_section_id))
-  );
+  const held = heldSectionIds(db);
+  const givenUp = new Set(pastImportGivenUp(db));
   const annotated = sections.map((s) => ({
     ...s,
-    imported: known.has(String(s.sectionId)),
+    imported: [s.sectionId, ...(s.linkedSectionIds || [])].every((id) => held.has(String(id))),
     noCourseCode: !s.courseCode,
+    givenUp: givenUp.has(String(s.sectionId)),
   }));
   res.json({ available: true, sections: annotated });
 });

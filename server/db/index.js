@@ -216,6 +216,13 @@ const MIGRATIONS = [
     restored_at TEXT,
     PRIMARY KEY (student_id, assignment_id)
   )`,
+  // #178: linked sections (schema.sql has the same table and column, with their notes).
+  `ALTER TABLE enrolments ADD COLUMN schoology_section_id TEXT`,
+  `CREATE TABLE IF NOT EXISTS linked_sections (
+    schoology_section_id TEXT PRIMARY KEY,
+    course_id INTEGER NOT NULL REFERENCES courses(id),
+    section_name TEXT
+  )`,
 ];
 
 // Remove mastery score rows with no level. The full mastery sync stored an

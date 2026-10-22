@@ -709,7 +709,31 @@ pages or show on both (`paginatePeopleSearch` dedupes, which is why a 5-page sea
 and why a complete 2–4-page search of a full name sometimes differed by 1–4 users). A one-page answer was always the
 same.)*
 
-**2. Archived / past courses — HTML parse confirmed; NO clean JSON exists; archived sections ARE API-readable.**
+**2. Archived / past courses: REST `GET /users/{teacherUid}/sections?include_past=1` lists them all (2026-10-23, #178); the HTML page below hides linked sections and is no longer read.**
+
+*(Verified live 2026-10-23, public OAuth, read only, `scripts/probe-past-sections.js me` and a REST-vs-page-vs-prod diff:)*
+- **`include_past=1` works for the teacher's own uid:** `GET /users/114956593/sections` returned 10 sections (all `active: 1`);
+  with `?include_past=1` it returned **83** (10 current + 73 past `active: 0`, back to 2021-22, plus the MASTER template),
+  with no paging links, the same 83 with `&limit=200`. Row fields: `id, course_title, course_code, course_id, school_id,
+  building_id, access_code, section_title, section_code, section_school_code, synced, active, description, subject_area,
+  grade_level_range_start, grade_level_range_end, parent_id, grading_periods (ids), profile_url, location, meeting_days,
+  start_time, end_time, weight, options, admin, links`. (The student-uid note below still holds: for a **student's** uid
+  `include_past=1` changes nothing.)
+- **The past page is a subset:** every one of its 58 sections is in the REST list; the REST list has **15 past sections the
+  page omits**, all of them **linked sections** (`parent_id` = another section's id): AI & ML 6(A-B) 2023-24 `6803621359`
+  (parent 4(A-B) `6803621358`), and AP CSA self-paced 2(A-B) to 8(A-B) in 2021-22 (parent `5166086923`) and 2022-23 (parent
+  `6054522484`). `parent_id` is `"0"` on a parent, `null` on an unlinked current section.
+- **Linked sections share tasks, not students:** `/sections/6803621358/assignments` and `/sections/6803621359/assignments`
+  return the **same 28 assignment ids**; the rosters do not overlap (12 and 11 students); `/grades` is per section (360 rows
+  on the parent, 330 on the child, every child row on a child enrolment). So a task id is not unique to one section.
+  Prism holds a linked set as one course (`linked_sections`, `CONTEXT.md`).
+- **`GET /gradingperiods/{id}`** → `{ id, title: "2023-2024: 08/15/23 - 06/14/24", start: "2023-08-15", end: "2024-06-18",
+  active: 0, has_children: false, parent: "0" }`. **`GET /gradingperiods?limit=200` → 403.** Prism reads each period id
+  once (`server/services/archivedCourses.js`).
+- Timing: the list plus 16 grading periods 6.4 s cold, 2.7 s with the periods cached.
+
+*Superseded (2026-10-23, #178): Prism read the HTML page below from #5 to #178 (`parsePastCourses`, removed). Its structure
+is kept as verified intel.*
 `GET /courses/mycourses/past` → **200 text/html** (~338 KB). Verified structure: **45 `li.course-item.list-item`** rows
 (`id="course-{courseId}"`, `.course-title`, `.course-code`) containing **49 `div.section-item`**
 (`id="section-{sectionId}"` + view link `a[href="/course/{sectionId}"]`) — i.e. **45 `course-item` rows / 49 sections**.
@@ -735,7 +759,7 @@ HTTP 2.0–2.1 s.)*
 `scripts/probe-student-grades.js`, `scripts/probe-past-sections.js`, `scripts/probe-archived-inventory.js`):**
 - **Archive inventory grew to 58 sections**, the oldest `21-22 S2` / `21-22 YR` (e.g. AP CSP `5166086706`, MAD `5166469329`).
   Grading-period strings seen: `"2023-2024: 08/15/23 - 06/14/24 · …"`, `"Semester 1: 08/13/24 - 01/05/25 · …"`,
-  `"Semester 2: 1/09/23 - 6/14/23 · …"`, `"21-22 S2 · …"`, `"22-23 Summer · …"`. ⚠️ `parsePastCourses` returned
+  `"Semester 2: 1/09/23 - 6/14/23 · …"`, `"21-22 S2 · …"`, `"22-23 Summer · …"`. ⚠️ `parsePastCourses` (removed 2026-10-23) returned
   `sectionTitle: "Edit"` for 57 of 58 rows (it reads an admin link's text); only `5166469329` gave `"3(A-B)"`. The REST
   `GET /v1/sections/{id}` `section_title` is the reliable source (import already uses it).
 - **Archived-section enrolments are all `status: "2"`**, students and admins alike: AIML `7899907727` (14 + 3 admin),

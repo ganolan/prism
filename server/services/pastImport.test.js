@@ -5,13 +5,16 @@ vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 import { getDb } from '../db/index.js';
 import { queueDeps, resetQueue, idle, enqueue as queueRequest } from './syncQueue.js';
 import {
-  PAST_IMPORT_KEY, markPastImportDue, pastImportStatus, continuePastImport, startPastImport,
+  PAST_IMPORT_KEY, markPastImportDue, pastImportStatus, continuePastImport, startPastImport, recheckPastImport,
 } from './pastImport.js';
 
 const db = () => getDb();
-const row = (sectionId, gradingPeriod, courseCode = 'X') => ({
-  courseId: `c${sectionId}`, courseTitle: `Course ${sectionId}`, courseCode, sectionId, sectionTitle: null, gradingPeriod,
+const row = (sectionId, gradingPeriod, courseCode = 'X', linkedSectionIds = []) => ({
+  courseTitle: `Course ${sectionId}`, courseCode, sectionId, sectionTitle: null, gradingPeriod, linkedSectionIds,
 });
+const addLinked = (sectionId, parentId) => db().prepare(
+  `INSERT INTO linked_sections (schoology_section_id, course_id) SELECT ?, id FROM courses WHERE schoology_section_id = ?`,
+).run(String(sectionId), String(parentId));
 const addCourse = (sectionId) => db().prepare(
   `INSERT INTO courses (schoology_section_id, course_name, archived) VALUES (?, ?, 1)`,
 ).run(String(sectionId), `Course ${sectionId}`);
@@ -27,7 +30,7 @@ const importing = (sectionIds, extra = {}) => writeState({
 const queued = (enqueue) => enqueue.mock.calls.map(([r]) => r);
 
 beforeEach(() => {
-  db().exec('DELETE FROM settings; DELETE FROM sync_run_events; DELETE FROM sync_runs; DELETE FROM courses;');
+  db().exec('DELETE FROM settings; DELETE FROM sync_run_events; DELETE FROM sync_runs; DELETE FROM linked_sections; DELETE FROM courses;');
   resetQueue();
 });
 
@@ -90,7 +93,7 @@ describe('continuePastImport', () => {
     ]);
     await continuePastImport({ db: db(), discover, enqueue });
     expect(readState()).toEqual({
-      state: 'importing', total: 5, sectionIds: ['3', '4', '7', '1', '2'], failed: [], retried: false, current: '3',
+      state: 'importing', total: 5, sectionIds: ['3', '4', '7', '1', '2'], failed: [], retried: false, current: '3', linked: {}, gaveUp: [],
     });
     expect(queued(enqueue)).toEqual([{ kind: 'import', sectionId: '3', trigger: 'page' }]);
     expect(pastImportStatus(db())).toEqual({ state: 'importing', done: 0, total: 5 });
@@ -161,6 +164,32 @@ describe('continuePastImport', () => {
     expect(enqueue).toHaveBeenCalledTimes(2);
   });
 
+  // #178: a linked set is one row; it is missing until every one of its sections is held.
+  test('a linked set is imported by its parent, and counts as missing while a linked section is', async () => {
+    markPastImportDue(db());
+    addCourse('4');
+    addCourse('8');
+    addLinked('9', '8');
+    const discover = vi.fn().mockResolvedValue([
+      row('4', '2023-2024', 'X', ['6']), // parent held, its linked section is not
+      row('8', '2023-2024', 'X', ['9']), // every section held
+    ]);
+    await continuePastImport({ db: db(), discover, enqueue });
+    expect(readState()).toMatchObject({ state: 'importing', sectionIds: ['4'], linked: { 4: ['6'] }, current: '4' });
+    expect(pastImportStatus(db())).toEqual({ state: 'importing', done: 0, total: 1 });
+    addLinked('6', '4');
+    expect(pastImportStatus(db())).toEqual({ state: 'importing', done: 1, total: 1 });
+    await continuePastImport({ db: db(), enqueue, finished: '4', status: 'completed' });
+    expect(readState().state).toBe('done');
+  });
+
+  test('when the import is done, a section still missing after its retry is given up', async () => {
+    importing(['1', '2'], { failed: ['1'], retried: true, current: '1' });
+    addCourse('2');
+    await continuePastImport({ db: db(), enqueue, finished: '1', status: 'failed' });
+    expect(readState()).toMatchObject({ state: 'done', gaveUp: ['1'] });
+  });
+
   test('resume: importing with two of five already in courses queues the third, never the first two', async () => {
     importing(['1', '2', '3', '4', '5']);
     addCourse('1');
@@ -168,6 +197,52 @@ describe('continuePastImport', () => {
     await continuePastImport({ db: db(), enqueue });
     expect(queued(enqueue)).toEqual([{ kind: 'import', sectionId: '3', trigger: 'page' }]);
     expect(readState().failed).toEqual([]);
+  });
+});
+
+// #178: after every full run, any past section still missing is imported (the import heals itself).
+describe('recheckPastImport', () => {
+  let enqueue;
+  beforeEach(() => { enqueue = vi.fn(() => ({ runId: 1, state: 'queued', joined: false })); });
+
+  test('no state (prod, a dev clone): the missing sections are imported, newest first', async () => {
+    addCourse('1');
+    const discover = vi.fn().mockResolvedValue([row('1', '2023-2024'), row('2', '2022-2023'), row('3', '2024-2025')]);
+    await recheckPastImport({ db: db(), discover, enqueue });
+    expect(readState()).toMatchObject({ state: 'importing', sectionIds: ['3', '2'], current: '3', gaveUp: [] });
+    expect(queued(enqueue)).toEqual([{ kind: 'import', sectionId: '3', trigger: 'page' }]);
+  });
+
+  test('nothing missing: no state is written, nothing queued', async () => {
+    addCourse('1');
+    await recheckPastImport({ db: db(), discover: vi.fn().mockResolvedValue([row('1', '2023-2024')]), enqueue });
+    expect(readState()).toBeNull();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  test('done: a new pass for the sections missing now, leaving out those given up', async () => {
+    writeState({ state: 'done', total: 1, sectionIds: ['1'], failed: ['1'], retried: true, current: null, gaveUp: ['1'] });
+    const discover = vi.fn().mockResolvedValue([row('1', '2023-2024'), row('5', '2023-2024')]);
+    await recheckPastImport({ db: db(), discover, enqueue });
+    expect(readState()).toMatchObject({ state: 'importing', total: 1, sectionIds: ['5'], failed: [], retried: false, gaveUp: ['1'] });
+    expect(pastImportStatus(db())).toEqual({ state: 'importing', done: 0, total: 1 });
+  });
+
+  test('waiting or importing: left to that pass, nothing discovered', async () => {
+    const discover = vi.fn();
+    markPastImportDue(db());
+    await recheckPastImport({ db: db(), discover, enqueue });
+    importing(['1']);
+    await recheckPastImport({ db: db(), discover, enqueue });
+    expect(discover).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  test('Schoology cannot be read: nothing changes', async () => {
+    await recheckPastImport({ db: db(), discover: vi.fn().mockResolvedValue(null), enqueue });
+    await recheckPastImport({ db: db(), discover: vi.fn().mockRejectedValue(new Error('down')), enqueue });
+    expect(readState()).toBeNull();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });
 
@@ -236,6 +311,15 @@ describe('startPastImport (through the real queue)', () => {
     await settled();
     expect(readState()).toMatchObject({ state: 'done', failed: ['2'], retried: true, current: null });
     expect(queueDeps.runPastImport.mock.calls.map(([r]) => r.sectionId)).toEqual(['3', '2']);
+  });
+
+  test('a finished kind all run with no import state imports the missing past sections (#178)', async () => {
+    const discover = vi.fn().mockResolvedValue([row('1', '2023-2024')]);
+    stop = startPastImport({ db: db(), discover });
+    queueRequest({ kind: 'all', trigger: 'button' });
+    await settled();
+    expect(queueDeps.runPastImport.mock.calls.map(([r]) => r.sectionId)).toEqual(['1']);
+    expect(readState()).toMatchObject({ state: 'done', sectionIds: ['1'] });
   });
 
   test('a page sync finishing does not touch a waiting import', async () => {

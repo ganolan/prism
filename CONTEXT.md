@@ -14,10 +14,19 @@ terminology or a cross-cutting decision changes.
   (`server/services/archivedCourses.js`, `getArchivedSections`,
   `discoverArchivedCourses`, `GET /api/courses/archived/discover`,
   `ArchivedCoursesPanel`).
-  - **"Past" is reserved** for naming Schoology's own source page,
-    `/courses/mycourses/past`, and the code that scrapes/parses *that specific
-    page*: `server/lib/parsePastCourses.js`, the `pastCoursesSample.js` fixture,
-    and `PAST_COURSES_HTML`. Do **not** use "past" for the app concept.
+  - **"Past" is Schoology's word** (`include_past=1` on its section list, and its
+    `/courses/mycourses/past` page, which Prism read until #178 replaced it with
+    the REST list). The past-course import (`pastImport.js`, 'Importing past
+    courses') also keeps the word. Use "archived" for the app concept otherwise.
+- **Linked sections**: Schoology sections that share one set of tasks (the same
+  task ids) and keep their own students and grades; the child sections carry the
+  parent's id in `parent_id`. Prism holds a linked set as **one course**: the
+  parent is `courses.schoology_section_id`, each child a `linked_sections` row,
+  and each enrolment records its own section (#178). Every read of the course
+  reads each section; every Schoology write to a linked set is refused
+  (`courseSections.assertSectionWritable`) until writes go to each student's own
+  section. Today only past courses are linked (AI & ML 2023-24, AP CSA self-paced
+  2021-22 and 2022-23).
 - **Hidden** — noise: a course the teacher chose to hide from view
   (`courses.hidden`). Independent of archived.
 - **Excluded** — template / no-course-code sections auto-marked `courses.excluded`
@@ -25,7 +34,8 @@ terminology or a cross-cutting decision changes.
 
 There is no separate "archived-but-still-active" state: **archived ≡ past**, and
 past courses are not in the active section list, so the recurring sync never
-touches them — they are **import-once**.
+touches them — they are **import-once**. Since #178 every full sync imports any
+past section Prism does not hold (one REST list read when nothing is missing).
 
 ### Dates
 

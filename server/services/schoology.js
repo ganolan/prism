@@ -41,7 +41,18 @@ async function apiGet(path) {
   throw new Error(`Too many redirects: GET ${path}`);
 }
 
+// #178: a check every REST write runs on the section in its path (/sections/{id}/…). The server
+// installs it at start (server/index.js: courseSections.assertSectionWritable), so this module needs no
+// database. It throws to refuse the write.
+let sectionWriteGuard = () => {};
+export function setSectionWriteGuard(fn) { sectionWriteGuard = fn || (() => {}); }
+function guardWrite(path) {
+  const m = /^\/sections\/([^/?]+)/.exec(path);
+  if (m) sectionWriteGuard(m[1]);
+}
+
 async function apiPut(path, body) {
+  guardWrite(path);
   const url = `${API}${path}`;
   const authHeader = oauth.toHeader(oauth.authorize({ url, method: 'PUT' }, token));
   const res = await fetch(url, {
@@ -56,6 +67,7 @@ async function apiPut(path, body) {
 }
 
 async function apiPost(path, body) {
+  guardWrite(path);
   const url = `${API}${path}`;
   const authHeader = oauth.toHeader(oauth.authorize({ url, method: 'POST' }, token));
   const res = await fetch(url, {
@@ -70,6 +82,7 @@ async function apiPost(path, body) {
 }
 
 async function apiDelete(path) {
+  guardWrite(path);
   const url = `${API}${path}`;
   const authHeader = oauth.toHeader(oauth.authorize({ url, method: 'DELETE' }, token));
   const res = await fetch(url, { method: 'DELETE', headers: { ...authHeader, Accept: 'application/json' } });

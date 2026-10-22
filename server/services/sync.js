@@ -23,6 +23,7 @@ import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 import { readTaskSubmissions, KEEP_EARLIEST_FIRST_SUBMITTED } from './taskSubmissions.js';
 import { writeGrades } from './taskGrades.js';
 import { writeAssignments, isTest } from './taskAssignments.js';
+import { courseSectionIds } from './courseSections.js';
 
 // Issue #56: flip newly-discovered template sections to excluded=1. Same
 // predicate as the boot-time backfill in db/index.js but called every sync
@@ -66,11 +67,12 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
       updated_at = excluded.updated_at
   `);
   const upsertEnrolment = db.prepare(`
-    INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id, status, dropped_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id, status, dropped_at, schoology_section_id)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(student_id, course_id) DO UPDATE SET
       schoology_enrolment_id = excluded.schoology_enrolment_id,
       status = excluded.status,
+      schoology_section_id = excluded.schoology_section_id,
       -- Keep the FIRST drop date once set, so the roster shows when they
       -- actually left rather than the most recent sync. Clears on re-enrol.
       dropped_at = CASE
@@ -80,9 +82,12 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
   `);
   // Defensive: Schoology retains dropped rows (status 5) today, but a row that
   // disappears from the response outright must not linger on the roster either.
+  // #178: only among this section's students (a course of linked sections holds
+  // several; a row from before #178 has no section and belongs to the course's own).
   const markMissingDropped = db.prepare(`
     UPDATE enrolments SET dropped_at = COALESCE(dropped_at, ?)
     WHERE course_id = ? AND dropped_at IS NULL
+      AND COALESCE(schoology_section_id, (SELECT schoology_section_id FROM courses WHERE id = enrolments.course_id)) = ?
       AND schoology_enrolment_id NOT IN (SELECT value FROM json_each(?))
   `);
 
@@ -96,11 +101,12 @@ export async function syncSectionData(db, sectionId, courseId, now, opts = {}) {
         upsertEnrolment.run(
           studentRow.id, courseId, String(e.id),
           e.status == null ? null : String(e.status),
-          droppedAtFor(e, { archivedSection, previousDroppedAt: selectDroppedAt.get(studentRow.id, courseId)?.dropped_at, now })
+          droppedAtFor(e, { archivedSection, previousDroppedAt: selectDroppedAt.get(studentRow.id, courseId)?.dropped_at, now }),
+          String(sectionId)
         );
       }
     }
-    markMissingDropped.run(now, courseId, JSON.stringify(rows.map(e => String(e.id))));
+    markMissingDropped.run(now, courseId, String(sectionId), JSON.stringify(rows.map(e => String(e.id))));
   });
   writeEnrollments(studentEnrollments);
 
@@ -356,14 +362,42 @@ export async function enrichStudentProfiles(db, students, now) {
 // dropbox revisions with late flags, OneDrive/LTI document states, test attempts).
 // `reader` is a createSubmissionFetcher() answer (session reads) or null (dropbox
 // only). Stamps submissions_read_at only after a full read with a session.
+// #178: a course of linked sections is read section by section, each into the one course; the
+// counts are added up, and a task is read in full only when every section read it in full.
 async function readArchivedSection(db, { courseId, sectionId, now, reader }) {
-  const counts = await syncSectionData(db, String(sectionId), courseId, now, {
-    archivedSection: true,
-    fetchDocuments: reader ? (aid) => reader.fetchDocuments(aid) : undefined,
-    fetchTestAttempts: reader ? (sid, uids, itemIds) => reader.fetchTestAttempts(sid, uids, itemIds) : undefined,
-  });
+  const sectionIds = courseSectionIds(db, courseId);
+  if (!sectionIds.length) sectionIds.push(String(sectionId));
+  const reads = [];
+  for (const sid of sectionIds) {
+    reads.push(await syncSectionData(db, sid, courseId, now, {
+      archivedSection: true,
+      fetchDocuments: reader ? (aid) => reader.fetchDocuments(aid) : undefined,
+      fetchTestAttempts: reader ? (s, uids, itemIds) => reader.fetchTestAttempts(s, uids, itemIds) : undefined,
+    }));
+  }
   if (reader) db.prepare('UPDATE courses SET submissions_read_at = ? WHERE id = ?').run(now, courseId);
-  return counts;
+  return mergeSectionReads(reads);
+}
+
+// One section's syncSectionData answer, or several merged (#178): sums, the shared task count,
+// every failed task once, and the tasks every section read in full.
+function mergeSectionReads(reads) {
+  if (reads.length === 1) return reads[0];
+  const sum = (k) => reads.reduce((n, r) => n + (r[k] || 0), 0);
+  const inAll = (k) => reads.map((r) => r[k] || []).reduce((a, b) => a.filter((id) => b.includes(id)));
+  return {
+    studentsCount: sum('studentsCount'),
+    assignmentsCount: Math.max(...reads.map((r) => r.assignmentsCount || 0)),
+    gradesCount: sum('gradesCount'),
+    submissionCount: sum('submissionCount'),
+    failedAssignmentIds: [...new Set(reads.flatMap((r) => r.failedAssignmentIds || []))],
+    submissionAbandoned: reads.some((r) => r.submissionAbandoned),
+    submissionAttempts: sum('submissionAttempts'),
+    rateLimitHits: sum('rateLimitHits'),
+    transientFailures: sum('transientFailures'),
+    revisionsReadAssignmentIds: inAll('revisionsReadAssignmentIds'),
+    readInFullTaskIds: inAll('readInFullTaskIds'),
+  };
 }
 
 async function openSubmissionReader() {

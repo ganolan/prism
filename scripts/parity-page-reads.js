@@ -1,20 +1,18 @@
 // Live parity check for #141 (AGENTS.md: a parity probe is the verification of
 // choice for API-shape work). Runs two server-rendered page reads both ways on
 // real data and diffs the parsed results:
-//   - archived-course discovery: GET /courses/mycourses/past → parsePastCourses
-//   - people search:             GET /search/user?s={q}&page={n} → parseUserSearchResults
-// "browser" = the pre-#141 headless-browser code (kept here verbatim: page.goto +
-// page.content() for the past page; /home then in-page fetches for the search).
-// "http" = the shipped path (archivedCourses.fetchArchivedCoursesHtml,
-// peopleSearch.searchPeople: plain HTTP with the saved cookies).
+//   - people search: GET /search/user?s={q}&page={n} → parseUserSearchResults
+// "browser" = the pre-#141 headless-browser code (kept here verbatim: /home then
+// in-page fetches for the search). "http" = the shipped path
+// (peopleSearch.searchPeople: plain HTTP with the saved cookies).
+// (Archived-course discovery left this check on 2026-10-23, #178: Prism reads past
+// sections through public REST now, not the /courses/mycourses/past page.)
 // Read-only GETs. Output is masked: counts and match only, no names or ids.
 // Usage (repo root): node scripts/parity-page-reads.js [query ...]   (default queries: chan wong lee)
 import { existsSync } from 'fs';
 import { SCHOOLOGY_BASE, isLoggedInUrl } from '../server/lib/browserSession.js';
 import { sessionStateFile } from '../server/lib/sessionPaths.js';
-import { parsePastCourses } from '../server/lib/parsePastCourses.js';
 import { parseUserSearchResults } from '../server/lib/parseUserSearch.js';
-import { fetchArchivedCoursesHtml } from '../server/services/archivedCourses.js';
 import { searchPeople, paginatePeopleSearch, DEFAULT_MAX_PAGES } from '../server/services/peopleSearch.js';
 
 if (!existsSync(sessionStateFile())) { console.error('No saved session'); process.exit(1); }
@@ -28,23 +26,7 @@ if (process.env.DB_PATH) {
 }
 const { chromium } = await import('playwright');
 
-// ── The pre-#141 browser code, verbatim from archivedCourses.js / peopleSearch.js ──
-async function browserArchivedHtml() {
-  let browser;
-  try {
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({ storageState: sessionStateFile() });
-    const page = await context.newPage();
-    await page.goto(`${SCHOOLOGY_BASE}/courses/mycourses/past`, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    if (!isLoggedInUrl(page.url())) return null;
-    return await page.content();
-  } catch {
-    return null;
-  } finally {
-    if (browser) await browser.close().catch(() => {});
-  }
-}
-
+// ── The pre-#141 browser code, verbatim from peopleSearch.js ──
 async function browserSearch(query, { maxPages = DEFAULT_MAX_PAGES } = {}) {
   const q = (query || '').trim();
   const browser = await chromium.launch({ headless: true });
@@ -71,26 +53,6 @@ async function browserSearch(query, { maxPages = DEFAULT_MAX_PAGES } = {}) {
 const timed = async (fn) => { const s = Date.now(); const r = await fn(); return [r, Date.now() - s]; };
 const pause = () => new Promise((r) => setTimeout(r, 2000));
 let mismatches = 0;
-
-// Archived courses
-{
-  const [bHtml, bMs] = await timed(browserArchivedHtml);
-  await pause();
-  const [hHtml, hMs] = await timed(() => fetchArchivedCoursesHtml());
-  const b = bHtml ? parsePastCourses(bHtml) : null;
-  const h = hHtml ? parsePastCourses(hHtml) : null;
-  const same = JSON.stringify(b) === JSON.stringify(h);
-  if (!same) mismatches++;
-  const periods = (l) => (l ? new Set(l.map((s) => s.gradingPeriod)).size : null);
-  console.log(`archived: ${same ? 'same' : 'DIFFERS'} sections browser=${b?.length ?? null} http=${h?.length ?? null}, `
-    + `terms browser=${periods(b)} http=${periods(h)}, no-code browser=${b?.filter((s) => !s.courseCode).length ?? null} http=${h?.filter((s) => !s.courseCode).length ?? null}`);
-  console.log(`  time: browser ${bMs} ms (launch + page), http ${hMs} ms`);
-  if (!same && b && h) {
-    const key = (s) => JSON.stringify(s);
-    const hs = new Set(h.map(key)); const bs = new Set(b.map(key));
-    console.log(`  rows only in browser: ${b.filter((s) => !hs.has(key(s))).length}, only in http: ${h.filter((s) => !bs.has(key(s))).length}`);
-  }
-}
 
 // People search
 for (const q of queries) {

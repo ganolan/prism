@@ -146,6 +146,62 @@ describe('syncMasteryForAssignment over plain HTTP', () => {
   });
 });
 
+// #178: a course of linked sections. The second section has its own student (702) on the same task.
+describe('a course of linked sections (#178)', () => {
+  const SID2 = '8458134141';
+  const BASE2 = `/course/${SID2}/district_mastery`;
+  const linkedRoutes = (over = {}) => routes({
+    [BASE2]: { text: PAGE },
+    [`${BASE2}/api/aligned-objectives`]: { json: CATEGORIES },
+    [`POST ${BASE2}/api/alignments/search`]: { json: { data: [{ gradeable_material: { material: { id: 900 } }, objective: { id: 't1' } }] } },
+    [`POST ${BASE2}/api/material-observations/search`]: { json: { data: [{ objective_id: 't1', student_uid: 702, points: '100', gradeable_material: { material: { id: 900 } } }] } },
+    [`/iapi2/district-mastery/course/${SID2}/materials`]: { json: { data: [{ id: 900, title: 'Task', grading_period_id: 11, grading_category_id: 22 }] } },
+    [`POST ${BASE2}/api/outcomes/objectives`]: { json: { data: [{ objective_id: 't1', student_outcomes: [{ student_uid: 702, outcome: { grade_percentage: 100, grade_scaled_rounded: 87.5 }, outcome_override: null }] }] } },
+    ...over,
+  });
+  beforeEach(() => {
+    db.prepare(`INSERT INTO linked_sections (schoology_section_id, course_id, section_name) VALUES (?, 5, '6(A-B)')`).run(SID2);
+  });
+
+  test('the course read covers every section: both students\' scores and rollups are kept', async () => {
+    useWeb(linkedRoutes());
+    const r = await syncMasteryForCourse(5);
+    expect(r).toMatchObject({ categoriesCount: 1, topicsCount: 1, scoresCount: 2, rollupsCount: 2, alignmentsCount: 1 });
+    expect(db.prepare('SELECT student_uid, points FROM mastery_scores ORDER BY student_uid').all())
+      .toEqual([{ student_uid: '701', points: 75 }, { student_uid: '702', points: 100 }]);
+    expect(db.prepare('SELECT student_uid FROM mastery_rollups WHERE course_id = 5 ORDER BY student_uid').all().map((x) => x.student_uid))
+      .toEqual(['701', '702']);
+    const sections = fake.requests.filter((q) => q.path.endsWith('/aligned-objectives')).map((q) => q.query.get('section_id'));
+    expect(sections).toEqual([SID, SID2]);
+  });
+
+  test('the task read covers every section: the other section\'s student keeps a score', async () => {
+    db.prepare(`INSERT INTO measurement_topics (id, course_id, title) VALUES ('t1', 5, 'Topic')`).run();
+    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id, synced_at) VALUES ('900', 't1', 5, 'x')`).run();
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (5, '900', 'Task')`).run();
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('702', '900', 't1', 50, 'Developing'), ('703', '900', 't1', 50, 'Developing')`).run();
+    useWeb(linkedRoutes({
+      [`${BASE}/api/material-observations/search`]: { json: { data: [{ student_uid: 701, points: 50, gradeable_material: { material_id: 900 } }] } },
+      [`${BASE2}/api/material-observations/search`]: { json: { data: [{ student_uid: 702, points: 100, gradeable_material: { material_id: 900 } }] } },
+    }));
+    const r = await syncMasteryForAssignment(5, '900');
+    expect(r).toMatchObject({ topicsCount: 1, scoresCount: 2 });
+    // 703 is in neither section's answer: cleared in Schoology.
+    expect(db.prepare('SELECT student_uid, points FROM mastery_scores ORDER BY student_uid').all())
+      .toEqual([{ student_uid: '701', points: 50 }, { student_uid: '702', points: 100 }]);
+    expect(getAssignmentGrades).toHaveBeenCalledWith(SID, '900');
+    expect(getAssignmentGrades).toHaveBeenCalledWith(SID2, '900');
+  });
+  test('a mastery write to either section is refused before any request', async () => {
+    useWeb(linkedRoutes());
+    await expect(writeMasteryOverride({ sectionId: SID2, objectiveId: 't1', studentUid: 702, gradeScaled: null }))
+      .rejects.toMatchObject({ code: 'LINKED_SECTION' });
+    await expect(writeMasteryScores({ sectionId: SID, enrollmentId: 1, assignmentId: 900, gradeInfo: {} }))
+      .rejects.toMatchObject({ code: 'LINKED_SECTION' });
+    expect(fake.requests).toHaveLength(0);
+  });
+});
+
 describe('getRubricScoresForStudent over plain HTTP', () => {
   test('one GET, no page load; the rows of data', async () => {
     useWeb(routes({ [`${BASE}/api/observations/search`]: { json: { data: [{ alignment_id: 't1', points: 75 }] } } }));

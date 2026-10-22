@@ -65,7 +65,21 @@ CREATE TABLE IF NOT EXISTS enrolments (
   -- NULL = currently enrolled. Soft delete: the row (and the student's grades,
   -- notes and feedback) survives a drop.
   dropped_at TEXT,
+  -- #178: the Schoology section the student is in. A course of linked sections (linked_sections)
+  -- holds several; each section's read marks drops among its own students only. NULL (rows from
+  -- before #178) = the course's own section.
+  schoology_section_id TEXT,
   UNIQUE(student_id, course_id)
+);
+
+-- #178: linked sections. Schoology links sections that share one set of tasks (the same task ids)
+-- and keep their own students and grades, e.g. AI & ML 4(A-B) and 6(A-B) in 2023-24. Prism holds a
+-- linked set as one course: the parent section is courses.schoology_section_id, and each child is a
+-- row here. Every read of the course reads each of its sections (server/services/courseSections.js).
+CREATE TABLE IF NOT EXISTS linked_sections (
+  schoology_section_id TEXT PRIMARY KEY,
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  section_name TEXT
 );
 
 CREATE TABLE IF NOT EXISTS assignments (

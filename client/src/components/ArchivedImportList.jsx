@@ -98,14 +98,17 @@ export default function ArchivedImportList({ sections, busy, onImport }) {
                   <label className="archived-import-checkrow" key={c.sectionId}>
                     <input
                       type="checkbox"
-                      aria-label={c.courseTitle}
+                      aria-label={c.sectionTitle ? `${c.courseTitle} ${c.sectionTitle}` : c.courseTitle}
                       checked={selected.has(c.sectionId)}
                       disabled={busy}
                       onChange={() => toggle(c.sectionId)}
                     />
                     <span>
                       {c.courseTitle}
+                      {/* #178: the sections, so two sections of one course can be told apart; a linked set lists each. */}
+                      {c.sectionTitle && <span className="archived-import-section"> {c.sectionTitle}</span>}
                       {c.noCourseCode && <span className="badge badge-gray"> no course code</span>}
+                      {c.givenUp && <span className="badge badge-gray"> import failed twice</span>}
                     </span>
                   </label>
                 ))}

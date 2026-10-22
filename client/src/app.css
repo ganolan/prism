@@ -1009,6 +1009,7 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
   display: flex; align-items: center; gap: 0.5rem;
   padding: 0.2rem 0 0.2rem 0.5rem; cursor: pointer;
 }
+.archived-import-section { color: var(--text-muted); }
 
 /* Semester group heading — shared by the Dashboard's Current and Archived tabs */
 .semester-subhead {

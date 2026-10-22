@@ -1601,3 +1601,9 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **Kept, because they are different things:** the AI suggestion's reviewer flags (`reviewer_flags`, `reviewer_flags_brief`, the amber "Reviewer flags" tray) and the Ask to resubmit request (built from the `resubmissions` table; the student page still lists open requests under `flags`).
 - **The card header slot went to the Flags menu** (all five flags; see "The Flags menu and panels" below), which sits after Refer and before Extend in the right-hand cluster.
 
+
+## Archived Import list: section titles (#178, 23 Oct 2026)
+
+- **Each row names its sections:** the course title, then its section titles in the muted text color (`.archived-import-section`), so two sections of one course can be told apart ("TEACHING ASSISTANT (YR) 2(A-B)", "... 7(A-B)"). A linked set is one row listing every section ("4(A-B), 6(A-B)").
+- **"import failed twice"** is a gray badge, like "no course code": the background import gave up on that section, and the row is how to import it by hand.
+- **No sign-in prompt:** the list comes from Schoology's REST section list, which needs no session. A failed read shows "Schoology could not be read. Try again in a few minutes." in the panel's warning alert.

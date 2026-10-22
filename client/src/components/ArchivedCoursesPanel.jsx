@@ -1,22 +1,21 @@
 import { useState } from 'react';
 import { discoverArchivedCourses } from '../services/api.js';
-import { goToSignIn } from '../lib/signIn.js';
 import ArchivedImportList from './ArchivedImportList.jsx';
 import ImportProgress from './ImportProgress.jsx';
 import { useImportRunner } from '../hooks/useImportRunner.js';
 
 // Discovery-only surface for importing archived (past) courses, mounted on the
-// Dashboard Archived tab (issue #69, grouped + bulk in #71). It scrapes
-// Schoology's /mycourses/past source page via the saved browser session to list
-// archived sections NOT yet imported, grouped by year→semester, and imports a
-// selection (or a whole year) through a progress modal. Already-imported archived
-// courses are shown as cards by the Dashboard itself — this component never
-// renders them. "Archived" is the app's canonical term; "past" only names
-// Schoology's source page (see CONTEXT.md).
+// Dashboard Archived tab (issue #69, grouped + bulk in #71). It lists the archived
+// sections NOT yet imported (Schoology's REST section list since #178: no sign-in
+// needed, and a set of linked sections is one row), grouped by year→semester, and
+// imports a selection (or a whole year) through a progress modal. Already-imported
+// archived courses are shown as cards by the Dashboard itself — this component never
+// renders them. Prism also imports missing past courses itself after each full sync
+// (#178), so this list is for a course that import gave up on. "Archived" is the
+// app's canonical term; "past" is Schoology's (see CONTEXT.md).
 export default function ArchivedCoursesPanel({ onImported }) {
   const [discovered, setDiscovered] = useState(null); // null until checked
   const [checking, setChecking] = useState(false);
-  const [needLogin, setNeedLogin] = useState(false);
   const [importedIds, setImportedIds] = useState(() => new Set()); // imported this session
   const [error, setError] = useState(null);
 
@@ -37,21 +36,16 @@ export default function ArchivedCoursesPanel({ onImported }) {
   const remaining = (discovered || []).filter((s) => !isImported(s));
 
   async function handleCheck() {
-    setChecking(true); setError(null); setNeedLogin(false);
+    setChecking(true); setError(null);
     try {
       const res = await discoverArchivedCourses();
-      if (!res.available) { setNeedLogin(true); setDiscovered(null); }
+      if (!res.available) { setError('Schoology could not be read. Try again in a few minutes.'); setDiscovered(null); }
       else setDiscovered(res.sections);
     } catch (e) {
       setError(e.message);
     } finally {
       setChecking(false);
     }
-  }
-
-  // The sign-in opens in Settings, on this device (RemoteSignIn, #136).
-  function handleLogin() {
-    goToSignIn();
   }
 
   function handleImport(sectionIds) {
@@ -70,15 +64,6 @@ export default function ArchivedCoursesPanel({ onImported }) {
         <div className="archived-import-action">
           <button type="button" className="secondary" onClick={handleCheck} disabled={checking}>
             {checking ? 'Checking…' : 'Check Schoology for archived courses'}
-          </button>
-        </div>
-      )}
-
-      {needLogin && (
-        <div className="alert alert-warning sync-login-prompt">
-          <p>Finding archived courses needs a Schoology browser session. Log in once to enable it.</p>
-          <button type="button" className="secondary" onClick={handleLogin}>
-            Log in to Schoology
           </button>
         </div>
       )}

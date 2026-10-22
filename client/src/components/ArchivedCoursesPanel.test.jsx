@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { signInDeps } from '../lib/signIn.js';
 import ArchivedCoursesPanel from './ArchivedCoursesPanel.jsx';
 import { discoverArchivedCourses, importCourse } from '../services/api.js';
 
@@ -91,13 +90,22 @@ describe('ArchivedCoursesPanel', () => {
     expect(onImported).not.toHaveBeenCalled();
   });
 
-  it('Log in to Schoology opens the sign-in in Settings', async () => {
-    discoverArchivedCourses.mockResolvedValue({ available: false, reason: 'no_session' });
-    const go = vi.spyOn(signInDeps, 'go').mockImplementation(() => {});
+  it('Schoology cannot be read: an error, no sign-in prompt (the REST read needs none, #178)', async () => {
+    discoverArchivedCourses.mockResolvedValue({ available: false, reason: 'unavailable' });
     renderPanel();
     fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
-    fireEvent.click(await screen.findByRole('button', { name: 'Log in to Schoology' }));
-    expect(go).toHaveBeenCalledWith('/settings#schoology-signin');
-    go.mockRestore();
+    expect(await screen.findByText('Schoology could not be read. Try again in a few minutes.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Log in to Schoology' })).toBeNull();
+  });
+
+  it('shows each row\'s sections, and marks one the background import gave up on (#178)', async () => {
+    discoverArchivedCourses.mockResolvedValue({ available: true, sections: [
+      { courseTitle: 'AI & ML', courseCode: 'A', sectionId: '4', sectionTitle: '4(A-B), 6(A-B)', imported: false, noCourseCode: false, givenUp: true, gradingPeriod: '2023-2024: 08/15/23 - 06/14/24' },
+    ] });
+    renderPanel();
+    fireEvent.click(screen.getByText(/Check Schoology for archived courses/));
+    expect(await screen.findByText('4(A-B), 6(A-B)')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'AI & ML 4(A-B), 6(A-B)' })).toBeInTheDocument();
+    expect(screen.getByText(/import failed twice/)).toBeInTheDocument();
   });
 });

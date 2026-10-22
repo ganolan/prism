@@ -1372,6 +1372,58 @@ describe('finalizeArchivedCourse (#70)', () => {
     expect(grade('D1').late).toBe(1);
     expect(db.prepare('SELECT submissions_read_at FROM courses WHERE id = ?').get(courseId).submissions_read_at).toBeNull();
   });
+
+  // #178: a course of linked sections. Both sections list the same task; each has its own student.
+  const linkedCourse = async () => {
+    db.prepare(`INSERT INTO linked_sections (schoology_section_id, course_id, section_name) VALUES ('sec-L', ?, '6(A-B)')`).run(courseId);
+    const sch = await import('./schoology.js');
+    const enrolments = {
+      'sec-9': [{ id: '801', uid: '701', name_first: 'Ada', name_last: 'L', admin: '0', status: '2' }],
+      'sec-L': [{ id: '802', uid: '702', name_first: 'Alan', name_last: 'T', admin: '0', status: '2' }],
+    };
+    sch.getSectionEnrollments.mockClear();
+    sch.getSectionEnrollments.mockImplementation(async (sid) => enrolments[sid]);
+    sch.getSectionAssignments.mockResolvedValue([{ id: 'D1', title: 'Shared task', published: 1, allow_dropbox: '1', due: '2020-01-01 15:30:00' }]);
+    sch.getSectionGrades.mockImplementation(async (sid) => [{
+      enrollment_id: sid === 'sec-9' ? '801' : '802', assignment_id: 'D1', grade: sid === 'sec-9' ? 3 : 4, max_points: 4,
+    }]);
+    sch.getAssignmentSubmissions.mockImplementation(async (sid) => {
+      if (sid === 'sec-L') { const e = new Error('429'); e.rateLimited = true; e.transient = true; throw e; }
+      return [];
+    });
+    return sch;
+  };
+
+  test('a linked course: every section is read into the one course (#178)', async () => {
+    const sch = await linkedCourse();
+    sch.getAssignmentSubmissions.mockResolvedValue([]);
+    vi.mocked(createSubmissionFetcher).mockResolvedValueOnce(reader());
+    hasMasterySession.mockReturnValue(false);
+
+    const r = await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
+
+    expect(sch.getSectionEnrollments.mock.calls.map((c) => c[0])).toEqual(['sec-9', 'sec-L']);
+    const rows = db.prepare(`SELECT s.schoology_uid uid, e.schoology_section_id sec, e.dropped_at, g.score FROM enrolments e
+      JOIN students s ON s.id = e.student_id LEFT JOIN grades g ON g.student_id = s.id WHERE e.course_id = ? ORDER BY uid`).all(courseId);
+    expect(rows).toEqual([
+      { uid: '701', sec: 'sec-9', dropped_at: null, score: 3 },
+      { uid: '702', sec: 'sec-L', dropped_at: null, score: 4 },
+    ]);
+    expect(db.prepare('SELECT COUNT(*) n FROM assignments').get().n).toBe(1);
+    expect(r).toMatchObject({ studentsCount: 2, assignmentsCount: 1, gradesCount: 2, failedAssignmentIds: [], submissionAbandoned: false });
+    expect(r.readInFullTaskIds).toHaveLength(1);
+  });
+
+  test('a linked course: a task is read in full only when every section read it (#178)', async () => {
+    await linkedCourse();
+    vi.mocked(createSubmissionFetcher).mockResolvedValueOnce(reader());
+    hasMasterySession.mockReturnValue(false);
+
+    const r = await finalizeArchivedCourse(db, { courseId, sectionId: 'sec-9', now: '2026-05-31T00:00:00Z' });
+
+    expect(r.failedAssignmentIds).toEqual(['D1']);
+    expect(r.readInFullTaskIds).toEqual([]);
+  });
 });
 
 describe('detectArchivedTransitions (#70)', () => {
@@ -1707,6 +1759,43 @@ describe('syncSectionData — dropped enrolments (#128)', () => {
     await syncSectionData(db, 'sec-D', courseId, '2026-08-13T00:00:00Z');
 
     expect(enrolmentFor('700001').dropped_at).toBe(null);
+  });
+
+  // #178: a course of linked sections holds each section's students; a read of one section marks
+  // drops among its own students only.
+  test('records the section of each enrolment', async () => {
+    getSectionEnrollments.mockResolvedValue([active]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-08-13T00:00:00Z');
+    expect(db.prepare('SELECT schoology_section_id FROM enrolments').get().schoology_section_id).toBe('sec-D');
+  });
+
+  test('a linked section\'s read leaves the other section\'s students enrolled', async () => {
+    db.prepare(`INSERT INTO linked_sections (schoology_section_id, course_id, section_name) VALUES ('sec-L', ?, '6(A-B)')`).run(courseId);
+    getSectionEnrollments.mockResolvedValue([active]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-08-13T00:00:00Z');
+    getSectionEnrollments.mockResolvedValue([{ ...dropped, status: '1' }]);
+    await syncSectionData(db, 'sec-L', courseId, '2026-08-13T00:00:00Z');
+
+    expect(enrolmentFor('700001').dropped_at).toBe(null);
+    expect(enrolmentFor('700002').dropped_at).toBe(null);
+    // A student gone from the linked section is still marked dropped.
+    getSectionEnrollments.mockResolvedValue([]);
+    await syncSectionData(db, 'sec-L', courseId, '2026-09-01T00:00:00Z');
+    expect(enrolmentFor('700002').dropped_at).toBe('2026-09-01T00:00:00Z');
+    expect(enrolmentFor('700001').dropped_at).toBe(null);
+  });
+
+  test('an enrolment from before #178 (no section) counts as the course\'s own section', async () => {
+    getSectionEnrollments.mockResolvedValue([active]);
+    await syncSectionData(db, 'sec-D', courseId, '2026-08-13T00:00:00Z');
+    db.prepare('UPDATE enrolments SET schoology_section_id = NULL').run();
+    db.prepare(`INSERT INTO linked_sections (schoology_section_id, course_id) VALUES ('sec-L', ?)`).run(courseId);
+
+    getSectionEnrollments.mockResolvedValue([]);
+    await syncSectionData(db, 'sec-L', courseId, '2026-09-01T00:00:00Z');
+    expect(enrolmentFor('700001').dropped_at).toBe(null);
+    await syncSectionData(db, 'sec-D', courseId, '2026-09-01T00:00:00Z');
+    expect(enrolmentFor('700001').dropped_at).toBe('2026-09-01T00:00:00Z');
   });
 });
 

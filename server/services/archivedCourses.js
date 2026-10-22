@@ -1,60 +1,101 @@
 /**
  * archivedCourses.js
  *
- * Best-effort reader for the teacher's archived (past) course inventory via
- * Schoology's server-rendered page (GET /courses/mycourses/past — Schoology's
- * own name for the source page; "archived" is the app's term, see CONTEXT.md).
- * Session auth (the saved session the mastery sync uses), over plain HTTP with
- * its cookies (schoologyWeb.js, #141): no browser. There is no JSON endpoint, so
- * the page HTML is scraped and parsed (parsePastCourses, named after Schoology's
- * page). Issue #5. Checked against the old browser read with
- * scripts/parity-page-reads.js.
+ * The teacher's archived (past) sections, through public REST (#178):
+ * GET /users/{me}/sections?include_past=1 lists every section the teacher holds, past
+ * (`active: 0`) and current. It needs no saved session. Schoology's own /courses/mycourses/past
+ * page, which Prism scraped before (#5, #141), leaves out linked sections: in 2023-24 it listed
+ * AI & ML 4(A-B) but not 6(A-B), linked to it (verified 2026-10-23).
  *
- * Everything is best-effort: no saved session / expired session / a failed
- * request → returns null, and the caller treats discovery as unavailable. It
- * never throws.
+ * Linked sections share one set of tasks (the same Schoology task ids) and keep their own
+ * students and grades. Prism holds a linked set as one course: the parent section's row in
+ * `courses`, with each child in `linked_sections`. So a child section here joins its parent's row
+ * (`linkedSectionIds`) and is never a row of its own, unless its parent is not a past section.
  */
-import { parsePastCourses } from '../lib/parsePastCourses.js';
-import { cookieJar, getPage, WebSessionError } from './schoologyWeb.js';
-import { noteSessionLive } from './schoologySession.js';
+import { apiGet } from './schoology.js';
 
-export const PAST_COURSES_PATH = '/courses/mycourses/past';
+const isPast = (s) => Number(s.active) === 0;
+const parentOf = (s) => (s.parent_id && String(s.parent_id) !== '0' ? String(s.parent_id) : null);
 
-/**
- * Fetch the raw archived-courses HTML (Schoology's /mycourses/past page) with
- * the saved session. Returns the page HTML, or null when there is no session /
- * it has expired / anything fails.
- * @param {{ jar?: object|null, fetchImpl?: typeof fetch }} [deps]  test seam
- */
-export async function fetchArchivedCoursesHtml({ jar, fetchImpl = fetch } = {}) {
-  try {
-    const cookies = jar === undefined ? cookieJar() : jar;
-    if (!cookies) return null;
-    const page = await getPage(cookies, PAST_COURSES_PATH, { fetchImpl });
-    noteSessionLive('connected');
-    return page.html;
-  } catch (err) {
-    if (err instanceof WebSessionError && err.code === 'SESSION_EXPIRED') {
-      noteSessionLive('expired', 'Schoology sent the archived-courses read to the login page');
-    }
-    return null;
-  }
+// GET /users/{me}/sections?include_past=1 → the raw section rows (past and current).
+async function teacherSections(get) {
+  const me = await get('/users/me');
+  const data = await get(`/users/${String(me.id || me.uid)}/sections?include_past=1`);
+  return data?.section || [];
 }
 
 /**
- * Enumerate archived sections. `fetchHtml` is injectable for testing (defaults
- * to the real fetch). Returns the parsed section list, or null when the HTML is
- * unavailable (so the caller can report discovery as unavailable).
- *
- * @param {() => Promise<string|null>} [fetchHtml]
- * @returns {Promise<Array<object>|null>}
+ * The past sections as import rows, a linked set as one row: { sectionId, courseTitle, courseCode
+ * (null when empty: a template), sectionTitle (the parent's, then each child's, joined with ", "),
+ * gradingPeriodId (the section's first), linkedSectionIds }. Pure.
  */
-export async function getArchivedSections(fetchHtml = fetchArchivedCoursesHtml) {
-  const html = await fetchHtml();
-  if (!html) return null;
+export function groupPastSections(sections) {
+  const past = sections.filter(isPast);
+  const parents = new Set(past.filter((s) => !parentOf(s)).map((s) => String(s.id)));
+  const rows = new Map();
+  for (const s of past) {
+    if (parents.has(parentOf(s))) continue;
+    rows.set(String(s.id), {
+      sectionId: String(s.id),
+      courseTitle: s.course_title || null,
+      courseCode: s.course_code || null,
+      sectionTitle: s.section_title || null,
+      gradingPeriodId: s.grading_periods?.[0] ?? null,
+      linkedSectionIds: [],
+    });
+  }
+  for (const s of past) {
+    const row = rows.get(parentOf(s));
+    if (!row) continue;
+    row.linkedSectionIds.push(String(s.id));
+    row.sectionTitle = [row.sectionTitle, s.section_title].filter(Boolean).join(', ');
+  }
+  return [...rows.values()];
+}
+
+// Grading period titles do not change: read each once per process.
+const periodTitles = new Map();
+
+async function periodTitle(get, id) {
+  if (id == null) return null;
+  const key = String(id);
+  if (!periodTitles.has(key)) {
+    try {
+      periodTitles.set(key, (await get(`/gradingperiods/${key}`))?.title || null);
+    } catch {
+      return null; // not cached: a later read tries again
+    }
+  }
+  return periodTitles.get(key);
+}
+
+/**
+ * The teacher's archived sections: { sectionId, courseTitle, courseCode, sectionTitle,
+ * gradingPeriod (its title, e.g. "2023-2024: 08/15/23 - 06/14/24", or null), linkedSectionIds },
+ * or null when Schoology cannot be read (the caller reports discovery as unavailable). Never throws.
+ * @param {{ get?: (path: string) => Promise<object> }} [deps]  test seam
+ */
+export async function getArchivedSections({ get = apiGet } = {}) {
+  let sections;
   try {
-    return parsePastCourses(html);
+    sections = await teacherSections(get);
   } catch {
     return null;
   }
+  const rows = [];
+  for (const { gradingPeriodId, ...row } of groupPastSections(sections)) {
+    rows.push({ ...row, gradingPeriod: await periodTitle(get, gradingPeriodId) });
+  }
+  return rows;
 }
+
+/**
+ * The sections linked to `parentId` (past or current): [{ sectionId, sectionTitle }]. Throws when
+ * Schoology cannot be read: an import must not go on without them.
+ */
+export async function linkedSectionsOf(parentId, { get = apiGet } = {}) {
+  return (await teacherSections(get))
+    .filter((s) => parentOf(s) === String(parentId))
+    .map((s) => ({ sectionId: String(s.id), sectionTitle: s.section_title || null }));
+}
+

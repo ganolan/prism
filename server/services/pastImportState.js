@@ -8,3 +8,15 @@ export function markPastImportDue(db) {
   db.prepare(`INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))`)
     .run(PAST_IMPORT_KEY, JSON.stringify({ state: 'waiting', total: 0, sectionIds: [], failed: [], retried: false }));
 }
+
+// #178: the sections the background import gave up on (pastImport.js), for the check and the
+// Archived tab's Import list.
+export function pastImportGivenUp(db) {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(PAST_IMPORT_KEY);
+  try {
+    const gaveUp = JSON.parse(row?.value ?? 'null')?.gaveUp;
+    return Array.isArray(gaveUp) ? gaveUp.map(String) : [];
+  } catch {
+    return [];
+  }
+}

@@ -3,6 +3,8 @@ import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { getDb } from './db/index.js';
+import { setSectionWriteGuard } from './services/schoology.js';
+import { assertSectionWritable } from './services/courseSections.js';
 import coursesRouter from './routes/courses.js';
 import studentsRouter from './routes/students.js';
 import gradesRouter from './routes/grades.js';
@@ -111,6 +113,8 @@ app.get('*', (req, res) => {
 // Initialize DB on startup
 getDb();
 console.log('Database initialized');
+// #178: no Schoology REST write reaches a section of a linked set (courseSections.js).
+setSectionWriteGuard((sectionId) => assertSectionWritable(getDb(), sectionId));
 // First start after the Amendment B deploy: snapshot visible feedback once so
 // arrivals show before the first sync (best-effort; logs and carries on).
 {

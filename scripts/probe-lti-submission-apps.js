@@ -6,13 +6,13 @@
 // and titles only, no student data.
 //
 // Usage: node scripts/probe-lti-submission-apps.js [sectionId ...]
-//        PAST=<regex> picks past sections whose term header matches, e.g. PAST=22-23
-//        (Schoology's /courses/mycourses/past page, read over plain HTTP).
+//        PAST=<regex> picks past sections whose grading period matches, e.g. PAST=2022-2023
+//        (GET /users/{me}/sections?include_past=1, archivedCourses.js; linked sections included).
 //        DUMP=<assignmentId> also prints the app-related snippets of that page.
 import 'dotenv/config';
 import { getMyUserId, getMySections, getSectionAssignments, apiGet } from '../server/services/schoology.js';
 import { cookieJar, getPage } from '../server/services/schoologyWeb.js';
-import { parsePastCourses } from '../server/lib/parsePastCourses.js';
+import { getArchivedSections } from '../server/services/archivedCourses.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jar = cookieJar();
@@ -20,12 +20,11 @@ if (!jar) { console.error('No saved session'); process.exit(1); }
 
 let sectionIds = process.argv.slice(2);
 if (process.env.PAST) {
-  const { html } = await getPage(jar, '/courses/mycourses/past');
   const re = new RegExp(process.env.PAST, 'i');
-  const past = parsePastCourses(html);
+  const past = (await getArchivedSections()) || [];
   const terms = [...new Set(past.map((p) => p.gradingPeriod))];
   console.log(`past sections: ${past.length}; terms: ${JSON.stringify(terms)}`);
-  sectionIds = past.filter((p) => re.test(p.gradingPeriod || '')).map((p) => p.sectionId);
+  sectionIds = past.filter((p) => re.test(p.gradingPeriod || '')).flatMap((p) => [p.sectionId, ...p.linkedSectionIds]);
   console.log(`matching ${process.env.PAST}: ${sectionIds.length}`);
 } else if (!sectionIds.length) {
   const me = await getMyUserId();

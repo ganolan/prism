@@ -245,3 +245,25 @@ describe('getAssignmentGrades (#108)', () => {
     expect(calls[0]).toMatch(/\/sections\/S\/grades\?assignment_id=A$/);
   });
 });
+
+describe('the section write guard (#178)', () => {
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    (await import('./schoology.js')).setSectionWriteGuard(null);
+  });
+
+  test('every REST write passes its section to the guard, and a refusal sends nothing', async () => {
+    const { setSectionWriteGuard, pushGradeUpdates, postSubmissionComment, deleteSubmissionComment } = await import('./schoology.js');
+    const fetch = vi.fn(async () => ({ status: 200, text: async () => '{}' }));
+    vi.stubGlobal('fetch', fetch);
+    const seen = [];
+    setSectionWriteGuard((sid) => { seen.push(sid); if (sid === '6') throw new Error('linked'); });
+
+    await pushGradeUpdates('5', []);
+    await postSubmissionComment('5', 'a', 'u', 'Hi');
+    await deleteSubmissionComment('5', 'a', 'u', 'c');
+    await expect(pushGradeUpdates('6', [])).rejects.toThrow('linked');
+    expect(seen).toEqual(['5', '5', '5', '6']);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+});

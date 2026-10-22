@@ -32,6 +32,7 @@ import { existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
 import { getAssignmentGrades } from './schoology.js';
+import { courseSectionIds, assertSectionWritable } from './courseSections.js';
 import { groupObservationsByTopic, normalizeObservation } from '../lib/masteryObservations.js';
 import { pointsToLevel, levelToLabel, schoologyScaleId } from '../lib/proficiencyScale.js';
 import { sessionStateFile, ensureSessionDir } from '../lib/sessionPaths.js';
@@ -140,6 +141,8 @@ export function masteryBuildingId(settings, html = '') {
  * sent once, never retried.
  */
 export async function openMasteryReader(sectionId, use = 'read') {
+  // #178: a mastery write to a section of a linked set would reach the wrong students' section.
+  if (use === 'write') assertSectionWritable(getDb(), sectionId);
   const path = `/course/${sectionId}/district_mastery`;
   const open = async () => {
     let web;
@@ -364,6 +367,39 @@ export async function readCourseMastery(reader, sectionId, log = () => {}) {
   return { categories, allTopics, alignmentRows, observationsByTopic, allMaterialIds, materialMap, rollupRows };
 }
 
+const topicsOf = (cat) => cat.child_objectives || cat.objectives || cat.measurementTopics || cat.measurement_topics || cat.children || [];
+
+// The readCourseMastery answers of a course's sections as one (#178): each category and topic once
+// (linked sections share the course's objectives), every section's observations and rollups (each
+// section has its own students), and every alignment and task once.
+export function mergeMasteryReads(reads) {
+  if (reads.length === 1) return reads[0];
+  const categories = new Map();
+  for (const cat of reads.flatMap((r) => r.categories)) {
+    const seen = categories.get(cat.id);
+    if (!seen) { categories.set(cat.id, { ...cat, child_objectives: [...topicsOf(cat)] }); continue; }
+    const ids = new Set(seen.child_objectives.map((t) => t.id));
+    seen.child_objectives.push(...topicsOf(cat).filter((t) => !ids.has(t.id)));
+  }
+  const observationsByTopic = {};
+  for (const r of reads) {
+    for (const [topicId, list] of Object.entries(r.observationsByTopic)) {
+      (observationsByTopic[topicId] ||= []).push(...list);
+    }
+  }
+  const alignments = new Map();
+  for (const a of reads.flatMap((r) => r.alignmentRows)) alignments.set(`${a.assignment_schoology_id}|${a.topic_id}`, a);
+  return {
+    categories: [...categories.values()],
+    allTopics: [...new Map(reads.flatMap((r) => r.allTopics).map((t) => [t.id, t])).values()],
+    alignmentRows: [...alignments.values()],
+    observationsByTopic,
+    allMaterialIds: new Set(reads.flatMap((r) => [...r.allMaterialIds])),
+    materialMap: Object.assign({}, ...reads.map((r) => r.materialMap)),
+    rollupRows: reads.flatMap((r) => r.rollupRows),
+  };
+}
+
 export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
   const log = (msg) => {
     console.log(`[masterySync] ${msg}`);
@@ -374,14 +410,16 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
   const courseRow = getCourseRow(db, courseId);
   if (!courseRow) throw new Error(`Course ${courseId} not found in DB`);
 
-  const sectionId = courseRow.schoology_section_id;
-  log(`Starting mastery sync for course ${courseRow.course_name} (section ${sectionId})`);
-
-  const reader = await openMasteryReader(sectionId);
-  log('Logged in OK');
-  log(`Found building_id: ${reader.buildingId}`);
-
-  const { categories, alignmentRows, observationsByTopic, allMaterialIds, materialMap, rollupRows } = await readCourseMastery(reader, sectionId, log);
+  // #178: a course of linked sections is read section by section, and written once.
+  const reads = [];
+  for (const sectionId of courseSectionIds(db, courseId)) {
+    log(`Starting mastery sync for course ${courseRow.course_name} (section ${sectionId})`);
+    const reader = await openMasteryReader(sectionId);
+    log('Logged in OK');
+    log(`Found building_id: ${reader.buildingId}`);
+    reads.push(await readCourseMastery(reader, sectionId, log));
+  }
+  const { categories, alignmentRows, observationsByTopic, allMaterialIds, materialMap, rollupRows } = mergeMasteryReads(reads);
 
   // ── Step 6: Persist to DB ──────────────────────────────────────────────
   log('Writing to database...');
@@ -547,7 +585,8 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
   const db = getDb();
   const courseRow = getCourseRow(db, courseId);
   if (!courseRow) throw new Error(`Course ${courseId} not found`);
-  const sectionId = courseRow.schoology_section_id;
+  // #178: every section of a course of linked sections (each has its own students).
+  const sectionIds = courseSectionIds(db, courseId);
 
   const topicRows = db.prepare(`
     SELECT topic_id FROM mastery_alignments
@@ -558,8 +597,8 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
   }
   const topicIds = topicRows.map(r => r.topic_id);
 
-  const reader = await openMasteryReader(sectionId);
-  const { buildingId } = reader;
+  const readers = [];
+  for (const sectionId of sectionIds) readers.push({ sectionId, reader: await openMasteryReader(sectionId) });
 
   const upsertScore = db.prepare(`
     INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
@@ -578,9 +617,11 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
   let scoresCount = 0;
 
   for (const topicId of topicIds) {
-    const url = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search?building_id=${buildingId}&objective_id=${topicId}&section_id=${sectionId}`;
-    const obsData = await reader.getJson(url);
-    const observations = obsData.data || [];
+    const observations = [];
+    for (const { sectionId, reader } of readers) {
+      const url = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/material-observations/search?building_id=${reader.buildingId}&objective_id=${topicId}&section_id=${sectionId}`;
+      observations.push(...((await reader.getJson(url)).data || []));
+    }
 
     const seenUids = new Set();
     for (const obs of observations) {
@@ -619,8 +660,11 @@ export async function syncMasteryForAssignment(courseId, assignmentId) {
   let commentsCount = 0;
   try {
     // One task's grades (?assignment_id=, verified 2026-10-19), not the whole section's (#168).
-    const forAssignment = (await getAssignmentGrades(sectionId, String(assignmentId)))
-      .filter(g => String(g.assignment_id) === String(assignmentId));
+    const forAssignment = [];
+    for (const sectionId of sectionIds) {
+      forAssignment.push(...(await getAssignmentGrades(sectionId, String(assignmentId)))
+        .filter(g => String(g.assignment_id) === String(assignmentId)));
+    }
     const updateGrade = db.prepare(`
       UPDATE grades
       SET score = ?, grade_comment = ?, comment_status = ?, exception = ?

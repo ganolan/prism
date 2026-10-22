@@ -6,19 +6,27 @@
 import { apiGet } from './schoology.js';
 import { finalizeArchivedCourse, enrichStudentProfiles } from './sync.js';
 import { syncPsAttendance } from './psAttendanceSync.js';
+import { linkedSectionsOf } from './archivedCourses.js';
+
+const parentOf = (sec) => (sec?.parent_id && String(sec.parent_id) !== '0' ? String(sec.parent_id) : null);
 
 // → { course, studentsCount, assignmentsCount, gradesCount, finalized, masteryError }: finalized and
 // masteryError are finalizeArchivedCourse's (masteryError null when mastery was read). Stamps
 // sync_attempted_at (and its live tasks' task_sync_attempted_at), and course_synced_at (and
 // task_synced_at on its tasks read in full) when the read was complete (#171, #172). A Schoology
 // error is thrown as it came: its message carries the status (403, 404) the route maps to its answer.
+// #178: linked sections are one course. A linked section imports its parent instead; the parent's
+// linked sections are recorded (linked_sections) before the read, which reads every section.
 export async function importArchivedCourse(db, sectionId) {
-  const [sec, periodsData] = await Promise.all([
-    apiGet(`/sections/${sectionId}`),
-    apiGet(`/sections/${sectionId}/grading_periods`),
+  let sec = await apiGet(`/sections/${sectionId}`);
+  if (parentOf(sec)) sec = await apiGet(`/sections/${parentOf(sec)}`);
+  const [periodsData, linked] = await Promise.all([
+    apiGet(`/sections/${sec.id}/grading_periods`),
+    linkedSectionsOf(String(sec.id)),
   ]);
 
   const gradingPeriod = periodsData?.grading_period?.[0]?.title || null;
+  const sectionName = [sec.section_title, ...linked.map((l) => l.sectionTitle)].filter(Boolean).join(', ') || null;
   const now = new Date().toISOString();
 
   db.prepare(`
@@ -33,12 +41,17 @@ export async function importArchivedCourse(db, sectionId) {
       archived = 1,
       synced_at = excluded.synced_at
   `).run(
-    String(sec.id), sec.course_title, sec.section_title,
+    String(sec.id), sec.course_title, sectionName,
     sec.course_code || null, sec.section_school_code || null,
     gradingPeriod, now
   );
 
   const courseRow = db.prepare('SELECT * FROM courses WHERE schoology_section_id = ?').get(String(sec.id));
+  const recordLinked = db.prepare(`
+    INSERT INTO linked_sections (schoology_section_id, course_id, section_name) VALUES (?, ?, ?)
+    ON CONFLICT(schoology_section_id) DO UPDATE SET course_id = excluded.course_id, section_name = excluded.section_name
+  `);
+  for (const l of linked) recordLinked.run(l.sectionId, courseRow.id, l.sectionTitle);
   // #171: the import is no orchestrator run, so it stamps the course's Synced time itself: the
   // attempt always (a read that throws too), course_synced_at below only when the read was complete.
   // #172: its tasks too, as stampCompleteSyncs (syncOrchestrator.js) does: every live task's attempt

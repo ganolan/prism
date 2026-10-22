@@ -8,7 +8,7 @@
 // `exception` in the destructive bulk PUT. A failed read → SCHOOLOGY_READ_FAILED
 // and nothing is written; a failed PUT → SCHOOLOGY_WRITE_FAILED and nothing in
 // Prism changes. Publishing always sets Display on (comment_status 1); removing
-// a line keeps the fresh comment_status.
+// a line keeps the fresh comment_status, except that an emptied comment is hidden (null).
 import { getSectionGrades, pushGradeUpdates } from './schoology.js';
 import { composeComment, teacherText, plainLine, isPlainLine } from '../lib/statusLines.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
@@ -257,7 +257,9 @@ export async function removeStatusLine(db, { studentId, assignmentId, source = n
     capture(db, t);
     return { removed: false, comment: current };
   }
-  const commentStatus = Number(fresh?.comment_status) === 1 ? 1 : null;
+  // An emptied comment is hidden: Schoology reads comment_status null for it (seen 22 Oct 2026), so
+  // send and mirror null rather than a Display flag with nothing to show.
+  const commentStatus = comment !== '' && Number(fresh?.comment_status) === 1 ? 1 : null;
   await putComment(t, fresh, comment, commentStatus);
   db.transaction(() => {
     mirror(db, t, fresh, comment, commentStatus);

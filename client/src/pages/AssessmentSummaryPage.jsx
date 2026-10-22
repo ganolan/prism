@@ -80,6 +80,10 @@ export function flagClearedPatch(cleared) {
   };
 }
 
+// A published grade (a score, or levels) makes a waiting saved copy stale: the server retires it
+// (mastery.js retireCopy), so the card drops its restore offer without a reload (#40, 22 Oct 2026).
+export const GRADE_WRITTEN_PATCH = { saved_grade: null };
+
 export function resubmissionFieldsPatch(fields) {
   if (!fields) return {};
   return {
@@ -814,7 +818,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           ...(rowLevels ? { rowLevels } : {}),
         },
         patch: {
-          ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
+          ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode, ...GRADE_WRITTEN_PATCH } : {}),
           ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
           ...(overallChanged ? { grade_comment: comment, comment_status: display ? 1 : null, ...statusLinePatch() } : {}),
         },
@@ -847,7 +851,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         ...(scores && !(hasCommentChange || hasDisplayChange) && isMarker(student.exception) ? { settleMarker: true } : {}),
       },
       patch: {
-        scores: buildSavedScores(), grade_comment: comment, comment_status: display ? 1 : null,
+        scores: buildSavedScores(), ...(scores ? GRADE_WRITTEN_PATCH : {}), grade_comment: comment, comment_status: display ? 1 : null,
         ...statusLinePatch(),
       },
     };
@@ -906,7 +910,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
         commentHistory.clearHistory(); // undo never crosses a publish (#75)
         saverRef.current.remove({ immediate: true });
         onSaved?.(student.schoology_uid, {
-          ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode } : {}),
+          ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode, ...GRADE_WRITTEN_PATCH } : {}),
           ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
           ...(overallChanged ? {
             grade_comment: comment,
@@ -957,7 +961,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
           // The levels are in Schoology; only the comment is not. Keep the comment (and its draft)
           // to publish again, and stop showing the levels as pending.
           setPending({});
-          onSaved?.(student.schoology_uid, { scores: buildSavedScores(), ...resubmissionFieldsPatch(fields) });
+          onSaved?.(student.schoology_uid, { scores: buildSavedScores(), ...GRADE_WRITTEN_PATCH, ...resubmissionFieldsPatch(fields) });
           setSaveResult(`error: Levels published to Schoology; the comment was not saved (${err.message}). Publish again to send it.`);
           return false;
         }
@@ -986,6 +990,7 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
       saverRef.current.remove({ immediate: true });
       onSaved?.(student.schoology_uid, {
         scores: buildSavedScores(),
+        ...(rubricSaved ? GRADE_WRITTEN_PATCH : {}),
         grade_comment: comment,
         comment_status: display ? 1 : null,
         ...resubmissionFieldsPatch(fields),

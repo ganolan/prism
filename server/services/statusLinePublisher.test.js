@@ -295,6 +295,16 @@ describe('removeStatusLine', () => {
     expect(stored()).toBeNull();
   });
 
+  test('removing the only line leaves an empty comment hidden: comment_status null, locally and in the PUT (22 Oct 2026)', async () => {
+    db.prepare(`INSERT INTO status_lines (student_id, assignment_id, line, kind) VALUES (?, ?, ?, 'ask')`).run(s, a, L1);
+    getSectionGrades.mockResolvedValue([fresh({ grade: '2', comment: L1, comment_status: 1 })]);
+    const out = await removeStatusLine(db, { studentId: s, assignmentId: a });
+    expect(out).toMatchObject({ removed: true, comment: '' });
+    expect(sentPayload()).toEqual({ assignment_id: 'sa', enrollment_id: 'enr', comment: '', comment_status: null, grade: '2', exception: 0 });
+    expect(gradeRow()).toMatchObject({ grade_comment: '', comment_status: null });
+    expect(stored()).toBeNull();
+  });
+
   test('no stored line → nothing read or written', async () => {
     expect(await removeStatusLine(db, { studentId: s, assignmentId: a })).toEqual({ removed: false, comment: null });
     expect(getSectionGrades).not.toHaveBeenCalled();

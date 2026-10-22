@@ -2898,6 +2898,48 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
     expect(getDraftsForAssignment).toHaveBeenCalledWith('8');
   });
 
+  it('publishing a level over a waiting copy drops the restore offer without a reload (22 Oct 2026)', async () => {
+    writeMasteryScores.mockResolvedValueOnce({ ok: true });
+    function Harness() {
+      const [st, set] = useState({ ...makeStudent(), exception: 0, score: null, saved_grade: SAVED });
+      return (
+        <MemoryRouter>
+          <StudentRubricCard student={st} topics={TOPICS} courseId="4" assignmentId="8"
+            assignmentRow={{ id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
+            onSaved={(uid, patch) => set((prev) => ({ ...prev, ...patch }))} />
+        </MemoryRouter>
+      );
+    }
+    render(<Harness />);
+    expect(screen.getByRole('button', { name: 'Restore saved grade' })).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryScores).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Restore saved grade' })).toBeNull());
+    expect(screen.queryByText(/Grade saved in Prism on/)).toBeNull();
+  });
+
+  it('publishing only a comment keeps the waiting copy on offer (no grade was written)', async () => {
+    function Harness() {
+      const [st, set] = useState({ ...makeStudent(), exception: 0, score: null, saved_grade: SAVED });
+      return (
+        <MemoryRouter>
+          <StudentRubricCard student={st} topics={TOPICS} courseId="4" assignmentId="8"
+            assignmentRow={{ id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
+            onSaved={(uid, patch) => set((prev) => ({ ...prev, ...patch }))} />
+        </MemoryRouter>
+      );
+    }
+    render(<Harness />);
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Just a note' } });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Restore saved grade' })).toBeInTheDocument();
+  });
+
   it('a copy the card cannot stage: no button, the parts to re-enter in Schoology', () => {
     renderCard({ student: { ...makeStudent(), exception: 0, saved_grade: { ...SAVED, restoreSummary: null, notRestored: ['75'] } } });
     expect(screen.queryByRole('button', { name: 'Restore saved grade' })).toBeNull();
@@ -2940,6 +2982,23 @@ describe('AssessmentSummaryPage: Publish all over a final flag (#40)', () => {
     await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
     expect(sendAllGrades.mock.calls[0][1].map((e) => e.uid)).toEqual(['u1']);
     expect(await screen.findByText(/Skipped Grace H: flagged Exempt in Schoology/)).toBeInTheDocument();
+  });
+
+  it('Publish all drops the restore offer of a card whose grade it wrote (22 Oct 2026)', async () => {
+    const saved = { score: 75, max_points: 100, topics: { t1: 'EX' }, rows: {}, scale_level: null, flag: 6, savedAt: '2026-10-21 02:00:00', summary: '75 / 100 and 1 topic level', restoreSummary: '1 topic level', notRestored: [] };
+    const withCopy = { ...ada, saved_grade: saved };
+    getMasteryForAssignment.mockResolvedValue({ assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 }, topics, students: [withCopy] });
+    getDraftsForAssignment.mockResolvedValueOnce({ 1: draft(withCopy) });
+    sendAllGrades.mockResolvedValue({ results: [{ uid: 'u1', ok: true }] });
+    render(
+      <MR initialEntries={['/course/4/assessment/8']}>
+        <Rs><Rt path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Rs>
+      </MR>,
+    );
+    expect(await screen.findByRole('button', { name: 'Restore saved grade' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
+    await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Restore saved grade' })).toBeNull());
   });
 
   it('only flagged cards: nothing is sent, and it says why', async () => {

@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { formatDate } from '../lib/formatDate.js';
 import {
   getStudent, updateStudent, updateParent,
-  createNote, updateNote, deleteNote, startSync, getRubricConfig, getSettings,
+  createNote, updateNote, deleteNote, startSync, getRubricConfig,
 } from '../services/api.js';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
@@ -14,6 +14,7 @@ import SyncDialog from '../components/SyncDialog.jsx';
 import StudentRubricCard from '../components/gradeCard/StudentRubricCard.jsx';
 import { cardInputs, cardReasons } from '../lib/cardInputs.js';
 import { useGradeCards } from '../hooks/useGradeCards.js';
+import { useCardEditing } from '../hooks/useCardEditing.js';
 import PsAlertReveal from '../components/PsAlertReveal.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { useStudentWorkLinks, useStudentCommentSummaries, useStudentFileSummaries } from '../hooks/useStudentFeedbackLinks.js';
@@ -60,24 +61,6 @@ function CopyButton({ text, label }) {
 const commentsWorthAChip = (g, summary) => !!summary || !!g.submission_type || Number(g.submitted_at) > 0
   || g.lti_submission_state === 'submitted' || g.score != null;
 
-// A card's student with what a write on it changed (the card's onSaved patch, as the assessment page
-// applies it), until the task's own refetch brings a newer card: the patch holds only over the card
-// object it was made on, so any newer card replaces it.
-function useSavedPatches(cards) {
-  const [patches, setPatches] = useState({}); // { [aid]: { over: card, patch } }
-  const patched = (aid) => {
-    const card = cards[aid];
-    const p = patches[aid];
-    return card && p && p.over === card ? { ...card, student: { ...card.student, ...p.patch } } : card;
-  };
-  const addPatch = (aid, patch) => setPatches((prev) => {
-    const p = prev[aid];
-    const base = p && p.over === cards[aid] ? p.patch : {};
-    return { ...prev, [aid]: { over: cards[aid], patch: { ...base, ...patch } } };
-  });
-  return { patched, addPatch };
-}
-
 // One course of the student page: the mastery summary, then each task as the grade card (#176) in
 // view mode, editable in place (Edit, Done) on a course Prism can write (`course.writable` from the
 // grade-cards route: not archived, excluded or a linked set). The cards come from
@@ -100,51 +83,13 @@ export function CourseSection({
   const { cards, course: cardCourse, loading, error, refetchOne } = useGradeCards({
     studentId, courseId: course.id, enabled: expanded, reloadKey: refreshKey,
   });
-  const { patched, addPatch } = useSavedPatches(cards);
   const writable = cardCourse?.writable === true;
-  // The tasks open for editing (several at once is fine: each card is independent).
-  const [editing, setEditing] = useState(() => new Set());
-  const [editError, setEditError] = useState({}); // { [aid]: message } when Edit could not load the task
-  // The teacher's default lesson count for Ask to resubmit, read when a card first opens for editing.
-  const [resubmitLessons, setResubmitLessons] = useState(undefined);
-
-  // Edit: the task's card is read again first. The card builds its edit state from its props when it
-  // switches mode, so a draft saved elsewhere since the page loaded must be in them.
-  async function startEdit(aid) {
-    setEditError((e) => ({ ...e, [aid]: null }));
-    if (resubmitLessons === undefined) {
-      Promise.resolve().then(() => getSettings())
-        .then((s) => setResubmitLessons(s?.triage?.resubmitLessonsDefault ?? 3))
-        .catch(() => setResubmitLessons(3));
-    }
-    let fresh = null;
-    try { fresh = await refetchOne(aid); } catch { fresh = null; }
-    if (!fresh) {
-      setEditError((e) => ({ ...e, [aid]: 'Could not load this task. Reload the page.' }));
-      return;
-    }
-    setEditing((prev) => new Set(prev).add(aid));
-  }
-  // Done (after the card's draft save settles): back to the view, and the page reloads.
-  function finishEdit(aid) {
-    setEditing((prev) => { const next = new Set(prev); next.delete(aid); return next; });
-    if (onGradesChange) Promise.resolve().then(() => onGradesChange()).catch(() => {});
-  }
-  // After a flag write: the page reloads, and the card gets this task's fresh student (its comment
-  // editor follows the line the flag wrote). A failed read throws: the Flags pill says so.
-  async function refreshTask(aid) {
-    const [fresh] = await Promise.all([refetchOne(aid), onGradesChange ? onGradesChange() : null]);
-    return fresh?.student ?? null;
-  }
-  // After a publish, Ask, Extend or Refer on the card: its patch at once, then the task read again.
-  function handleSaved(aid, patch) {
-    if (patch) addPatch(aid, patch);
-    refetchOne(aid).catch(() => {});
-  }
+  // Edit and Done in place; several tasks may be open for editing at once (each card is independent).
+  const edit = useCardEditing({ cards, refetchOne, onChange: onGradesChange });
   // Collapsing leaves edit mode (the card's unmount sends its queued draft save): opened again, the
   // course shows its cards as read again, never an editor built from the cards held before.
   function toggleExpanded() {
-    if (expanded) setEditing(new Set());
+    if (expanded) edit.stopEditing();
     setExpanded(!expanded);
   }
 
@@ -208,7 +153,7 @@ export function CourseSection({
                     {g.assignment_title}
                   </Link>
                 );
-                const card = patched(aid);
+                const card = edit.card(aid);
                 const summary = commentSummaries?.[aid] || null;
                 const showComments = commentSummaries !== null && studentId != null && commentsWorthAChip(g, summary);
                 // The student's own Schoology uploads, every revision (#107, #162).
@@ -218,7 +163,7 @@ export function CourseSection({
                   const { topics, rubric, student } = cardInputs({
                     topics: card.topics, scoreScale: card.scoreScale, rubricData: card.rubric, student: card.student,
                   });
-                  const isEditing = writable && editing.has(aid);
+                  const isEditing = writable && edit.isEditing(aid);
                   body = (
                     <>
                       <StudentRubricCard
@@ -248,13 +193,13 @@ export function CourseSection({
                         fileSummary={fileSummaries?.[aid] || null}
                         onFileSummary={(_, s) => onFileSummary(aid, s)}
                         resubmitEnabled={writable}
-                        resubmitLessonsDefault={resubmitLessons ?? 3}
-                        onEdit={writable ? () => startEdit(aid) : null}
-                        onDone={() => finishEdit(aid)}
-                        onSaved={(_, patch) => handleSaved(aid, patch)}
-                        onRefreshPair={() => refreshTask(aid)}
+                        resubmitLessonsDefault={edit.resubmitLessons}
+                        onEdit={writable ? () => edit.startEdit(aid) : null}
+                        onDone={() => edit.finishEdit(aid)}
+                        onSaved={(_, patch) => edit.saved(aid, patch)}
+                        onRefreshPair={() => edit.refreshTask(aid)}
                       />
-                      {editError[aid] && <div className="alert alert-warning" role="alert">{editError[aid]}</div>}
+                      {edit.editError(aid) && <div className="alert alert-warning" role="alert">{edit.editError(aid)}</div>}
                     </>
                   );
                 } else {

@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries } from '../services/api.js';
+import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries, getSubmissionFiles, getRubricConfig } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -23,19 +23,19 @@ import { preferredFirstName } from '../lib/studentNames.js';
 import { indexMastery, buildAssignmentRubric } from '../lib/gradebookMastery.js';
 import { useDataVersion, useBumpDataVersion } from '../hooks/useDataVersion.jsx';
 import { useStickyTab } from '../hooks/useStickyTab.js';
-import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
-import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
-import { showsDescriptors } from '../lib/rubricDescriptorRows.js';
+import StudentRubricCard from '../components/gradeCard/StudentRubricCard.jsx';
+import { cardInputs, cardReasons } from '../lib/cardInputs.js';
+import { useGradeCards } from '../hooks/useGradeCards.js';
+import { useCardEditing } from '../hooks/useCardEditing.js';
+import { buildDescriptorRows } from '../lib/rubricDescriptorRows.js';
 import PsAlertBadges from '../components/PsAlertBadges.jsx';
 import { forRoster, getRosterAlertsShown, setRosterAlertsShown } from '../lib/psAlerts.js';
 import { useStickyTypeFilter } from '../hooks/useStickyTypeFilter.js';
 import SchoologyLink from '../components/SchoologyLink.jsx';
-import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
-import { workLinkText } from '../lib/workLink.js';
 import SubmissionComments from '../components/SubmissionComments.jsx';
-import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
+import { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import { timelineSummary, lateText } from '../lib/submissionTimeline.js';
 import LateClock from '../components/LateClock.jsx';
 import FlagSymbol from '../components/FlagSymbol.jsx';
@@ -675,74 +675,127 @@ function MiniRubricStrip({ topics, onClick }) {
   );
 }
 
-// Modal opened from a gradebook cell (a MiniRubricStrip, or a points-only score):
-// the shared AssignmentFeedback view, the same layout as each assignment on the
-// /student/ page (#135). It widens only while full rubric descriptors show.
+// Modal opened from a gradebook cell (a MiniRubricStrip, or a points-only score): the shared grade
+// card (#176), the same component as the assessment page and the student page, read-only, with Edit
+// and Done in place on a course Prism can write (`course.writable` from the grade-cards route: not
+// archived, excluded or a linked set). Its one card comes from GET /api/students/:id/grade-cards with
+// the task's id; `reloadKey` (bumped when the gradebook data is replaced) reads it again. The card is
+// in meeting mode (no portrait, no AI suggestion), as on the student page. `grade` is the
+// gradebook's own grade row, `scales` its grading_scales. `onFlagChange` refreshes the gradebook
+// after a flag write, after Done and when the pop-up closes in edit mode. The pop-up widens while a
+// descriptor grid shows, and in edit mode.
 export function RubricModal({
-  student, assignment, courseId, topics = [], comment, grade, timeline = null, score = null,
+  student, assignment, courseId, grade = null, scales = null, reloadKey = 0,
   commentSummary = null, onCommentSummary = null, onClose,
-  onFlagChange = null, // the Flags menu writes, then the page refetches (#40); null on an archived course
+  onFlagChange = null,
 }) {
   const name = preferredFirstName(student);
   const fullName = `${name} ${student.last_name}`;
+  const aid = assignment.schoology_assignment_id;
+  const { cards, course, loading, error, refetchOne } = useGradeCards({
+    studentId: student.id, courseId, assignmentId: aid, reloadKey,
+  });
+  // Without a gradebook to refresh, the card's own read stands in.
+  const edit = useCardEditing({ cards, refetchOne, onChange: onFlagChange || (() => refetchOne(aid)) });
+  const card = edit.card(aid);
+  const writable = course?.writable === true;
+  const editing = writable && edit.isEditing(aid);
   // The student's own OneDrive (#120) or Google Drive (#142) copy, looked up when the modal opens —
   // the whole assignment's links come back (cached server-side), keep ours.
   const [workLink, setWorkLink] = useState(null);
   useEffect(() => {
     if (!assignment.is_lti_submission) return;
     let active = true;
-    getSubmissionLinks(courseId, assignment.schoology_assignment_id)
+    getSubmissionLinks(courseId, aid)
       .then(r => { if (active) setWorkLink(r.links?.[student.schoology_uid] || null); })
       .catch(() => {});
     return () => { active = false; };
-  }, [courseId, assignment.schoology_assignment_id, assignment.is_lti_submission, student.schoology_uid]);
+  }, [courseId, aid, assignment.is_lti_submission, student.schoology_uid]);
   // The student's attempt on a linked or combined Schoology test (linked quizzes).
-  const attemptLink = useAttemptLinks({ assignmentId: assignment.schoology_assignment_id })[student.id] || null;
-  // Submission state + flags, shown above the rubric — matching the /student/ page.
-  const status = submissionStatus({
-    score: grade.score, exception: grade.exception, late: timeline?.submission?.late ?? grade.late,
-    draft: grade.draft, submitted_at: grade.submitted_at, submission_type: grade.submission_type,
-    is_lti_submission: assignment.is_lti_submission, lti_submission_state: grade.lti_submission_state,
-    due_date: assignment.due_date, accepts_submissions: assignment.accepts_submissions, is_test: assignment.is_test,
-  });
-  const flags = [
-    ...(grade.resubmit_requested ? [{ id: 'resubmit', flag_type: 'resubmit_requested' }] : []),
-  ];
-  // The attached rubric (descriptors, or an unaligned task's feedback rows with this
-  // student's row levels), fetched once when the modal opens.
-  const aid = assignment.schoology_assignment_id;
-  const { attachments, palette } = useAttachedRubrics([aid], 0, { studentUid: student.schoology_uid });
-  const attachment = attachments[aid] || null;
-  const wide = showsDescriptors(topics, attachment);
-  const summative = !!assignment.aligned || topics.length > 0;
-  // The badges row's links: the student's own work (#120: in progress or
-  // submitted; the assignment's Schoology page is on the gradebook column
-  // header), the test attempt, and the submission comments (when the feature is on).
-  // The student's own Schoology uploads, every revision (#107).
-  const showFiles = hasNativeSubmission(assignment, grade);
-  const links = (workLink || attemptLink || onCommentSummary || showFiles) ? (
-    <>
-      {workLink && (
-        <SchoologyLink
-          url={workLink.url}
-          label="Open"
-          {...workLinkText(workLink, fullName)}
-          style={{ fontSize: '0.78rem', fontWeight: 600 }}
+  const attemptLink = useAttemptLinks({ assignmentId: aid })[student.id] || null;
+  // The student's own Schoology uploads, every revision (#107), read when the pop-up opens: opening
+  // the pop-up is opening the student's work. A 403 means the feature is off: no chip.
+  const nativeWork = hasNativeSubmission(assignment, grade);
+  const [files, setFiles] = useState({ summary: null, off: false });
+  useEffect(() => {
+    if (!nativeWork) return undefined;
+    let active = true;
+    Promise.resolve().then(() => getSubmissionFiles(aid, student.id))
+      .then((r) => { if (active) setFiles({ summary: { ...r.summary, read_at: r.read_at }, off: false }); })
+      .catch((e) => { if (active && e?.status === 403) setFiles({ summary: null, off: true }); });
+    return () => { active = false; };
+  }, [nativeWork, aid, student.id]);
+  // The reporting-category colours for a descriptor grid, read once a rubric is attached.
+  const hasRubric = Boolean(card?.rubric);
+  const [palette, setPalette] = useState({});
+  useEffect(() => {
+    if (!hasRubric) return undefined;
+    let active = true;
+    Promise.resolve().then(() => getRubricConfig())
+      .then((c) => { if (active) setPalette(c?.reportingCategoryColors || {}); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [hasRubric]);
+
+  const inputs = card ? cardInputs({
+    topics: card.topics, scoreScale: card.scoreScale, rubricData: card.rubric, student: card.student,
+  }) : null;
+  const wide = editing || Boolean(inputs?.rubric && buildDescriptorRows(inputs.topics, inputs.rubric).length > 0);
+  const summative = !!assignment.aligned || (card?.topics?.length ?? 0) > 0;
+  // Closing in edit mode is a Done without the button: the gradebook shows what was published.
+  function close() {
+    if (editing && onFlagChange) Promise.resolve().then(() => onFlagChange()).catch(() => {});
+    onClose();
+  }
+
+  let body;
+  if (card) {
+    body = (
+      <>
+        <StudentRubricCard
+          mode={editing ? 'edit' : 'view'}
+          meeting
+          heading={false}
+          showDue
+          hasDraft={card.hasDraft}
+          draftRow={card.draft}
+          feedbackRow={null}
+          reasons={cardReasons(card, commentSummary)}
+          student={inputs.student}
+          topics={inputs.topics}
+          rubric={inputs.rubric}
+          rubricPalette={palette}
+          scoreScale={card.scoreScale}
+          scales={scales}
+          courseId={courseId}
+          assignmentId={aid}
+          assignmentRow={card.assignment}
+          submissionLink={workLink}
+          attemptLink={attemptLink}
+          commentsEnabled={!!onCommentSummary}
+          commentSummary={commentSummary}
+          onCommentSummary={onCommentSummary ? (_, s) => onCommentSummary(s) : null}
+          filesEnabled={nativeWork && !files.off}
+          fileSummary={files.summary}
+          onFileSummary={(_, s) => setFiles({ summary: s, off: false })}
+          resubmitEnabled={writable}
+          resubmitLessonsDefault={edit.resubmitLessons}
+          onEdit={writable ? () => edit.startEdit(aid) : null}
+          onDone={() => edit.finishEdit(aid)}
+          onSaved={(_, patch) => edit.saved(aid, patch)}
+          onRefreshPair={() => edit.refreshTask(aid)}
         />
-      )}
-      {showFiles && (
-        <SubmissionFiles autoLoad assignmentId={aid} studentId={student.id}
-          studentName={fullName} title={assignment.title} />
-      )}
-      <AttemptLink link={attemptLink} name={fullName} />
-      {onCommentSummary && (
-        <SubmissionComments assignmentId={aid} studentId={student.id} studentName={name}
-          title={assignment.title} summary={commentSummary} onSummary={onCommentSummary} />
-      )}
-    </>
-  ) : null;
+        {edit.editError(aid) && <div className="alert alert-warning" role="alert">{edit.editError(aid)}</div>}
+      </>
+    );
+  } else if (error) {
+    body = <div className="alert alert-warning" role="alert">Could not load this grade. Reload the page.</div>;
+  } else {
+    body = <p className="text-sm text-muted">{loading ? 'Loading…' : 'No grade for this student on this task.'}</p>;
+  }
+
   return (
-    <div className="feedback-modal-overlay" onClick={onClose}>
+    <div className="feedback-modal-overlay" onClick={close}>
       <div
         role="dialog"
         aria-modal="true"
@@ -761,30 +814,14 @@ export function RubricModal({
               <span className={`badge ${summative ? 'badge-summative' : 'badge-formative'}`} style={{ fontSize: '0.6rem' }}>{summative ? 'S' : 'F'}</span>
             </div>
           </div>
-          <button className="ghost" onClick={onClose} aria-label="Close">✕</button>
+          <button className="ghost" onClick={close} aria-label="Close">✕</button>
         </div>
         <div style={{ padding: '1rem 1.1rem' }}>
-          <AssignmentFeedback
-            status={status} flags={flags} resubmitted={grade.resubmitted}
-            links={links}
-            timeline={timeline}
-            lateTitle={lateText(timeline)}
-            topics={topics} attachment={attachment} palette={palette} exception={grade.exception}
-            firstName={name}
-            score={topics.length > 0 ? null : score}
-            savedLevel={grade.saved_level ?? null}
-            reasonLine={grade.flag_line ?? null}
-            comment={comment}
-            flagsMenu={onFlagChange && assignment.id != null ? {
-              student: { id: student.id, firstName: name }, assignmentId: assignment.id,
-              exception: grade.exception, score: grade.score ?? null, comment: grade.grade_comment || '',
-              aligned: !!assignment.aligned, onChange: onFlagChange,
-            } : null}
-          />
+          {body}
         </div>
         <div style={{ padding: '0 1.1rem 1rem' }}>
           <Link
-            to={`/course/${courseId}/assessment/${assignment.schoology_assignment_id}`}
+            to={`/course/${courseId}/assessment/${aid}`}
             className="link"
             style={{ fontSize: '0.8rem' }}
           >
@@ -901,24 +938,22 @@ const TYPE_LEGEND = (
 export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_FILTER, onFlagChange = null }) {
   const indexed = useMemo(() => indexMastery(mastery), [mastery]);
   const [rubricModal, setRubricModal] = useState(null);
-  // The pop-up for one cell, built from the current data, so a refetch after a flag write (#40)
-  // redraws the open pop-up with the pair's new state.
+  // The pop-up for one cell, built from the current data: the student, the task and the
+  // gradebook's grade row. The grade card inside reads its own data.
   const modalFor = (studentId, assignmentId) => {
     const s = data?.students.find((x) => x.id === studentId);
     const a = data?.assignments.find((x) => x.id === assignmentId);
     const g = data?.grades?.[studentId]?.[assignmentId];
     if (!s || !a || !g) return null;
-    // Exempt hides the rubric in the pop-up; a marker keeps it, and Missing shows IE (AssignmentFeedback).
-    const locked = isFinalFlag(g.exception) && Number(g.exception) !== 3;
-    const topics = (a.aligned && !locked) ? buildAssignmentRubric(a.schoology_assignment_id, s.schoology_uid, indexed) : [];
-    const score = a.aligned
-      ? gradeLabel({ score: g.score, max_points: a.max_points, exception: g.exception, grading_scale_id: null, scales: null })
-      : gradeLabel({ score: g.score, max_points: a.max_points, exception: g.exception, grading_scale_id: a.grading_scale_id, scales: data.grading_scales });
-    return { student: s, assignment: a, topics, score, comment: g.grade_comment || '', grade: g, timeline: data.timelines?.[studentId]?.[assignmentId] || null };
+    return { student: s, assignment: a, grade: g };
   };
   useEffect(() => {
     setRubricModal((m) => (m ? (modalFor(m.student.id, m.assignment.id) || m) : m));
-  }, [data, indexed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Counts each new gradebook (a refetch after a flag write, Done or a sync): the open pop-up reads
+  // its card again with it.
+  const dataSeq = useRef({ data, n: 0 });
+  if (dataSeq.current.data !== data) dataSeq.current = { data, n: dataSeq.current.n + 1 };
   // Comment shown instantly on cell hover (#36): { text, top, left }.
   const [commentOverlay, setCommentOverlay] = useState(null);
   // Floating header popover (#37): full assessment title, the formative/
@@ -1329,11 +1364,9 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
         student={rubricModal.student}
         assignment={rubricModal.assignment}
         courseId={courseId}
-        topics={rubricModal.topics}
-        comment={rubricModal.comment}
         grade={rubricModal.grade}
-        timeline={rubricModal.timeline}
-        score={rubricModal.score}
+        scales={data.grading_scales}
+        reloadKey={dataSeq.current.n}
         commentSummary={commentSums?.[rubricModal.assignment.schoology_assignment_id]?.[rubricModal.student.id] || null}
         onCommentSummary={commentSums ? (sum) => setCommentSums((prev) => ({
           ...prev,

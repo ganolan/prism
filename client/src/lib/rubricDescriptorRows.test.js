@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDescriptorRows, feedbackDescriptorRows, feedbackRowView, showsDescriptors } from './rubricDescriptorRows.js';
+import { buildDescriptorRows, feedbackDescriptorRows, feedbackRowView } from './rubricDescriptorRows.js';
 
 describe('feedbackRowView (feedback rows, #135)', () => {
   const attachment = {
@@ -21,11 +21,6 @@ describe('feedbackRowView (feedback rows, #135)', () => {
   it('is null for a topics rubric or no attachment', () => {
     expect(feedbackRowView({ ...attachment, mode: 'topics' })).toBeNull();
     expect(feedbackRowView(null)).toBeNull();
-  });
-
-  it('showsDescriptors covers both kinds', () => {
-    expect(showsDescriptors([], attachment)).toBe(true);
-    expect(showsDescriptors([], null)).toBe(false);
   });
 });
 

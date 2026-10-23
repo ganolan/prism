@@ -1,9 +1,10 @@
 // One student's grade cards for a course (#176): the assessment page's card for every task the
 // student is on, from GET /api/students/:id/grade-cards. The student page and the gradebook pop-up
-// share it.
+// share it. `assignmentId` (a Schoology assignment id) narrows every load to that one task's card:
+// the gradebook pop-up shows one task, so it never loads the course's.
 //
-// The cards belong to the student and course they were fetched for: they read as {} the moment
-// either changes (never the previous course's cards), and a superseded response is dropped.
+// The cards belong to the student, course (and task) they were fetched for: they read as {} the
+// moment any changes (never the previous course's cards), and a superseded response is dropped.
 // `reloadKey` refetches the same course without blanking the cards on screen. `enabled` false
 // fetches nothing. `refetchOne(assignmentId)` re-reads one card (after a write, or before the card
 // goes into edit mode), swaps it into `cards` and resolves to it.
@@ -12,9 +13,9 @@ import { getGradeCards } from '../services/api.js';
 
 const NONE = {};
 
-export function useGradeCards({ studentId = null, courseId = null, enabled = true, reloadKey = 0 } = {}) {
+export function useGradeCards({ studentId = null, courseId = null, assignmentId = null, enabled = true, reloadKey = 0 } = {}) {
   const live = enabled && studentId != null && courseId != null;
-  const key = `${studentId ?? ''}|${courseId ?? ''}`;
+  const key = `${studentId ?? ''}|${courseId ?? ''}|${assignmentId ?? ''}`;
   const [loaded, setLoaded] = useState({ key: null, cards: NONE, course: null, error: null });
   const keyRef = useRef(key);
   keyRef.current = key;
@@ -34,7 +35,7 @@ export function useGradeCards({ studentId = null, courseId = null, enabled = tru
     lastFullSeq.current = mine;
     // Promise.resolve().then so a synchronous throw (or an automocked api) is a catch, not a crash.
     Promise.resolve()
-      .then(() => getGradeCards(studentId, { courseId }))
+      .then(() => getGradeCards(studentId, assignmentId != null ? { courseId, assignmentId } : { courseId }))
       .then((r) => {
         if (!active) return;
         const fresh = r?.cards || NONE;
@@ -52,21 +53,21 @@ export function useGradeCards({ studentId = null, courseId = null, enabled = tru
         setLoaded((prev) => ({ ...(prev.key === key ? prev : { cards: NONE, course: null }), key, error: e?.message || 'Could not load the grade cards' }));
       });
     return () => { active = false; };
-  }, [live, key, studentId, courseId, reloadKey]);
+  }, [live, key, studentId, courseId, assignmentId, reloadKey]);
 
-  const refetchOne = useCallback(async (assignmentId) => {
+  const refetchOne = useCallback(async (aid) => {
     const askedKey = key;
     const mine = ++seq.current;
-    const r = await getGradeCards(studentId, { courseId, assignmentId });
-    const card = r?.cards?.[assignmentId] ?? null;
-    const stale = keyRef.current !== askedKey || lastFullSeq.current > mine || (settled.current[assignmentId]?.seq || 0) > mine;
+    const r = await getGradeCards(studentId, { courseId, assignmentId: aid });
+    const card = r?.cards?.[aid] ?? null;
+    const stale = keyRef.current !== askedKey || lastFullSeq.current > mine || (settled.current[aid]?.seq || 0) > mine;
     if (!stale) {
-      if (card) settled.current[assignmentId] = { seq: mine, card };
+      if (card) settled.current[aid] = { seq: mine, card };
       setLoaded((prev) => (prev.key !== askedKey ? prev : {
         ...prev,
         error: null,
         course: r?.course || prev.course,
-        cards: card ? { ...prev.cards, [assignmentId]: card } : prev.cards,
+        cards: card ? { ...prev.cards, [aid]: card } : prev.cards,
       }));
     }
     return card;

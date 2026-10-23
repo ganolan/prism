@@ -48,6 +48,19 @@ describe('useGradeCards', () => {
     expect(result.current.course.archived).toBe(true);
   });
 
+  it('with assignmentId loads that one card, not the course\'s (the gradebook pop-up)', async () => {
+    getGradeCards.mockResolvedValueOnce({ course: COURSE, cards: { a2: card('a2') } });
+    const { result, rerender } = renderHook(({ aid }) => useGradeCards({ studentId: 5, courseId: 7, assignmentId: aid }), { initialProps: { aid: 'a2' } });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(getGradeCards).toHaveBeenCalledWith(5, { courseId: 7, assignmentId: 'a2' });
+    expect(result.current.cards).toEqual({ a2: card('a2') });
+    // Another task is another key: its cards never show the previous task's.
+    getGradeCards.mockReturnValueOnce(new Promise(() => {}));
+    rerender({ aid: 'a1' });
+    expect(result.current).toMatchObject({ cards: {}, loading: true });
+    await waitFor(() => expect(getGradeCards).toHaveBeenLastCalledWith(5, { courseId: 7, assignmentId: 'a1' }));
+  });
+
   it('reloadKey refetches without blanking the cards', async () => {
     getGradeCards.mockResolvedValueOnce(ALL);
     const { result, rerender } = renderHook(({ k }) => useGradeCards({ studentId: 5, courseId: 7, enabled: true, reloadKey: k }), { initialProps: { k: 0 } });

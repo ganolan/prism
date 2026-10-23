@@ -44,9 +44,3 @@ export function feedbackDescriptorRows(topics, attachment) {
   );
   return rows.some((r) => r.criterion) ? rows : null;
 }
-
-// Whether the read-only view shows a descriptor grid (topics with an attached,
-// mapped rubric, or a task's feedback rows): the gradebook modal widens for it.
-export function showsDescriptors(topics, attachment) {
-  return topics?.length ? !!feedbackDescriptorRows(topics, attachment) : !!feedbackRowView(attachment);
-}

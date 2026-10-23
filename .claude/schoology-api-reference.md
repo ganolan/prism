@@ -884,6 +884,14 @@ Full scale level names: Insufficient Evidence (IE), Emerging (EM), Developing (D
 
   Prism: `config.yaml` `grading.scoreScales`, `server/lib/scoreScales.js`, and the `points` option on `/api/mastery/:courseId/write-comment` and `send-all`.
 
+### Points on a points-only task (#181, verified 2026-10-23)
+
+- **Test task:** `AIML: Prism Points Check (F)` (`8621686963`, AI & ML section `8458134359`), created unpublished through the public API with `grading_scale: 0`, `max_points: 100`. A fresh read gave `grading_scale: "0"`, so the API sets the Numeric scale on an assignment (the schoology plugin's tool had marked this unproven). Deleted after the check.
+- **Write:** the same bulk `PUT /sections/{id}/grades` with `grade: "42.5"`, `comment: ""`, `comment_status: 1`, `exception: 0` (echoed), sent by the grade card's points box on prod `e111b9e` for one student (Graham approved).
+- **Read back** (`GET /sections/{id}/grades?assignment_id=`): `grade: 42.5` (a number, decimals kept), `exception: 0`, `max_points: 100`, `comment: ""`, **`comment_status: null`**, `scale_id: 1`, `scale_type: 0`, `assignment_type: "basic"`. With an empty comment Schoology keeps `comment_status` null although 1 was sent (as in the scale-grade re-save above); Prism's mirror stored 1 until the next sync.
+- **Delete through the web form over plain HTTP:** `GET /assignment/delete/{id}` with the saved session answers 200 with form `s-grade-item-delete-form` (`form_build_id`, `form_token`, `form_id`, submit `op=Delete`, action `/assignment/delete/{id}`); posting those fields answered 302, and the task left `GET /sections/{id}/assignments` (the plugin's `list`). Prism's next course sync set the task's `removed_at`.
+- Prism: `server/services/gradePoints.js` (`gradePointsCheck`, `readBackPoints`), `server/lib/pointsTask.js`.
+
 ### Grade exceptions (flags) (#40, verified 2026-10-21)
 
 Write probes on two archived Robotics 1(A-B) 2024-25 tasks (section `7361044264`), each write approved by the teacher, then read back three ways: the public record (`GET /sections/{id}/grades?assignment_id=`), the mastery observations (`district_mastery/api/observations/search`), and the gradebook cell (`GET /iapi/grades/grader_grade_data/{section}/all?uids=&grade_item_nids=`). Targets: an empty record (`2. Lesson 0 - Soldering (F)` `7538989885`, enrollment `3174504287`) and a graded aligned record (`Robotics 1. Lesson 8 - Digital and Analog Input (F)(ATL)` `7406703830`, enrollment `3174504286`: `grade 90`, a visible comment, 3 observations at 100). Both were restored; only `timestamp` differs from before. Script: `scripts/probe-grade-exceptions.js` (read-only unless `CONFIRM=<op>:<assignmentId>:<enrollmentId>`).

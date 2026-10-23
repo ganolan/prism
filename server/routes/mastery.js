@@ -19,7 +19,7 @@ import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 import { getLtiSubmissionApp, getSubmittedDocuments } from '../services/ltiSubmissionApps.js';
 import { driveLinksForSubmitted, GOOGLE_DRIVE, ONEDRIVE, OTHER_APP } from '../lib/ltiSubmissionApp.js';
 import { sessionStatus } from '../services/schoologySession.js';
-import { buildAssessmentView } from '../services/assessmentView.js';
+import { buildAssessmentView, courseSyncedAt } from '../services/assessmentView.js';
 
 const router = Router();
 
@@ -48,9 +48,6 @@ router.get('/login-status', async (req, res) => {
   const check = req.query.check !== '0';
   res.json(await sessionStatus({ refresh, check, hasSession: hasMasterySession }));
 });
-
-// When this course's / assignment's mastery was last read from Schoology (#52).
-const courseSyncedAt = (db, courseId) => db.prepare('SELECT mastery_synced_at FROM courses WHERE id = ?').get(Number(courseId))?.mastery_synced_at ?? null;
 
 // POST /api/mastery/sync/:courseId — read the course's mastery from Schoology now (masteryRefresh,
 // force). No page button since #58: the course page's Sync Course runs a full sync (POST /api/sync). A read already running for the course is shared, not refused.
@@ -379,6 +376,27 @@ function dropOmittedLevels(db, studentUid, assignmentId, gradeInfo) {
   `).run(studentUid, String(assignmentId), ...kept);
 }
 
+// Mirror a confirmed /observations write into one pair's local mastery_scores: upsert the written
+// levels, then drop the omitted ones, in ONE transaction so a throw leaves the old mirror, never
+// half of the new one. Only this student's rows for this assignment are touched.
+function mirrorPairLevels(db, studentUid, assignmentId, gradeInfo, now) {
+  const upsert = db.prepare(`
+    INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET
+      points = excluded.points,
+      grade = excluded.grade,
+      synced_at = excluded.synced_at
+  `);
+  db.transaction(() => {
+    for (const [topicId, info] of Object.entries(gradeInfo)) {
+      const points = Number(info.grade);
+      upsert.run(studentUid, String(assignmentId), topicId, points, pointsToLevel(points), now);
+    }
+    dropOmittedLevels(db, studentUid, assignmentId, gradeInfo);
+  })();
+}
+
 // POST /api/mastery/:courseId/write — write scores back to Schoology for one student+assignment
 router.post('/:courseId/write', async (req, res) => {
   const { courseId } = req.params;
@@ -419,23 +437,7 @@ router.post('/:courseId/write', async (req, res) => {
       console.error('[mastery write] pre-save lookup failed:', err.message);   // Schoology already accepted the write
     }
     if (studentRow && preAssignment) captureBeforeSave(db, studentRow.id, preAssignment.id, 'mastery write');
-    if (studentRow) {
-      const upsert = db.prepare(`
-        INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET
-          points = excluded.points,
-          grade = excluded.grade,
-          synced_at = excluded.synced_at
-      `);
-      const now = new Date().toISOString();
-      for (const [topicId, info] of Object.entries(gradeInfo)) {
-        const points = Number(info.grade);
-        const letter = pointsToLevel(points);
-        upsert.run(studentRow.schoology_uid, String(assignmentId), topicId, points, letter, now);
-      }
-      dropOmittedLevels(db, studentRow.schoology_uid, assignmentId, gradeInfo);
-    }
+    if (studentRow) mirrorPairLevels(db, studentRow.schoology_uid, assignmentId, gradeInfo, new Date().toISOString());
     // Best-effort: snapshot the pair's new visible feedback (a Prism save) so a rubric
     // regrade of an arrived resubmission is seen at once (Amendment B), then settle.
     const localAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
@@ -1204,12 +1206,6 @@ router.post('/:courseId/send-all', async (req, res) => {
       touched.get(assignmentId).add(studentId);
       pairByUid.set(uid, { studentId, assignmentId });
     };
-    const upsertScore = db.prepare(`
-      INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade, synced_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(student_uid, assignment_schoology_id, topic_id) DO UPDATE SET
-        points = excluded.points, grade = excluded.grade, synced_at = excluded.synced_at
-    `);
     const upsertGrade = db.prepare(`
       INSERT INTO grades (student_id, assignment_id, enrolment_id, score, exception, submitted_at, grade_comment, comment_status, synced_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1265,11 +1261,7 @@ router.post('/:courseId/send-all', async (req, res) => {
         const settledAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
         if (settledAssignment) mirrorSettled.run(fresh.grade ?? null, gradeTimeAfterWrite(fresh), studentRow.id, settledAssignment.id);
       }
-      for (const [topicId, info] of Object.entries(e.scores.gradeInfo)) {
-        const points = Number(info.grade);
-        upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, pointsToLevel(points), now);
-      }
-      dropOmittedLevels(db, studentRow.schoology_uid, e.assignmentId, e.scores.gradeInfo);
+      mirrorPairLevels(db, studentRow.schoology_uid, e.assignmentId, e.scores.gradeInfo, now);
       const scoredAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
       if (scoredAssignment) touch(scoredAssignment.id, studentRow.id, e.uid);
     }

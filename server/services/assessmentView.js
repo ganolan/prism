@@ -23,7 +23,7 @@ import { isLinkedSet } from './courseSections.js';
 import { getTriage } from './triage.js';
 
 // When this course's / assignment's mastery was last read from Schoology (#52).
-const courseSyncedAt = (db, courseId) => db.prepare('SELECT mastery_synced_at FROM courses WHERE id = ?').get(Number(courseId))?.mastery_synced_at ?? null;
+export const courseSyncedAt = (db, courseId) => db.prepare('SELECT mastery_synced_at FROM courses WHERE id = ?').get(Number(courseId))?.mastery_synced_at ?? null;
 
 // Prism may write this course's grades to Schoology only when it is current, not excluded, and not
 // a set of linked sections (#178). The card is read-only otherwise.

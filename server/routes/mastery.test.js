@@ -2553,6 +2553,30 @@ describe('a removed level leaves Prism\'s copy when Schoology\'s does (#176)', (
     expect(levels('uid-other')).toEqual({ 't-drop': 50 });
   });
 
+  test('POST /write: the same student\'s levels on another assignment survive the delete', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-other', 'Other')`).run(courseId);
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('uid-rm', 'sa-other', 't-drop', 25, 'EM')`).run();
+    expect((await post(`/api/mastery/${courseId}/write`, { enrollmentId: 'enr-rm', assignmentId: 'sa-rm', gradeInfo: { 't-keep': info(100) } })).status).toBe(200);
+    expect(levels()).toEqual({ 't-keep': 100 });
+    const other = db.prepare(`SELECT topic_id, points FROM mastery_scores WHERE student_uid = 'uid-rm' AND assignment_schoology_id = 'sa-other'`).all();
+    expect(other).toEqual([{ topic_id: 't-drop', points: 25 }]);
+  });
+
+  test('POST /write: a throw while mirroring leaves the old rows, not half a mirror', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // The second entry has no grade to read, so the mirror throws after the first upsert ran.
+      const { status } = await post(`/api/mastery/${courseId}/write`, {
+        enrollmentId: 'enr-rm', assignmentId: 'sa-rm', gradeInfo: { 't-keep': info(100), 't-x': null },
+      });
+      expect(status).toBe(500);
+      expect(levels()).toEqual({ 't-keep': 75, 't-drop': 75 });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test('POST /write: a Schoology failure leaves the local rows alone', async () => {
     writeMasteryScores.mockRejectedValue(new Error('down'));
     const { status } = await post(`/api/mastery/${courseId}/write`, { enrollmentId: 'enr-rm', assignmentId: 'sa-rm', gradeInfo: { 't-keep': info(100) } });

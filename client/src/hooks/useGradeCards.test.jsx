@@ -100,7 +100,7 @@ describe('useGradeCards', () => {
     const render = (initial = {}) => renderHook((p) => useGradeCards({ studentId: 5, courseId: 7, enabled: true, ...p }), { initialProps: initial });
     const oneCard = (aid, extra) => ({ course: COURSE, cards: { [aid]: card(aid, extra) } });
 
-    it('a late refetchOne is dropped after a reloadKey full load has been issued, but still resolves its card', async () => {
+    it('a late refetchOne is dropped once a full load issued after it has landed, but still resolves its card', async () => {
       getGradeCards.mockResolvedValueOnce(ALL);
       const { result, rerender } = render({ reloadKey: 0 });
       await waitFor(() => expect(result.current.loading).toBe(false));
@@ -117,6 +117,29 @@ describe('useGradeCards', () => {
       await act(async () => { await returned; });
       expect(result.current.cards).toEqual(reloaded.cards);
       expect((await returned).draft).toEqual({ v: 'old' });
+    });
+
+    it('a refetchOne goes in while a full load issued after it is still in flight; that load replaces it on landing', async () => {
+      getGradeCards.mockResolvedValueOnce(ALL);
+      const { result, rerender } = render({ reloadKey: 0 });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      const single = deferred();
+      getGradeCards.mockReturnValueOnce(single.promise);
+      let returned;
+      await act(async () => { returned = result.current.refetchOne('a2'); await tick(); });
+      const full = deferred();
+      getGradeCards.mockReturnValueOnce(full.promise);
+      rerender({ reloadKey: 1 });
+      await act(tick); // the reload has asked by now
+      expect(getGradeCards).toHaveBeenCalledTimes(3);
+      single.resolve(oneCard('a2', { draft: { v: 'newer' } }));
+      await act(async () => { await returned; });
+      // Edit builds the editor from cards[a2] now: it must be this answer, not the card from before.
+      expect(result.current.cards.a2.draft).toEqual({ v: 'newer' });
+      const reloaded = { course: COURSE, cards: { a1: card('a1'), a2: card('a2', { draft: { v: 'reloaded' } }) } };
+      full.resolve(reloaded);
+      await act(tick);
+      expect(result.current.cards).toEqual(reloaded.cards);
     });
 
     it('a late refetchOne is dropped after the course changes', async () => {

@@ -5,9 +5,11 @@
 // load after the page renders.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within, waitFor, fireEvent } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 
-vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: () => null }));
+// Each course's mastery summary, recorded (its reloadKey says when it reloads).
+const summary = vi.hoisted(() => vi.fn(() => null));
+vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: (props) => summary(props) }));
 // Edit mode's draft saver: tests assert wiring, not I/O.
 vi.mock('../lib/assessmentDraftSaver.js', () => ({
   makeDraftSaver: vi.fn(() => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), settle: vi.fn(async () => {}), dispose: vi.fn() })),
@@ -17,7 +19,6 @@ vi.mock('../services/api.js', async (orig) => ({
   getStudent: vi.fn(),
   getGradeCards: vi.fn(),
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
-  getRubricsForAssignments: vi.fn().mockResolvedValue({ attachments: {} }),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
   getStudentWorkLinks: vi.fn(),
   getStudentCommentSummaries: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock('../services/api.js', async (orig) => ({
 import StudentPage, { CourseSection } from './StudentPage.jsx';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import {
-  getStudent, getGradeCards, getRubricsForAssignments, getStudentWorkLinks, getStudentCommentSummaries,
+  getStudent, getGradeCards, getStudentWorkLinks, getStudentCommentSummaries,
   getStudentFileSummaries, getFeedbackForAssignment, writeMasteryComment,
 } from '../services/api.js';
 
@@ -446,7 +447,6 @@ describe('StudentPage', () => {
     await waitFor(() => expect(getGradeCards).toHaveBeenCalledTimes(2));
     expect(getGradeCards).toHaveBeenCalledWith(7, { courseId: 1 });
     expect(getGradeCards).toHaveBeenCalledWith(7, { courseId: 2 });
-    expect(getRubricsForAssignments).not.toHaveBeenCalled();
   });
 
   it('renders first, then fills in OneDrive links a few assignments at a time, and reads this student\'s comments', async () => {
@@ -513,5 +513,100 @@ describe('StudentPage', () => {
     await waitFor(() => expect(getStudent).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(getGradeCards).toHaveBeenCalledWith(7, { courseId: 1 }));
     expect(screen.getAllByRole('button', { name: 'Edit' }).length).toBe(6);
+  });
+
+  // The latest reloadKey each course's mastery summary was drawn with.
+  const summaryKey = (courseId) => summary.mock.calls.filter(([p]) => p.courseId === courseId).at(-1)?.[0].reloadKey;
+
+  it('Done reloads the student and only the edited course\'s summary and cards', async () => {
+    renderPage();
+    await screen.findByText('Clear and usable.');
+    await waitFor(() => expect(getGradeCards).toHaveBeenCalledTimes(2));
+    const before = { 1: summaryKey(1), 2: summaryKey(2) };
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(getStudent).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getGradeCards).toHaveBeenLastCalledWith(7, { courseId: 1 }));
+    await waitFor(() => expect(summaryKey(1)).toBeGreaterThan(before[1]));
+    expect(getGradeCards.mock.calls.filter(([, o]) => o.courseId === 2 && o.assignmentId == null)).toHaveLength(1);
+    expect(summaryKey(2)).toBe(before[2]);
+  });
+
+  it('two tasks can be open for editing at once', async () => {
+    renderPage();
+    await screen.findByText('Clear and usable.');
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(6));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    await screen.findByRole('button', { name: 'Done' });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Done' })).toHaveLength(2));
+    expect(screen.getAllByRole('textbox')).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(4);
+  });
+
+  it('Edit pressed again while Done\'s reload is in flight starts from the newer draft', async () => {
+    const draftOf = (c, comment) => ({
+      ...c, hasDraft: true,
+      draft: { base: draftBaseline(c.student, c.topics, { includeScore: false }), pending: {}, comment, display: true, displayTouched: false },
+    });
+    let serverComment = 'First draft.';
+    const held = [];
+    const hold = () => new Promise((resolve) => held.push(resolve));
+    let holdReads = false;
+    getGradeCards.mockImplementation(async (id, { courseId, assignmentId } = {}) => {
+      const answer = () => ({
+        course: { id: courseId, archived: 0, excluded: 0, writable: true },
+        cards: Object.fromEntries(Object.entries(cardsFor(courseId, assignmentId ?? null))
+          .map(([aid, c]) => [aid, aid === 'sa-10' && assignmentId ? draftOf(c, serverComment) : c])),
+      });
+      if (!holdReads) return answer();
+      await hold();
+      return answer();
+    });
+    renderPage();
+    await screen.findByText('Clear and usable.');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    expect(await screen.findByRole('textbox')).toHaveValue('First draft.');
+
+    // Done: the student is read again, then the course reloads; both are slow.
+    let releaseStudent;
+    getStudent.mockImplementationOnce(() => new Promise((r) => { releaseStudent = () => r(student); }));
+    holdReads = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument());
+    await waitFor(() => expect(getStudent).toHaveBeenCalledTimes(2));
+    // Meanwhile the draft changed on the server (saved on another device), and Edit is pressed again.
+    serverComment = 'Newer draft.';
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    await waitFor(() => expect(held).toHaveLength(1)); // Edit's own read of the task
+    releaseStudent();
+    await waitFor(() => expect(held).toHaveLength(2)); // the course reload, issued after Edit's read
+    held[0](); // Edit's read lands first; the reload is still in flight
+    expect(await screen.findByRole('textbox')).toHaveValue('Newer draft.');
+    held[1]();
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Newer draft.'));
+  });
+
+  it('another student\'s page opens with every task read-only, even with a task in edit mode here', async () => {
+    getStudent.mockImplementation(async (id) => (String(id) === '8'
+      ? { ...student, id: 8, first_name: 'Bea', schoology_uid: 'u8' } : student));
+    function GoToB() {
+      const navigate = useNavigate();
+      return <button onClick={() => navigate('/student/8')}>Go to Bea</button>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/student/7']}>
+        <GoToB />
+        <Routes><Route path="/student/:id" element={<StudentPage />} /></Routes>
+      </MemoryRouter>
+    );
+    await screen.findByText('Clear and usable.');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    expect(await screen.findByRole('textbox')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Bea' }));
+    await waitFor(() => expect(getGradeCards).toHaveBeenCalledWith(8, { courseId: 1 }));
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(6));
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Done' })).not.toBeInTheDocument();
   });
 });

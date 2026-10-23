@@ -68,8 +68,9 @@ const commentsWorthAChip = (g, summary) => !!summary || !!g.submission_type || N
 // The card is in meeting mode: the page may be on a shared screen, so no portrait and no AI
 // suggestion. `grades` (GET /api/students/:id) lists the tasks. `workLinks` ({ [aid]: OneDrive
 // link }), `commentSummaries` and `fileSummaries` ({ [aid]: summary }, null when the feature is off)
-// arrive after the page renders, this student's only. `onGradesChange` reloads the page (the student
-// and every course's summary and cards) after a flag write or when a card leaves edit mode.
+// arrive after the page renders, this student's only. After a flag write or when a card leaves edit
+// mode, `onGradesChange` reloads the page's student (GET /api/students/:id), then this course's
+// summary and cards reload; the other courses stay as they are.
 export function CourseSection({
   course, grades, studentUid, scales, attemptLinks = {}, rubricPalette = {},
   studentId = null, workLinks = {}, commentSummaries = null, onCommentSummary = () => {},
@@ -79,13 +80,20 @@ export function CourseSection({
 }) {
   const [expanded, setExpanded] = useState(true);
   // The page syncs its courses in the background and bumps `refreshKey` when a sync ends: the summary
-  // and the cards reload with it.
+  // and the cards reload with it. `ownReload` reloads this course only (a write on one of its tasks).
+  const [ownReload, setOwnReload] = useState(0);
+  const reloadKey = refreshKey + ownReload;
   const { cards, course: cardCourse, loading, error, refetchOne } = useGradeCards({
-    studentId, courseId: course.id, enabled: expanded, reloadKey: refreshKey,
+    studentId, courseId: course.id, enabled: expanded, reloadKey,
   });
   const writable = cardCourse?.writable === true;
+  // A failed read of the student throws (the Flags pill says the page could not refresh).
+  async function courseChanged() {
+    if (onGradesChange) await onGradesChange();
+    setOwnReload((v) => v + 1);
+  }
   // Edit and Done in place; several tasks may be open for editing at once (each card is independent).
-  const edit = useCardEditing({ cards, refetchOne, onChange: onGradesChange });
+  const edit = useCardEditing({ cards, refetchOne, onChange: courseChanged });
   // Collapsing leaves edit mode (the card's unmount sends its queued draft save): opened again, the
   // course shows its cards as read again, never an editor built from the cards held before.
   function toggleExpanded() {
@@ -126,7 +134,7 @@ export function CourseSection({
               courseId={course.id}
               studentUid={studentUid}
               courseName={course.course_name}
-              reloadKey={refreshKey}
+              reloadKey={reloadKey}
             />
           </div>
 
@@ -424,12 +432,11 @@ export default function StudentPage() {
   const liveCourseIds = (student?.courses ?? []).filter((c) => !c.archived).map((c) => c.id);
   const [syncVersion, setSyncVersion] = useState(0);
   // After a flag write on one of the tasks (#40), or when a task's card leaves edit mode (#176): the
-  // page, each course's summary and its grade cards reload. A failed read throws, so the Flags pill
-  // says the page could not refresh.
+  // student reloads here, and that task's course reloads its own summary and cards (CourseSection).
+  // A failed read throws, so the Flags pill says the page could not refresh.
   async function handleGradesChange() {
     const s = await getStudent(id);
     setStudent(s);
-    setSyncVersion((v) => v + 1);
   }
   const [followRun, setFollowRun] = useState(null);
   const bumpDataVersion = useBumpDataVersion();
@@ -725,9 +732,11 @@ export default function StudentPage() {
       {student.courses.map(course => {
         const grades = gradesByCourse[course.id] || [];
         if (grades.length === 0) return null;
+        // Keyed per student as well as per course: the route keeps this page mounted from /student/A
+        // to /student/B, and B's tasks must not open in A's edit mode.
         return (
           <CourseSection
-            key={course.id}
+            key={`${student.id}-${course.id}`}
             course={course}
             grades={grades}
             studentUid={student.schoology_uid}

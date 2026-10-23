@@ -22,22 +22,24 @@ export function useGradeCards({ studentId = null, courseId = null, assignmentId 
   // Request order. Every full load and every refetchOne takes the next number when it is issued.
   // A response may only change what a newer request has not already settled:
   //  - a full load keeps any card a refetchOne issued after it started has already put in;
-  //  - a refetchOne is dropped if a full load was issued after it (that load is at least as fresh)
-  //    or if a newer refetchOne for the same task has already landed.
+  //  - a refetchOne is dropped if a full load issued after it has already landed (that load is at
+  //    least as fresh) or if a newer refetchOne for the same task has already landed. A full load
+  //    issued after it but still in flight does not drop it: the card goes in now (Edit builds the
+  //    editor from it), and the full load replaces it when it lands.
   const seq = useRef(0);
-  const lastFullSeq = useRef(0);
+  const lastLandedFullSeq = useRef(0); // the newest full load whose answer has been put in
   const settled = useRef({}); // { [assignmentId]: { seq, card } } the newest refetchOne answer to land
 
   useEffect(() => {
     if (!live) return undefined;
     let active = true;
     const mine = ++seq.current;
-    lastFullSeq.current = mine;
     // Promise.resolve().then so a synchronous throw (or an automocked api) is a catch, not a crash.
     Promise.resolve()
       .then(() => getGradeCards(studentId, assignmentId != null ? { courseId, assignmentId } : { courseId }))
       .then((r) => {
         if (!active) return;
+        lastLandedFullSeq.current = Math.max(lastLandedFullSeq.current, mine);
         const fresh = r?.cards || NONE;
         setLoaded(() => {
           const cards = { ...fresh };
@@ -60,7 +62,7 @@ export function useGradeCards({ studentId = null, courseId = null, assignmentId 
     const mine = ++seq.current;
     const r = await getGradeCards(studentId, { courseId, assignmentId: aid });
     const card = r?.cards?.[aid] ?? null;
-    const stale = keyRef.current !== askedKey || lastFullSeq.current > mine || (settled.current[aid]?.seq || 0) > mine;
+    const stale = keyRef.current !== askedKey || lastLandedFullSeq.current > mine || (settled.current[aid]?.seq || 0) > mine;
     if (!stale) {
       if (card) settled.current[aid] = { seq: mine, card };
       setLoaded((prev) => (prev.key !== askedKey ? prev : {

@@ -44,6 +44,13 @@ export const discoverArchivedCourses = () => request('/courses/archived/discover
 // Students
 export const searchStudents = (q) => request(`/students${q ? `?q=${encodeURIComponent(q)}` : ''}`);
 export const getStudent = (id) => request(`/students/${id}`);
+// The assessment page's grade card for one student (#176): { course: { id, archived, excluded, writable },
+// cards: { [schoologyAssignmentId]: card } } for every task of the local course, or just assignmentId's.
+export const getGradeCards = (studentId, { courseId, assignmentId } = {}) => {
+  const q = new URLSearchParams({ courseId });
+  if (assignmentId) q.set('assignmentId', assignmentId);
+  return request(`/students/${studentId}/grade-cards?${q}`);
+};
 // The PowerSchool Student Support Summary, read on demand (#163): { rows: [{ category, description, url? }], readAt }.
 export const getSupportSummary = (id) => request(`/students/${id}/support-summary`);
 export const updateStudent = (id, preferred_name_teacher) => request(`/students/${id}`, {

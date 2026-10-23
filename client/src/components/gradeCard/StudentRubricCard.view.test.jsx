@@ -142,6 +142,20 @@ describe('StudentRubricCard: a points-only task', () => {
     expect(screen.getAllByRole('img', { name: 'Exempt' }).length).toBeGreaterThan(0);
   });
 
+  it('a Missing task shows the Score line with the flag symbol and no Missing IE line', () => {
+    renderCard({
+      topics: [], assignmentRow: { id: 50, max_points: 100 },
+      student: studentWith({ score: null, exception: 3 }),
+    });
+    expect(screen.getByText('Score:')).toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: 'Missing' }).length).toBeGreaterThan(0);
+    expect(screen.queryByText(NO_LEVEL_LINE)).not.toBeInTheDocument();
+    expect(screen.queryByText(ROW_NO_LEVEL_LINE)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Shown as IE/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Marked Missing/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
   it('an aligned task shows no Score line', () => {
     renderCard({ student: studentWith({ score: 50 }) });
     expect(screen.queryByText('Score:')).not.toBeInTheDocument();
@@ -369,6 +383,63 @@ describe('StudentRubricCard: Add update on the comment', () => {
     expect(lines[0]).toBe(line);
     expect(lines[2]).toMatch(/^Update \(\d\d\/\d\d\/\d{4}\): $/);
     expect(lines[4]).toBe('Good work.');
+  });
+
+  // Prism's status line on top, whether stored (student.status_line) or inserted this session by
+  // the chip: the update line goes below it and the cursor lands right after "Update (DD/MM/YYYY): ".
+  const withDate = async (fn) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 23, 12, 0, 0)); // local time, so the day is stable in any zone
+    try { await fn(); } finally { vi.useRealTimers(); }
+  };
+  const pressAddUpdate = async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Add update' }));
+    await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+  };
+  const UPDATE = 'Update (23/10/2026): ';
+
+  it('below a stored status line: the update line follows it and the cursor sits after the colon', async () => {
+    await withDate(async () => {
+      const line = 'Resubmission received 20/10 - regraded.';
+      renderCard({ student: studentWith({ grade_comment: `${line}\n\nGood work.`, status_line: { line } }) });
+      await pressAddUpdate();
+      const box = commentBox();
+      expect(box.value).toBe(`${line}\n\n${UPDATE}\n\nGood work.`);
+      expect(document.activeElement).toBe(box);
+      expect(box.selectionStart).toBe(line.length + 2 + UPDATE.length);
+      expect(box.selectionEnd).toBe(box.selectionStart);
+    });
+  });
+
+  it('below the line the "resubmission received" chip inserted this session', async () => {
+    await withDate(async () => {
+      renderCard({ student: studentWith({
+        grade_comment: 'Good work.', resubmission: { state: 'arrived', request: null }, arrived_on: '2026-10-03',
+      }) });
+      fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));
+      const line = 'Resubmission received 03/10 - regraded.';
+      expect(commentBox().value).toBe(`${line}\n\nGood work.`);
+      await pressAddUpdate();
+      const box = commentBox();
+      expect(box.value).toBe(`${line}\n\n${UPDATE}\n\nGood work.`);
+      expect(box.selectionStart).toBe(line.length + 2 + UPDATE.length);
+      expect(box.selectionEnd).toBe(box.selectionStart);
+    });
+  });
+
+  it('a second press the same day adds no second line and moves the cursor to the end of the update line', async () => {
+    await withDate(async () => {
+      renderCard({ student: studentWith({ grade_comment: 'Good work.' }) });
+      await pressAddUpdate();
+      const box = commentBox();
+      fireEvent.change(box, { target: { value: `${UPDATE}Appeal heard.\n\nGood work.` } });
+      box.setSelectionRange(box.value.length, box.value.length); // cursor elsewhere, in the body
+      await pressAddUpdate();
+      expect(commentBox().value).toBe(`${UPDATE}Appeal heard.\n\nGood work.`);
+      expect(commentBox().value.match(/Update \(/g)).toHaveLength(1);
+      expect(commentBox().selectionStart).toBe(`${UPDATE}Appeal heard.`.length);
+      expect(commentBox().selectionEnd).toBe(`${UPDATE}Appeal heard.`.length);
+    });
   });
 
   it('no Add update with an empty comment', () => {

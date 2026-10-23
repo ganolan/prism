@@ -175,6 +175,14 @@ describe('CourseSection: every task is the grade card (#176)', () => {
     expect(row).toHaveTextContent('Due 06/10 15:00');
     expect(row).toHaveTextContent('Submitted 12/10 09:00 (3 school days late)');
     expect(screen.getAllByRole('img', { name: /school days after the due date/ })).toHaveLength(1);
+    // The timeline carries the due date, so the raw "Due: " text is not drawn as well.
+    expect(screen.queryByText(/Due: /)).not.toBeInTheDocument();
+  });
+
+  it('a task whose student has not resubmitted shows no Resubmitted pill', async () => {
+    renderSection([grade()], one());
+    await screen.findByText('Portfolio');
+    expect(screen.queryByText('Resubmitted')).not.toBeInTheDocument();
   });
 
   it('a resubmission that has arrived reads Resubmitted; an open request shows its chip', async () => {

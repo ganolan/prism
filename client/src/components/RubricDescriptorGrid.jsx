@@ -2,10 +2,12 @@ import AiSparkle from './AiSparkle.jsx';
 import { categoryColor } from '../lib/rubricColors.js';
 import { LEVEL_LABELS } from '../lib/masteryLevels.js';
 
-// Without `onSelect` the grid is read-only (the shared feedback view, #135): no
+// Without `onSelect` the grid is read-only (the grade card's view mode, #176): no
 // click, no pointer, no "Set ... to ..." hint; the awarded cell keeps its fill.
-// `awardedMark` (a node) sits at the end of every awarded cell: the read-only view puts the Missing
+// `awardedMark` (a node) sits at the end of every awarded cell: the read-only card puts the Missing
 // symbol there when it shows IE for work marked Missing (#40).
+// Column balance (#176): the topic column is 16% and the level headers carry no width, so the five
+// levels share the rest and no descriptor cell is far taller than the others.
 export default function RubricDescriptorGrid({
   rows, levels, cellState, onSelect, palette, levelHeaderColors, levelBorderColors, levelDraftColors,
   firstColumnLabel = 'Measurement Topic', awardedMark = null,
@@ -16,9 +18,9 @@ export default function RubricDescriptorGrid({
         <tr>
           <th style={{ padding: '0.3rem 0.6rem', textAlign: 'left', background: 'var(--bg-subtle)',
             border: '1px solid var(--border)', fontWeight: 600, fontSize: '0.75rem',
-            color: 'var(--text-muted)', minWidth: 180 }}>{firstColumnLabel}</th>
+            color: 'var(--text-muted)', width: '16%', minWidth: 140 }}>{firstColumnLabel}</th>
           {levels.map(l => (
-            <th key={l} style={{ padding: '0.3rem 0.5rem', textAlign: 'center', width: '15%',
+            <th key={l} style={{ padding: '0.3rem 0.5rem', textAlign: 'center',
               background: levelHeaderColors[l], color: '#1a1a1a', border: '1px solid var(--border)',
               fontWeight: 700, fontSize: '0.72rem' }}>{LEVEL_LABELS[l]}</th>
           ))}

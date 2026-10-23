@@ -78,6 +78,7 @@ npm run test:api   # Schoology API smoke test
 - **Theming:** All colors must use CSS custom properties from `client/src/app.css` — never hardcode hex values in components. Use `var(--accent)`, `var(--bg-subtle)`, `var(--card-bg)`, etc.
 - **Button classes:** Use `.primary`, `.secondary`, `.ghost` (with `.danger`, `.success`, `.accent` modifiers), `.tab-btn`, `.filter-btn` — avoid inline button styles.
 - **Alert/banner classes:** Use `.alert.alert-warning`, `.alert.alert-success`, etc. instead of inline colored divs.
+- **One grade card:** `client/src/components/gradeCard/StudentRubricCard.jsx` is the only component that draws a student's grade and comment on a task (#176). View mode is the student page and the gradebook pop-up (Edit switches to edit mode in place); edit mode is the assessment page. Change the card, not a copy of it.
 - **Page wrapper:** Add `className="fade-in"` to the top-level div of each page for entry animation.
 - **Sidebar width:** 240px (set in CSS), content margin-left matches.
 - **Phone layout:** below 768px the sidebar becomes a drawer behind a top-bar menu button (`App.jsx` `Shell`). Every phone rule lives in the single `PHONE LAYOUT` `@media (max-width: 768px)` block at the end of `client/src/app.css`, so desktop rendering can't change — keep it that way. Inline `style={{…}}` beats a media query, so prefer classes in anything that should adapt. `npm run check:mobile [baseUrl]` checks the shell at phone + desktop widths in a real browser against a running dev server (jsdom can't evaluate media queries).

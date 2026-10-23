@@ -1351,7 +1351,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
 
       {/* Rubric grid. A points-only task has no rubric to lock: its Score line (and a flag's
           symbol) stays fully visible. */}
-      <div style={{
+      <div className={`grade-card__rubric${showDescriptors ? ' grade-card__rubric--descriptors' : ''}`} style={{
         overflowX: 'auto', padding: '0.75rem 1rem 0',
         opacity: isRubricLocked && !pointsOnly ? 0.45 : 1,
         pointerEvents: isRubricLocked && !pointsOnly ? 'none' : 'auto',

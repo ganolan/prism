@@ -1,5 +1,5 @@
-// Work marked Missing shows IE on every topic or row, to inform talks with the student (#40). Shared by the
-// grade card and the read-only feedback view until that is retired.
+// Work marked Missing shows IE on every topic or row, to inform talks with the student (#40). Used by the
+// grade card's view mode (#176).
 const MISSING_NO_LEVELS = 'Shown as IE because the work is marked Missing. Schoology holds no topic levels for this task yet.';
 const MISSING_LEVELS = 'Marked Missing. These levels still count in the topic averages.';
 // Feedback-row levels live only in Prism (Schoology never sees them), so their lines say that.

@@ -267,6 +267,11 @@ router.get('/:id/work-links', async (req, res) => {
 // student's data is in it. rubric is the task's attached rubric ({ id, rubric, topicByCriterion }) or
 // null; draft this student's stored Prism draft or null; hasDraft is true only while that draft is
 // current (Schoology has not changed under it), as Triage's Unfinished grading counts it.
+// The task set includes a dropped enrolment's course (unlike GET /api/students/:id, which lists current
+// enrolments only), so the pop-up can open the card of a student who left. hasDraft is then false, and
+// false in an archived or excluded course too, because getUnfinishedGrading does not scope them in;
+// the stored draft is still returned. course.writable is false for those and for a linked-section set
+// (#178): the client shows no Edit there.
 router.get('/:id/grade-cards', (req, res) => {
   const db = getDb();
   const student = db.prepare('SELECT id, schoology_uid FROM students WHERE id = ?').get(req.params.id);

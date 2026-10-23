@@ -1234,7 +1234,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 // A flagged cell shows the flag's symbol in the grade's place, never the strip. A
                 // Exempt hides the rubric in the pop-up too; a marker (Late, Incomplete, Absent) is
                 // graded straight through, so its pop-up keeps the rubric, and Missing's pop-up shows
-                // IE on every topic when Schoology holds no levels (AssignmentFeedback, #40).
+                // IE on every topic when Schoology holds no levels (the grade card's view mode, #40).
                 const isRubricLocked = isFinalFlag(g.exception) && Number(g.exception) !== 3;
                 const rubricTopics = (a.aligned && !isRubricLocked)
                   ? buildAssignmentRubric(a.schoology_assignment_id, s.schoology_uid, indexed)

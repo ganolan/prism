@@ -1510,21 +1510,8 @@ img.file-viewer-media { background: transparent; }
 .file-viewer-frame { width: min(1000px, calc(100vw - 48px)); height: calc(100vh - 120px); border: 0; background: var(--card-bg); }
 .file-viewer-fail { padding: 40px 24px; color: var(--text-muted); font-size: 0.85rem; text-align: center; }
 
-/* Shared feedback view (AssignmentFeedback.jsx, #135): the gradebook modal and
-   each assignment on the student page. Sections stack with one gap; a links slot
-   whose links all render nothing collapses instead of leaving a blank row. */
-.assignment-feedback { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
-.assignment-feedback__badges { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
-.assignment-feedback__badges:empty { display: none; }
-.assignment-feedback__rubric { overflow-x: auto; }
-.assignment-feedback__label { font-weight: 700; margin-right: 5px; }
-.assignment-feedback__score { display: flex; align-items: center; gap: 0.1rem; font-size: 0.85rem; }
-.assignment-feedback__comment { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; white-space: pre-line; overflow-wrap: anywhere; }
-.assignment-feedback__notice { padding: 0.5rem 0.75rem; background: var(--bg-subtle); border: 1px dashed var(--border); border-radius: 6px; color: var(--text-muted); font-style: italic; }
-.assignment-feedback__notice strong { font-style: normal; color: var(--danger); }
-/* A marker flag (#40): its symbol and "Grading this work clears Late." above the rubric it keeps. */
+/* The mark at the end of an awarded cell: the Missing symbol on the IE cell of work marked Missing (#40). */
 .rubric-cell-mark { display: inline-flex; vertical-align: middle; margin-left: 0.35rem; }
-.assignment-feedback__marker { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); }
 
 /* Gradebook submission modal: 560px, widened to fit a five-level descriptor grid
    only while descriptors show; the overlay's padding caps it to the viewport. */
@@ -1614,8 +1601,6 @@ img.file-viewer-media { background: transparent; }
 .flag-panel__saved { margin: 0; max-width: 40rem; padding: 6px 8px; border-radius: 6px; font-size: 0.8rem; background: var(--badge-amber-bg); color: var(--badge-amber-text); }
 .flag-panel__check { display: flex; align-items: flex-start; gap: 8px; font-size: 0.82rem; }
 .flag-panel__check input { margin-top: 2px; }
-.assignment-feedback__panel { padding: 0.6rem 0.75rem; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 8px; }
-.assignment-feedback__panel:empty { display: none; }
 /* The card over a kept grade: the caption above a final flag's grayed rubric, and (no flag set)
    the offer to restore it. */
 .flag-saved-caption { padding: 0.6rem 1rem 0; font-size: 0.75rem; color: var(--text-muted); }
@@ -1836,12 +1821,12 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
   .submission-timeline__part::after { content: none !important; }
   .submission-timeline .help-dot { margin-left: 0; }
 
-  /* Shared feedback view: the gradebook modal is a bottom sheet the full width of
+  /* Grade card: the gradebook modal is a bottom sheet the full width of
      the screen, and a descriptor grid keeps readable columns and scrolls sideways
      inside its own box rather than squeezing each descriptor to a word per line. */
   .feedback-modal-overlay { align-items: flex-end; padding: 0; }
   .feedback-modal, .feedback-modal--wide { max-width: none; max-height: 92vh; border-radius: 12px 12px 0 0; }
-  .assignment-feedback__rubric--descriptors > table { min-width: 640px; }
+  .grade-card__rubric--descriptors > table { min-width: 640px; }
   /* Tag drawer (#139): the whole screen; Close is a full fingertip target. */
   .tag-drawer { padding: 1rem; }
   .tag-drawer__head .ghost { min-height: 44px; }

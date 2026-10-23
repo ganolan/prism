@@ -44,6 +44,15 @@ describe('RubricDescriptorGrid read-only (no onSelect, #135)', () => {
     expect(ex).not.toHaveAttribute('title');
   });
 });
+describe('RubricDescriptorGrid column balance (#176)', () => {
+  it('the topic column is 16% and level columns share the rest', () => {
+    const { container } = renderDraftGrid(() => ({}));
+    const [topic, ...levelHeads] = container.querySelectorAll('thead th');
+    expect(topic.style.width).toBe('16%');
+    expect(levelHeads).toHaveLength(2);
+    levelHeads.forEach((th) => expect(th.style.width).toBe(''));
+  });
+});
 // ─────────────────────────────────────────────────────────────────────────────
 
 const rows = [{

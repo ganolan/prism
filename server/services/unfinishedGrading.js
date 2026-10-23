@@ -53,7 +53,10 @@ function parseDraft(json) {
 }
 
 // → [{ courseId, courseName, blockNumber, assignmentId, schoologyAssignmentId, title, aligned,
-//      drafts, feedbackHidden, unreadComments, oldestDraftOn, students: [{ studentId, studentName, reasons }] }]
+//      taskUnpublished, drafts, feedbackHidden, unreadComments, oldestDraftOn,
+//      students: [{ studentId, studentName, reasons }] }]
+// Drafts and unread comments are read on published tasks; feedback hidden also covers every graded
+// student on an unpublished task (#184).
 // Tasks with a draft come first (oldest draft first), then the most unfinished grading.
 export function getUnfinishedGrading(db, { courseId = null, studentId = null } = {}) {
   const out = [];
@@ -70,6 +73,15 @@ export function getUnfinishedGrading(db, { courseId = null, studentId = null } =
       WHERE ${inCourse} AND (g.comment_status IS NULL OR g.comment_status != 1)
         AND COALESCE(g.exception, 0) != 1 AND COALESCE(g.grade_comment, '') != ''
     `).all(c.id).filter((g) => teacherText(g.grade_comment, g.stored_line || null).length > 0);
+    // An unpublished task hides everything on it (#184): every student with a score or a teacher
+    // comment counts, whatever Display holds. Exempt stays out, as above.
+    const hiddenByTask = db.prepare(`
+      SELECT g.assignment_id, g.student_id, g.score, g.grade_comment, sl.line AS stored_line
+      FROM grades g JOIN assignments a ON a.id = g.assignment_id
+      LEFT JOIN status_lines sl ON sl.student_id = g.student_id AND sl.assignment_id = g.assignment_id
+      WHERE a.course_id = ? AND a.published = 0 AND a.removed_at IS NULL AND COALESCE(g.exception, 0) != 1
+        AND (g.score IS NOT NULL OR COALESCE(g.grade_comment, '') != '')
+    `).all(c.id).filter((g) => g.score != null || teacherText(g.grade_comment, g.stored_line || null).length > 0);
 
     // Pairs with a student comment newer than the teacher last saw; readThread decides
     // whether it is real work (typed text or a file), not an automatic revision line.
@@ -86,7 +98,7 @@ export function getUnfinishedGrading(db, { courseId = null, studentId = null } =
       return byAssignment.get(aid);
     };
     for (const d of drafts) entry(d.assignment_id).drafts.push(d);
-    for (const h of hidden) entry(h.assignment_id).hidden.push(h);
+    for (const h of [...hidden, ...hiddenByTask]) entry(h.assignment_id).hidden.push(h);
     for (const u of unread) entry(u.assignment_id).unread.push(u);
 
     for (const [aid, found] of byAssignment) {
@@ -124,6 +136,7 @@ export function getUnfinishedGrading(db, { courseId = null, studentId = null } =
       out.push({
         courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null,
         assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, aligned: !!a.aligned,
+        taskUnpublished: !a.published,
         drafts: count('draft'), feedbackHidden: count('feedback_hidden'), unreadComments: count('unread_comment'),
         oldestDraftOn, students,
       });

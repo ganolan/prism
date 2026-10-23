@@ -132,6 +132,27 @@ describe('getUnfinishedGrading: feedback hidden and several reasons', () => {
     expect(row.students.map((s) => s.studentName)).toEqual(['Ana X', 'Fay X']);
   });
 
+  test('an unpublished task: every graded student counts as feedback hidden, whatever Display holds (#184)', () => {
+    const ids = ['Ana', 'Ben', 'Cal', 'Dee', 'Eve'].map((name, i) => student(`u${i}`, name));
+    const a = assignment('Paper Test', { summative: false });
+    db.prepare('UPDATE assignments SET published = 0 WHERE id = ?').run(a.id);
+    grade(ids[0], a.id, { score: 42 }); // a score, no comment
+    grade(ids[1], a.id, { score: 30, grade_comment: 'Good.', comment_status: 1 }); // Display on: the task still hides it
+    grade(ids[2], a.id, { score: null, grade_comment: '' }); // nothing graded
+    grade(ids[3], a.id, { score: null, exception: 1 }); // Exempt
+    grade(ids[4], a.id, { score: null, grade_comment: 'Started well.', comment_status: null }); // a comment alone
+    const [row] = getUnfinishedGrading(db);
+    expect(row).toMatchObject({ title: 'Paper Test', feedbackHidden: 3, taskUnpublished: true });
+    expect(row.students.map((s) => s.studentName)).toEqual(['Ana X', 'Ben X', 'Eve X']);
+  });
+
+  test('a published task is not marked unpublished', () => {
+    const ana = student('u0', 'Ana');
+    const a = assignment('Brick Breaker');
+    grade(ana, a.id, { grade_comment: 'Nice work.', comment_status: null });
+    expect(getUnfinishedGrading(db)[0]).toMatchObject({ feedbackHidden: 1, taskUnpublished: false });
+  });
+
   test('the reasons are draft, feedback_hidden and unread_comment (Flag for review is gone, #40)', () => {
     expect(UNFINISHED_GRADING_REASONS).toEqual(['draft', 'feedback_hidden', 'unread_comment']);
   });

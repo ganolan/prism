@@ -1815,3 +1815,10 @@ Commits `c481c5b` and `610a40e` (server) and `76f679e` (client), then the docs (
 - **Finding:** Schoology stores `comment_status` null on every record with an empty comment, whatever was sent (8807 of 8807 synced records on prod; two read-backs). Prism's `write-comment` and `send-all` mirrors stored the value they sent, so the card showed Display on until the next sync, and a card the class switch had turned on kept a pending change that could never publish.
 - **Fix:** `server/lib/commentStatus.js` `storedCommentStatus` in both mirrors and in `statusLinePublisher.js` (which already had the rule inline); `client/src/lib/cardPatches.js` `shownCommentStatus` in every card patch, and `flagClearedPatch` sets Display off when removing a flag's line empties the comment. The card's `settleDisplay` turns the switch off after a publish with no comment. What Prism sends is unchanged.
 - **Tests:** the #183 cases in `server/routes/mastery.test.js` and `StudentRubricCard.view.test.jsx`; `client/src/lib/cardPatches.test.js` (new, with parity against the server helper).
+
+## Feedback hidden on unpublished tasks (#184, 2026-10-24)
+
+- **Why:** Graham, 24 Oct 2026: a graded task that is not published hides its feedback as surely as Display off does. Triage's Unfinished grading read only published tasks.
+- **Rule:** on an unpublished task, every student with a score, levels or a teacher comment counts as `feedback_hidden`, whatever Display holds; Exempt stays out. `server/services/unfinishedGrading.js` (rows carry `taskUnpublished`), the card reason in `client/src/lib/assessmentFilters.js` `studentReasons`, the panel text "(task not published)", and the `get_triage` description in `mcp/server.js`.
+- **Grade publishing (Schoology's Publish grades):** probed read-only (see the API reference under `auto_publish_grades`): every one of Graham's 928 tasks has `auto_publish_grades: 1`, so nothing is hidden that way today. Not counted, because the field is not proven to be the state.
+- **Tests:** `unfinishedGrading.test.js`, `assessmentFilters.test.js`, `UnfinishedGradingPanel.test.jsx` (new).

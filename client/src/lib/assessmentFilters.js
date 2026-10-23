@@ -217,7 +217,11 @@ export function studentReasons(student, ctx) {
     if (ctx.hasDraft?.(student)) out.push({ id: 'draft' });
     else if (grading === 'ungraded' && handedIn) out.push({ id: 'to_grade' });
     else if (grading === 'partial') out.push({ id: 'partly_graded' });
-    if (hasTeacherComment(student) && student.comment_status !== 1) out.push({ id: 'feedback_hidden' });
+    // Hidden: a comment with Display off, or anything graded on an unpublished task, which the
+    // student cannot open at all (#184, as Triage's Unfinished grading counts it).
+    const taskHidden = Number(ctx.assignment?.published) === 0
+      && (student.score != null || grading !== 'ungraded' || hasTeacherComment(student));
+    if (taskHidden || (hasTeacherComment(student) && student.comment_status !== 1)) out.push({ id: 'feedback_hidden' });
     if (student.resubmission?.state === 'arrived' || student.resubmitted) out.push({ id: 'resubmitted' });
   }
   const unread = ctx.commentSummaryOf?.(student)?.unread || 0;

@@ -173,6 +173,14 @@ describe('studentReasons (Needs action + Watch)', () => {
       .toEqual(['resubmitted']);
     expect(ids(stu({ review_flag: { id: 1 } }))).not.toContain('flagged'); // Flag for review is gone (#40)
   });
+  it('an unpublished task hides every grade and comment on it (#184)', () => {
+    const hiddenTask = { ...ctx, assignment: { ...LTI, published: 0 } };
+    expect(ids(stu({ score: 42 }), hiddenTask)).toContain('feedback_hidden'); // a score, no comment
+    expect(ids(stu({ scores: { t1: { grade: 'EX' } } }), hiddenTask)).toContain('feedback_hidden'); // levels
+    expect(ids(stu({ grade_comment: 'Good', comment_status: 1 }), hiddenTask)).toContain('feedback_hidden'); // Display on
+    expect(ids(stu({}), hiddenTask)).not.toContain('feedback_hidden'); // nothing graded
+    expect(ids(stu({ score: 42 }))).not.toContain('feedback_hidden'); // published: a score alone is seen
+  });
   it('exempt: no grading reasons', () => {
     expect(ids(stu({ exception: 1, attention: { handedIn: true, reasons: [] } }))).toEqual([]);
   });

@@ -5,7 +5,8 @@ import { assessmentLink } from '../../lib/triage.js';
 import { formatDate } from '../../lib/formatDate.js';
 
 // Unfinished grading: grading work with no clock, per task (server/services/unfinishedGrading.js):
-// Prism drafts not yet published, feedback the student cannot see, unread student comments. No ring:
+// Prism drafts not yet published, feedback the student cannot see (a comment with Display off, or
+// anything graded on an unpublished task, #184), unread student comments. No ring:
 // nothing here is late, it is only unfinished. Tasks with a draft come first (oldest
 // first). A title opens the task's page with those reasons selected. Hidden when empty.
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -13,7 +14,7 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 export function unfinishedGradingText(r) {
   return [
     r.drafts > 0 && plural(r.drafts, 'draft not published', 'drafts not published'),
-    r.feedbackHidden > 0 && `${r.feedbackHidden} with feedback hidden`,
+    r.feedbackHidden > 0 && `${r.feedbackHidden} with feedback hidden${r.taskUnpublished ? ' (task not published)' : ''}`,
     r.unreadComments > 0 && plural(r.unreadComments, 'unread comment', 'unread comments'),
   ].filter(Boolean).join(', ');
 }

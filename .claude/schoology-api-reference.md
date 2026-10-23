@@ -975,6 +975,7 @@ Per-topic points in the UI: ED=100, EX=75, D=50(?), EM=25(?), IE=0 — averaged 
 - `count_in_grade` — whether assignment affects final grade
 - `show_rubric` — boolean, typically false
 - `auto_publish_grades` — whether grades auto-publish
+  - **Probed 24 Oct 2026 (#184, read-only):** all 194 current and 734 archived tasks in Graham's sections hold `auto_publish_grades: 1`. A task's info page (`/assignment/{id}/info`) carries both `span.grades-published-tag` ("Grades published") and `span.grades-unpublished-tag` (the one not in force has `style="display: none;"`), and its action menu offers `li.action-unpublish-grades` (or, by its name, `action-publish-grades`). On the tasks read, `auto_publish_grades: 1` went with "Grades published" and Unpublish grades. **Not proven** that the field is that state: no task with 0 exists to compare, and making one is a write (Unpublish grades on a test task). For a test (`type: assessment`) the info page answered 403; its page strings include "Publish Grades" / "Grades unpublished".
 
 ### Grading Categories by Course
 

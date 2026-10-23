@@ -9,7 +9,7 @@ const COURSE = { id: 7, archived: false, excluded: false, writable: true };
 const card = (aid, extra = {}) => ({ assignment: { id: aid }, topics: [], rubric: null, draft: null, hasDraft: false, ...extra });
 const ALL = { course: COURSE, cards: { a1: card('a1'), a2: card('a2') } };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => { vi.clearAllMocks(); getGradeCards.mockReset(); });
 
 describe('useGradeCards', () => {
   it('loads a course\'s cards when enabled', async () => {
@@ -79,5 +79,131 @@ describe('useGradeCards', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.error).toBe('Student not found');
     expect(result.current.cards).toEqual({});
+  });
+
+  describe('overlapping requests', () => {
+    const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
+    const tick = () => new Promise((r) => setTimeout(r, 0));
+    const render = (initial = {}) => renderHook((p) => useGradeCards({ studentId: 5, courseId: 7, enabled: true, ...p }), { initialProps: initial });
+    const oneCard = (aid, extra) => ({ course: COURSE, cards: { [aid]: card(aid, extra) } });
+
+    it('a late refetchOne is dropped after a reloadKey full load has been issued, but still resolves its card', async () => {
+      getGradeCards.mockResolvedValueOnce(ALL);
+      const { result, rerender } = render({ reloadKey: 0 });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      const single = deferred();
+      getGradeCards.mockReturnValueOnce(single.promise);
+      let returned;
+      const p = act(async () => { returned = result.current.refetchOne('a2'); await tick(); });
+      await p;
+      const reloaded = { course: COURSE, cards: { a1: card('a1'), a2: card('a2', { hasDraft: true, draft: { v: 'new' } }) } };
+      getGradeCards.mockResolvedValueOnce(reloaded);
+      rerender({ reloadKey: 1 });
+      await waitFor(() => expect(result.current.cards).toEqual(reloaded.cards));
+      single.resolve(oneCard('a2', { draft: { v: 'old' } }));
+      await act(async () => { await returned; });
+      expect(result.current.cards).toEqual(reloaded.cards);
+      expect((await returned).draft).toEqual({ v: 'old' });
+    });
+
+    it('a late refetchOne is dropped after the course changes', async () => {
+      getGradeCards.mockResolvedValueOnce(ALL);
+      const { result, rerender } = render({ courseId: 7 });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      const single = deferred();
+      getGradeCards.mockReturnValueOnce(single.promise);
+      let returned;
+      await act(async () => { returned = result.current.refetchOne('a2'); await tick(); });
+      const other = { course: { ...COURSE, id: 8 }, cards: { b1: card('b1') } };
+      getGradeCards.mockResolvedValueOnce(other);
+      rerender({ courseId: 8 });
+      await waitFor(() => expect(result.current.cards).toEqual(other.cards));
+      single.resolve(oneCard('a2'));
+      await act(async () => { await returned; });
+      expect(result.current.cards).toEqual(other.cards);
+      expect(result.current.course.id).toBe(8);
+    });
+
+    it('ignores a superseded full-load response when the course is unchanged', async () => {
+      const first = deferred();
+      getGradeCards.mockReturnValueOnce(first.promise);
+      const { result, rerender } = render({ reloadKey: 0 });
+      const second = { course: COURSE, cards: { a1: card('a1', { hasDraft: true }) } };
+      getGradeCards.mockResolvedValueOnce(second);
+      rerender({ reloadKey: 1 });
+      await waitFor(() => expect(result.current.cards).toEqual(second.cards));
+      first.resolve(ALL);
+      await act(tick);
+      expect(result.current.cards).toEqual(second.cards);
+    });
+
+    it('for one task the newest refetchOne wins when answers arrive out of order', async () => {
+      getGradeCards.mockResolvedValueOnce(ALL);
+      const { result } = render();
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      const older = deferred();
+      const newer = deferred();
+      getGradeCards.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+      let p1, p2;
+      await act(async () => { p1 = result.current.refetchOne('a2'); p2 = result.current.refetchOne('a2'); await tick(); });
+      newer.resolve(oneCard('a2', { draft: { v: 'newer' } }));
+      await act(async () => { await p2; });
+      older.resolve(oneCard('a2', { draft: { v: 'older' } }));
+      await act(async () => { await p1; });
+      expect(result.current.cards.a2.draft).toEqual({ v: 'newer' });
+      expect((await p1).draft).toEqual({ v: 'older' });
+    });
+
+    it('a full load issued before a refetchOne does not overwrite the newer card when it lands later', async () => {
+      const full = deferred();
+      getGradeCards.mockReturnValueOnce(full.promise);
+      const { result } = render();
+      await act(tick); // the full load has asked by now
+      expect(getGradeCards).toHaveBeenCalledTimes(1);
+      const single = deferred();
+      getGradeCards.mockReturnValueOnce(single.promise);
+      let p;
+      await act(async () => { p = result.current.refetchOne('a2'); await tick(); });
+      // The single answer lands first, but there is no snapshot to merge into yet.
+      single.resolve(oneCard('a2', { draft: { v: 'post-write' } }));
+      await act(async () => { await p; });
+      full.resolve({ course: COURSE, cards: { a1: card('a1'), a2: card('a2', { draft: { v: 'pre-write' } }) } });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.cards.a1).toEqual(card('a1'));
+      expect(result.current.cards.a2.draft).toEqual({ v: 'post-write' });
+    });
+
+    it('a refetchOne that lands after a loaded snapshot but before a slower earlier full load keeps its card', async () => {
+      getGradeCards.mockResolvedValueOnce(ALL);
+      const { result, rerender } = render({ reloadKey: 0 });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      const full = deferred();
+      getGradeCards.mockReturnValueOnce(full.promise);
+      rerender({ reloadKey: 1 });
+      await act(tick); // the reload has asked by now
+      expect(getGradeCards).toHaveBeenCalledTimes(2);
+      const single = deferred();
+      getGradeCards.mockReturnValueOnce(single.promise);
+      let p;
+      await act(async () => { p = result.current.refetchOne('a2'); await tick(); });
+      single.resolve(oneCard('a2', { draft: { v: 'post-write' } }));
+      await act(async () => { await p; });
+      expect(result.current.cards.a2.draft).toEqual({ v: 'post-write' });
+      full.resolve({ course: COURSE, cards: { a1: card('a1'), a2: card('a2', { draft: { v: 'pre-write' } }) } });
+      await act(tick);
+      expect(result.current.cards.a2.draft).toEqual({ v: 'post-write' });
+    });
+
+    it('a successful refetchOne clears a reload error', async () => {
+      getGradeCards.mockResolvedValueOnce(ALL).mockRejectedValueOnce(new Error('boom'));
+      const { result, rerender } = render({ reloadKey: 0 });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      rerender({ reloadKey: 1 });
+      await waitFor(() => expect(result.current.error).toBe('boom'));
+      getGradeCards.mockResolvedValueOnce(oneCard('a2', { hasDraft: true }));
+      await act(async () => { await result.current.refetchOne('a2'); });
+      expect(result.current.error).toBeNull();
+      expect(result.current.cards.a2.hasDraft).toBe(true);
+    });
   });
 });

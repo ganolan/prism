@@ -1877,7 +1877,7 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
     getDb().prepare(`UPDATE courses SET section_name = '4(A-B)', block_number = '7' WHERE id = ?`).run(courseId);
     const { body } = await get(`/api/mastery/${courseId}/assignment/sa-C`);
     // block_number is a TEXT column (#106).
-    expect(body.course).toEqual({ id: courseId, course_name: 'Course', section_name: '4(A-B)', block_number: '7', archived: 0, excluded: 0 });
+    expect(body.course).toEqual({ id: courseId, course_name: 'Course', section_name: '4(A-B)', block_number: '7', archived: 0, excluded: 0, writable: true });
   });
 
   test('GET: no scoreScale for a scale Prism does not grade', async () => {

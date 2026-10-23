@@ -27,6 +27,11 @@ export function linkedCourseOf(db, sectionId) {
   return row ? { courseId: row.courseId } : null;
 }
 
+// → true when the course is a set of linked sections (it has a linked_sections row).
+export function isLinkedSet(db, courseId) {
+  return Boolean(db.prepare('SELECT 1 FROM linked_sections WHERE course_id = ? LIMIT 1').get(courseId));
+}
+
 export class LinkedSectionWriteError extends Error {
   constructor(sectionId) {
     super(`Prism does not write to Schoology for linked sections (section ${sectionId}). Make this change in Schoology.`);

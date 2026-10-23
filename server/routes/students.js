@@ -11,6 +11,9 @@ import { psAlertsForStudent } from '../services/psAlertStore.js';
 import { contactsForStudents } from '../services/guardianContactStore.js';
 import { readSupportSummary, SupportSummaryError } from '../services/psSupportSummary.js';
 import { waitingCopies, flagLines } from '../services/savedGrades.js';
+import { buildAssessmentView, courseFlags } from '../services/assessmentView.js';
+import { getAttachmentForAssignment } from '../services/rubricAttach.js';
+import { getUnfinishedGrading } from '../services/unfinishedGrading.js';
 
 const router = Router();
 
@@ -253,6 +256,58 @@ router.get('/:id/work-links', async (req, res) => {
     }
   }
   res.json({ links, status });
+});
+
+// GET /api/students/:id/grade-cards?courseId=<local>[&assignmentId=<schoology>] (#176)
+// -> { course: { id, archived, excluded, writable }, cards: { [schoologyAssignmentId]: {
+//     assignment, topics, scoreScale, student, rubric, draft, hasDraft } } }
+// The assessment page's grade card for this one student, for the student page and the gradebook
+// pop-up: one card per task of the course the student is on (the tasks GET /api/students/:id lists),
+// or just assignmentId's. Each card is buildAssessmentView narrowed to the student, so no other
+// student's data is in it. rubric is the task's attached rubric ({ id, rubric, topicByCriterion }) or
+// null; draft this student's stored Prism draft or null; hasDraft is true only while that draft is
+// current (Schoology has not changed under it), as Triage's Unfinished grading counts it.
+router.get('/:id/grade-cards', (req, res) => {
+  const db = getDb();
+  const student = db.prepare('SELECT id, schoology_uid FROM students WHERE id = ?').get(req.params.id);
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+  const courseId = Number(req.query.courseId);
+  if (!Number.isInteger(courseId)) return res.status(400).json({ error: 'courseId is required' });
+  const course = courseFlags(db, courseId);
+  if (!course) return res.status(404).json({ error: 'Course not found' });
+
+  const only = req.query.assignmentId ? String(req.query.assignmentId) : null;
+  const tasks = db.prepare(`
+    SELECT a.id, a.schoology_assignment_id
+    FROM assignments a
+    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
+      AND EXISTS (SELECT 1 FROM enrolments e WHERE e.student_id = ? AND e.course_id = a.course_id)
+      AND (a.num_assignees IS NULL OR a.num_assignees = 0
+           OR EXISTS (SELECT 1 FROM assignment_assignees aa WHERE aa.assignment_id = a.id AND aa.schoology_uid = ?))
+      AND (? IS NULL OR a.schoology_assignment_id = ?)
+    ORDER BY a.id
+  `).all(courseId, student.id, student.schoology_uid || '', only, only);
+
+  const drafts = new Map(db.prepare('SELECT assignment_id, draft_json FROM assessment_drafts WHERE student_id = ?')
+    .all(student.id).map((d) => [d.assignment_id, d.draft_json]));
+  const current = new Set(getUnfinishedGrading(db, { courseId, studentId: student.id })
+    .filter((t) => t.students.some((s) => s.studentId === student.id && s.reasons.includes('draft')))
+    .map((t) => String(t.schoologyAssignmentId)));
+
+  const cards = {};
+  for (const t of tasks) {
+    const aid = String(t.schoology_assignment_id);
+    const view = buildAssessmentView(db, { courseId, assignmentId: aid, studentId: student.id });
+    let draft = null;
+    try { draft = drafts.has(t.id) ? JSON.parse(drafts.get(t.id)) : null; } catch { draft = null; }
+    cards[aid] = {
+      assignment: view.assignment, topics: view.topics, scoreScale: view.scoreScale,
+      student: view.students[0] ?? null,
+      rubric: getAttachmentForAssignment(db, aid),
+      draft, hasDraft: current.has(aid),
+    };
+  }
+  res.json({ course, cards });
 });
 
 // PUT /api/students/:id — update editable fields

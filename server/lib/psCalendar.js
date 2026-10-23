@@ -51,3 +51,12 @@ export function extractMeetingDates(sectionInfo) {
     .map((d) => d.date)
     .sort();
 }
+
+// A section's term: the first and last school day of its calendar, which spans the section's whole
+// term (full-year sections 165 school days, semester sections 76 or 89; verified 2026-10-06,
+// .claude/powerschool-api-reference.md). Semester ends come from these (#174,
+// server/lib/semesters.js). No school day → null.
+export function termRange(sectionInfo) {
+  const days = extractCalendarDays(sectionInfo).filter((d) => d.inSession).map((d) => d.date).sort();
+  return days.length ? { start: days[0], end: days[days.length - 1] } : null;
+}

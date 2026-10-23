@@ -98,6 +98,33 @@ describe('syncPsAttendance over plain HTTP (no browser, #141)', () => {
     expect(web.launches()).toBe(1);
   });
 
+  // #174: each course's PowerSchool term (its calendar's first and last school day), for semester ends.
+  const term = (id) => h.db.prepare('SELECT term_start, term_end FROM courses WHERE id = ?').get(id);
+  test('stores each course\'s term range from its section_info calendar', async () => {
+    const a = seed(h.db, 'A');
+    web = fakePowerSchoolWeb({
+      schoology: { 'sec-A': '9001' },
+      sectionInfo: { 9001: info('Block 3', { days: { '2026-08-20': 77, '2026-10-06': 78, '2027-01-08': 77 } }) },
+    });
+    await run();
+    expect(term(a)).toEqual({ term_start: '2026-08-20', term_end: '2027-01-08' });
+  });
+
+  test('a targeted sync stores the term range too', async () => {
+    const a = seed(h.db, 'A');
+    web = fakePowerSchoolWeb({ schoology: { 'sec-A': '9001' }, sectionInfo: { 9001: info('Block 3') } });
+    await run({ courseIds: [a] });
+    expect(term(a)).toEqual({ term_start: '2026-10-05', term_end: '2026-10-07' });
+  });
+
+  test('a section_info error keeps the stored term range', async () => {
+    const a = seed(h.db, 'A');
+    h.db.prepare("UPDATE courses SET term_start = '2026-08-20', term_end = '2027-01-08' WHERE id = ?").run(a);
+    web = fakePowerSchoolWeb({ schoology: { 'sec-A': '9001' }, sectionInfo: { 9001: { status: 500 } } });
+    await run();
+    expect(term(a)).toEqual({ term_start: '2026-08-20', term_end: '2027-01-08' });
+  });
+
   test('a section_info error keeps the stored block: section-info-failed', async () => {
     const a = seed(h.db, 'A');
     h.db.prepare("UPDATE courses SET block_number = '5' WHERE id = ?").run(a);

@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS courses (
   course_code TEXT,
   section_school_code TEXT,
   grading_period TEXT,
+  -- #174: the course's PowerSchool term, its section_info calendar's first and last school day
+  -- ('YYYY-MM-DD'), stored by the block sync. Semester ends come from these (server/lib/semesters.js).
+  term_start TEXT,
+  term_end TEXT,
   archived INTEGER DEFAULT 0,
   hidden INTEGER DEFAULT 0,
   excluded INTEGER NOT NULL DEFAULT 0,

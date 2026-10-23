@@ -229,6 +229,9 @@ const MIGRATIONS = [
   // own flag write, the status-line and mastery mirrors) is stamped now. Triggers, so every writer
   // of grades.exception agrees.
   `ALTER TABLE grades ADD COLUMN flag_seen_at INTEGER`,
+  // #174: each course's PowerSchool term (schema.sql has the columns, with their note).
+  `ALTER TABLE courses ADD COLUMN term_start TEXT`,
+  `ALTER TABLE courses ADD COLUMN term_end TEXT`,
   `CREATE TRIGGER IF NOT EXISTS grades_flag_seen_insert AFTER INSERT ON grades
     WHEN COALESCE(NEW.exception, 0) != 0
     BEGIN

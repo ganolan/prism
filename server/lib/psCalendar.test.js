@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { extractCalendarDays, mergeCalendarDays, extractMeetingDates } from './psCalendar.js';
+import { extractCalendarDays, mergeCalendarDays, extractMeetingDates, termRange } from './psCalendar.js';
 
 describe('extractCalendarDays', () => {
   test('reads calenderDays (PS spelling): date, inSession, letter, raw', () => {
@@ -63,5 +63,27 @@ describe('extractMeetingDates', () => {
     expect(extractMeetingDates({ ...section, calenderDays: undefined, calendarDays: section.calenderDays })).toEqual(['2026-10-06', '2026-10-08']);
     expect(extractMeetingDates({ calenderDays: section.calenderDays })).toEqual([]);
     expect(extractMeetingDates(null)).toEqual([]);
+  });
+});
+
+// #174: a section's calendar spans its whole term (verified 2026-10-06), so its first and last
+// school day are the term's.
+describe('termRange', () => {
+  test('is the first and last school day of the calendar', () => {
+    expect(termRange({
+      calenderDays: {
+        '2027-01-09': { inSession: false },
+        '2026-08-20': { inSession: true, cycleDay: { letter: 'A' } },
+        '2026-08-19': { inSession: true, cycleDay: null, type: 'PD' },
+        '2027-01-08': { inSession: true, cycleDay: { letter: 'B' } },
+        '2026-10-05': { inSession: true, cycleDay: { letter: 'A' } },
+      },
+    })).toEqual({ start: '2026-08-20', end: '2027-01-08' });
+  });
+
+  test('no school day → null', () => {
+    expect(termRange({ calenderDays: {} })).toBeNull();
+    expect(termRange({ calenderDays: { '2026-10-01': { inSession: false } } })).toBeNull();
+    expect(termRange(null)).toBeNull();
   });
 });

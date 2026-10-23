@@ -42,7 +42,7 @@ import { getDb } from '../db/index.js';
 import { pickBlockNumber, loopTimeBudgetExceeded } from '../lib/psBlockNumber.js';
 import { currentSchoolYearEndYear, gradeLevelToGradYear } from '../lib/psGradeLevel.js';
 import { readGradeLevels } from './psGradeLevelRead.js';
-import { extractCalendarDays, mergeCalendarDays, extractMeetingDates } from '../lib/psCalendar.js';
+import { extractCalendarDays, mergeCalendarDays, extractMeetingDates, termRange } from '../lib/psCalendar.js';
 import { storeSchoolDays, storeClassMeetings } from './schoolCalendar.js';
 import { cookieJar } from './schoologyWeb.js';
 import { PowerSchoolWeb } from './powerschoolWeb.js';
@@ -228,6 +228,7 @@ export async function syncPsAttendance({ onProgress, courseIds, db = getDb(), de
   const reader = attendanceReader({ jar, fetchImpl: deps.fetchImpl ?? fetch });
   const stampOnly = db.prepare('UPDATE courses SET block_synced_at = ? WHERE id = ?');
   const setAndStamp = db.prepare('UPDATE courses SET block_number = ?, block_synced_at = ? WHERE id = ?');
+  const setTerm = db.prepare('UPDATE courses SET term_start = ?, term_end = ? WHERE id = ?');
 
   const gradeSections = []; // sections for the grade-level pass after the loop
   const calendarByDate = new Map(); // date → merged school day (triage calendar)
@@ -273,6 +274,9 @@ export async function syncPsAttendance({ onProgress, courseIds, db = getDb(), de
       if (first) {
         const meetings = storeClassMeetings(db, c.id, extractMeetingDates(first), now);
         if (meetings) log(`${c.course_name}: ${meetings} lesson dates`);
+        // The course's term, for semester ends (#174). Per course, so a targeted sync stores it too.
+        const term = termRange(first);
+        if (term) setTerm.run(term.start, term.end, c.id);
       }
       pick = first
         ? pickBlockNumber(first)

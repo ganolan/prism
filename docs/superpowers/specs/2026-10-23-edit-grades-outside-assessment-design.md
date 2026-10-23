@@ -1,4 +1,4 @@
-# Edit grades from the student page and the gradebook (#176)
+# One grade card for every view, editable everywhere (#176)
 
 Date: 23 Oct 2026. Status: agreed with Graham in conversation, 23 Oct 2026.
 
@@ -12,10 +12,15 @@ He changes the grade in the meeting, because a note for later gets forgotten.
 ## Goals
 
 - **Edit where the student is:** each task on the student page, and the gradebook pop-up, can change
-  levels or score, the comment and Display, then publish to Schoology.
-- **One card everywhere:** the editor is the assessment page's own card (`StudentRubricCard`), not a new
-  component. Graham: "I don't want to create more bespoke UI components that differ from those with a
-  similar function. Let's keep the UI consistent."
+  every grade Prism can write, the comment and Display, then publish to Schoology. That covers aligned
+  tasks (topic levels), unaligned scale tasks (a scale level), unaligned tasks with feedback rows (row
+  levels and the overall level) and points-only tasks (comment and Display only, see Decisions).
+- **One component for every view:** the assessment page's card (`StudentRubricCard`) gains a read-only
+  mode and replaces `AssignmentFeedback`. The student page, the gradebook pop-up and the assessment page
+  all draw one component, so a later change to the card reaches every view. Graham: "I don't want to
+  create more bespoke UI components that differ from those with a similar function. Let's keep the UI
+  consistent." And: "When updating one view in the future all connected views should change. A shared
+  code base for the views might be ideal."
 - **Show the work:** the card already holds the student's files, the OneDrive or Google Drive "Open" link,
   the test attempt link and the submission comment thread. They come along unchanged.
 - **Same write safety:** the card's existing publish path (fresh read, refuse on a change, echo unchanged
@@ -34,15 +39,20 @@ He changes the grade in the meeting, because a note for later gets forgotten.
   Only this student's data is ever rendered.
 - **AI suggestions on screen.** On these two surfaces the card shows no AI suggestion of any kind.
 - **A third look.** No new editor layout, no restyled copy of the card.
+- **Two components left behind.** When the work is done, `AssignmentFeedback` is gone and nothing else
+  renders a task's grade and comment for one student.
 
 ## Decisions (Graham's)
 
-- **In place on the student page.** Choosing **Edit** on a task turns that task's read-only view
-  (`AssignmentFeedback`) into the card, inside the page, at the page's width. Measured 23 Oct 2026 at a
+- **One component, two modes** (Graham, 23 Oct 2026, chosen over shared parts in two components). Read-only
+  mode is what the student page and the gradebook pop-up show by default; **Edit** switches the same
+  component to edit mode in place. The assessment page uses edit mode, as today.
+- **In place on the student page.** Choosing **Edit** on a task switches that task's card to edit mode,
+  inside the page, at the page's width. Measured 23 Oct 2026 at a
   1440 px window: the grid is 1045 px wide on the student page and 1080 px on the assessment page, so the
   card fits.
-- **The gradebook pop-up (`RubricModal` in `CoursePage.jsx`) does the same inside its modal:** Edit
-  swaps the read-only view for the card. The gradebook is already a class view, so privacy is not the
+- **The gradebook pop-up (`RubricModal` in `CoursePage.jsx`) does the same inside its modal:** it shows
+  the card in read-only mode, and Edit switches it to edit mode. The gradebook is already a class view, so privacy is not the
   concern there; consistency is.
 - **Meeting setting on the card:** one prop (name left to the builder) that hides the student portrait and
   every AI suggestion: suggested levels in the grid (the `suggested` cell state and its sparkle), the
@@ -59,7 +69,8 @@ He changes the grade in the meeting, because a note for later gets forgotten.
   draws the grid (assessment page, student page, gradebook pop-up), which is intended.
 - **Points-only tasks: comment and Display only** (Graham, 23 Oct 2026). On a task scored in points
   with no topics and no scale, Edit opens the card as the assessment page does today: comment, Add update
-  and Display, no points. Nothing new is written to Schoology.
+  and Display, no points. Nothing new is written to Schoology. Points editing on non-quiz tasks is #181
+  (some teachers record raw points from paper-based assessments).
 
 ## Calls made by the agent (Graham to check)
 
@@ -83,6 +94,18 @@ He changes the grade in the meeting, because a note for later gets forgotten.
 
 ## Constraints
 
+- **Read-only mode replaces `AssignmentFeedback` without losing anything it shows.** That view
+  (`client/src/components/AssignmentFeedback.jsx`) has behaviour the card may lack or draw differently:
+  the submission timeline and its late clock, the Missing display (`missingView`: IE on every topic or row
+  when Schoology holds none), the Exempt lock notice, the marker line ("Grading this work clears Late"),
+  the feedback rows' "Overall:" level, a points score label, and the Flags menu with its panel row. The
+  plan lists every difference between the two. Where both draw the same thing, the card's version wins;
+  what only `AssignmentFeedback` has moves into the card. Its tests (`AssignmentFeedback.test.jsx`) move
+  with it, so no behaviour goes untested.
+- **Read-only mode is light.** The student page draws every task in every course; read-only mode renders
+  from the data the student page already loads (grades, topics, rubric attachments, scales, flags, links)
+  and starts no draft saver or editor state. Edit mode loads the rest for that one task.
+
 - `StudentRubricCard` lives in `client/src/pages/AssessmentSummaryPage.jsx` (lines 130 to 1873) and takes
   its data as props from that page (`feedbackRow`, `draftRow`, `rubric`, `topics`, `assignmentRow`,
   `scoreScale`, links and summaries). The page-level props (`registerCard`, `onPendingChange`,
@@ -97,7 +120,8 @@ He changes the grade in the meeting, because a note for later gets forgotten.
 
 ## Verification
 
-- **Client tests:** the meeting setting hides the portrait and every suggestion element; Add update builds
+- **Client tests:** read-only mode covers every case `AssignmentFeedback.test.jsx` covers today (aligned,
+  feedback rows, scale, points, Exempt, Missing, markers); the meeting setting hides the portrait and every suggestion element; Add update builds
   the comment as specified; Edit and Done on the student page and in `RubricModal`; no Edit on archived,
   excluded or linked courses; the draft badge.
 - **Server tests** for any new student filter on a route.
@@ -109,5 +133,6 @@ He changes the grade in the meeting, because a note for later gets forgotten.
 
 ## Left to the builder
 
-The prop name for the meeting setting; how the student page fetches one student's card data; the
-grid's exact widths; whether the card moves to its own file.
+The prop names for the mode and the meeting setting; how the student page fetches one task's edit data;
+the grid's exact widths; how the card is split into files (it will likely leave
+`AssessmentSummaryPage.jsx` for its own module).

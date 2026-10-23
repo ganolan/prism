@@ -6,6 +6,8 @@
 //    the task's own read brings a newer card.
 //  - `startEdit(aid)`: the task's card is read again first. The card builds its edit state from its
 //    props when it switches mode, so a draft saved elsewhere since the page loaded must be in them.
+//    The teacher's resubmit default (below) is read in parallel and awaited too, so the first edit
+//    card mounts with it, not the fallback 3.
 //    If the read fails, `editError(aid)` says so and the card stays read-only.
 //  - `finishEdit(aid)` (the card's Done, after its draft save settles): back to read-only, then
 //    `onChange`.
@@ -33,13 +35,18 @@ export function useCardEditing({ cards, refetchOne, onChange = null }) {
 
   async function startEdit(aid) {
     setErrors((e) => ({ ...e, [aid]: null }));
-    if (resubmitLessons === undefined) {
-      Promise.resolve().then(() => getSettings())
-        .then((s) => setResubmitLessons(s?.triage?.resubmitLessonsDefault ?? 3))
-        .catch(() => setResubmitLessons(3));
-    }
-    let fresh = null;
-    try { fresh = await refetchOne(aid); } catch { fresh = null; }
+    // The default is read alongside the task, and edit mode waits for both: the card's
+    // ResubmitControl takes its default when it mounts. A failed read falls back to 3.
+    const settingsRead = resubmitLessons === undefined
+      ? Promise.resolve().then(() => getSettings())
+        .then((st) => st?.triage?.resubmitLessonsDefault ?? 3)
+        .catch(() => 3)
+      : Promise.resolve(undefined);
+    const taskRead = (async () => {
+      try { return await refetchOne(aid); } catch { return null; }
+    })();
+    const [lessons, fresh] = await Promise.all([settingsRead, taskRead]);
+    if (lessons !== undefined) setResubmitLessons(lessons);
     if (!fresh) {
       setErrors((e) => ({ ...e, [aid]: 'Could not load this task. Reload the page.' }));
       return;

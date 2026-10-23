@@ -25,6 +25,29 @@ describe('useCardEditing', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it('the card enters edit mode only once the teacher\'s default is read, even when the settings come after the task', async () => {
+    let resolveSettings;
+    getSettings.mockReturnValueOnce(new Promise((r) => { resolveSettings = r; }));
+    const refetchOne = vi.fn().mockResolvedValue(card('fresh'));
+    const { result } = renderHook(() => useCardEditing({ cards: { a1: card('old') }, refetchOne }));
+    let started;
+    await act(async () => { started = result.current.startEdit('a1'); });
+    expect(refetchOne).toHaveBeenCalledWith('a1');
+    expect(result.current.isEditing('a1')).toBe(false);
+    await act(async () => { resolveSettings({ triage: { resubmitLessonsDefault: 4 } }); await started; });
+    expect(result.current.isEditing('a1')).toBe(true);
+    expect(result.current.resubmitLessons).toBe(4);
+  });
+
+  it('a failed settings read does not block Edit: the default stays 3', async () => {
+    getSettings.mockRejectedValueOnce(new Error('settings down'));
+    const refetchOne = vi.fn().mockResolvedValue(card('fresh'));
+    const { result } = renderHook(() => useCardEditing({ cards: { a1: card('old') }, refetchOne }));
+    await act(async () => { await result.current.startEdit('a1'); });
+    expect(result.current.isEditing('a1')).toBe(true);
+    expect(result.current.resubmitLessons).toBe(3);
+  });
+
   it('a failed read on Edit stays read-only with an error', async () => {
     const refetchOne = vi.fn().mockRejectedValue(new Error('boom'));
     const { result } = renderHook(() => useCardEditing({ cards: { a1: card('old') }, refetchOne }));

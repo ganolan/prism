@@ -22,7 +22,9 @@ import RubricDescriptorGrid from './RubricDescriptorGrid.jsx';
 import { feedbackDescriptorRows, feedbackRowView } from '../lib/rubricDescriptorRows.js';
 import FlagSymbol from './FlagSymbol.jsx';
 import { FLAGS, isFinalFlag, isMarker, flagEffect } from '../lib/flags.js';
-import { LEVELS, LEVEL_COLORS, CELL_TEXT, masteryCodeForLevel } from '../lib/masteryLevels.js';
+import { LEVELS, LEVEL_COLORS } from '../lib/masteryLevels.js';
+import { missingView } from '../lib/missingView.js';
+import ScoreLabel from './gradeCard/ScoreLabel.jsx';
 
 // The rubric is hidden while Exempt is set (#40; /assessment/ locks Exempt and Missing): Schoology
 // removes Exempt's grade (flagEffect). A marker (Late, Incomplete, Absent) keeps the rubric: the
@@ -31,52 +33,9 @@ import { LEVELS, LEVEL_COLORS, CELL_TEXT, masteryCodeForLevel } from '../lib/mas
 // Schoology holds no levels for the task, the real levels when it does.
 const lockName = (exception) => (isFinalFlag(exception) && Number(exception) !== 3 ? FLAGS[Number(exception)].name : null);
 
-const MISSING_NO_LEVELS = 'Shown as IE because the work is marked Missing. Schoology holds no topic levels for this task yet.';
-const MISSING_LEVELS = 'Marked Missing. These levels still count in the topic averages.';
-// Feedback-row levels live only in Prism (Schoology never sees them), so their lines say that.
-const MISSING_NO_ROWS = 'Shown as IE because the work is marked Missing. No rubric rows are scored for this task yet.';
-const MISSING_ROWS = 'Marked Missing. These are the rubric rows Prism holds for this task.';
-
-// Graham, 21 Oct 2026: work marked Missing shows IE on every topic or row, to inform talks with the
-// student. Missing writes no levels and keeps those that exist (probed 21 and 22 Oct), so when none
-// exist every level is shown as IE, and when some do they show as they are. Display only: nothing
-// here is written, and the per-topic summaries keep Schoology's numbers. `grades` is the levels as
-// Schoology holds them (topic id to level or null), or a feedback-row task's row levels as Prism
-// holds them (`rows`: true); returns the levels to draw, or null when the flag is not Missing.
-export function missingView(exception, grades, { rows = false } = {}) {
-  if (Number(exception) !== 3) return null;
-  const hasLevels = Object.values(grades).some(Boolean);
-  const line = rows ? (hasLevels ? MISSING_ROWS : MISSING_NO_ROWS) : (hasLevels ? MISSING_LEVELS : MISSING_NO_LEVELS);
-  return {
-    hasLevels,
-    grades: hasLevels ? grades : Object.fromEntries(Object.keys(grades).map((id) => [id, 'IE'])),
-    line,
-  };
-}
-
 const HEADER = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].headerFill]));
 const BORDER = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].finalBorder]));
 const DRAFT = Object.fromEntries(LEVELS.map((l) => [l, LEVEL_COLORS[l].draftFill]));
-
-// A gradeLabel() result for an unaligned task: a level chip in the level's colour
-// for General Academic levels, the raw text otherwise, red when it matches no level.
-// A flag (Exempt/Incomplete/Missing/Absent/Late) shows its symbol in the score's place.
-// savedLevel: the grade Prism saved when the flag was set (null when none).
-export function ScoreLabel({ label, savedLevel = null, firstName = null, reasonLine = null }) {
-  if (label.kind === 'exception') return <FlagSymbol code={label.exception} size="inline" showName firstName={firstName} savedLevel={savedLevel} reasonLine={reasonLine} />;
-  const code = label.kind === 'scale' ? masteryCodeForLevel(label.text) : null;
-  const c = code ? LEVEL_COLORS[code] : null;
-  const style = label.kind === 'mismatch' ? { color: 'var(--danger)' }
-    : label.kind === 'pending' ? { color: 'var(--text-muted)' }
-    : c ? { background: c.headerFill, color: CELL_TEXT, border: `1px solid ${c.finalBorder}`, padding: '0.1rem 0.4rem', borderRadius: 4, fontWeight: 500, display: 'inline-block' }
-    : null;
-  return (
-    <span className="text-sm" style={style}
-      title={label.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale: check Schoology' : undefined}>
-      {label.text}
-    </span>
-  );
-}
 
 export default function AssignmentFeedback({
   status = [], flags = [], resubmitted = false,

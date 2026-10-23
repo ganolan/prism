@@ -751,6 +751,11 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
 /* A marker flag (Late, Incomplete, Absent; #40) keeps the card's rubric open: one quiet line above
    it says publishing a grade clears the flag. Final flags lock the rubric instead. */
 .flag-marker-note { padding: 0.6rem 1rem 0; font-size: 0.75rem; color: var(--text-muted); }
+/* Work marked Missing shows IE on the card: the line names it, with the flag's symbol. */
+.flag-marker-note--missing { display: flex; align-items: center; gap: 0.5rem; }
+/* A points-only task's score on the card (no rubric to show). */
+.grade-card__score { display: flex; align-items: center; gap: 0.1rem; font-size: 0.85rem; padding-bottom: 0.25rem; }
+.grade-card__score-label { font-weight: 700; margin-right: 5px; }
 
 /* ========================================================================
    MODAL

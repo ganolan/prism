@@ -25,6 +25,10 @@ import ExtendControl from '../ExtendControl.jsx';
 import ReferControl from '../ReferControl.jsx';
 import FlagsMenu from '../FlagsMenu.jsx';
 import ScaleLevelPicker from '../ScaleLevelPicker.jsx';
+import FlagSymbol from '../FlagSymbol.jsx';
+import ScoreLabel from './ScoreLabel.jsx';
+import { missingView } from '../../lib/missingView.js';
+import { gradeLabel } from '../../lib/gradeLabel.js';
 import { reasonText, reasonTone, TONE_VARS } from '../../lib/assessmentFilters.js';
 import { localIsoDate } from '../../lib/formatDate.js';
 import { workLinkText } from '../../lib/workLink.js';
@@ -77,8 +81,12 @@ function topLineIs(text, line) {
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
-export default function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, filesEnabled = false, fileSummary = null, onFileSummary = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onRefreshPair = null, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+// `meeting` (a student conference, #176): the card is shown to the student, so it hides the photo and
+// every AI suggestion (reviewer notes, suggested cells and levels, the suggested narrative).
+export default function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow: feedbackRowGiven, meeting = false, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, filesEnabled = false, fileSummary = null, onFileSummary = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onRefreshPair = null, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
+  // A meeting shows no AI suggestion: with no feedback row there is nothing to suggest from.
+  const feedbackRow = meeting ? null : feedbackRowGiven;
   // The card's action-panel row (ActionPanel portals into it).
   const [panelHost, setPanelHost] = useState(null);
   const loadedDisplay = student.comment_status === 1;
@@ -250,6 +258,18 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
     ? (hasFeedbackRows ? rowScores(savedGrade.rows) : Object.fromEntries(Object.entries(savedGrade.topics || {}).map(([id, grade]) => [id, { grade }])))
     : student.scores;
   const shownScaleLevel = showSaved ? (savedGrade.scale_level ?? null) : (student.scale_level ?? null);
+  // Work marked Missing: IE (or the real levels) on every topic or row, and a line saying which
+  // (a display transform; nothing is written). It draws what the grid draws, so the saved copy's
+  // levels count as the levels there are.
+  const pointsOnly = topics.length === 0 && !scoreScale;
+  const gridDrawn = topics.length > 0 && (!scoreScale || hasFeedbackRows);
+  const missing = gridDrawn
+    ? missingView(student.exception, Object.fromEntries(topics.map((t) => [t.id, shownScores?.[t.id]?.grade ?? null])), { rows: hasFeedbackRows })
+    : null;
+  const shownGrade = (topicId) => (missing ? missing.grades[topicId] : shownScores?.[topicId]?.grade) || null;
+  // The Missing symbol in each cell shown as IE (not beside real levels).
+  const iePlaceholder = missing && !missing.hasLevels
+    ? <FlagSymbol code={3} size="inline" firstName={preferredFirstName(student)} aligned={false} /> : null;
   const savedOn = savedGrade?.savedAt ? lineDate(localIsoDate(new Date(`${String(savedGrade.savedAt).replace(' ', 'T')}Z`))) : null;
   const offerRestore = savedGrade != null && !isFlag(student.exception);
   const [restoring, setRestoring] = useState(false);
@@ -1045,7 +1065,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
   // no criterion fall after. Built only when a rubric is attached.
   const descriptorRows = buildDescriptorRows(topics, rubric);
   const cellStateFor = (topicId, l) => {
-    const currentGrade = shownScores?.[topicId]?.grade || null;
+    const currentGrade = shownGrade(topicId);
     const pendingGrade = pending[topicId] ?? null;
     const suggestedLevel = suggestedByTopic[topicId] || null;
     return {
@@ -1084,7 +1104,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
         {/* Sized larger than the header band and given negative vertical margins
             so the ring extrudes past the header's bottom border onto the card
             body — the white border + shadow make the avatar pop. */}
-        {student.picture_url ? (
+        {!meeting && (student.picture_url ? (
           <img
             src={student.picture_url}
             alt=""
@@ -1106,7 +1126,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
           }}>
             {(student.first_name?.[0] || '')}{(student.last_name?.[0] || '')}
           </div>
-        )}
+        ))}
         <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap' }}>
           {displayName(student)}
         </Link>
@@ -1214,7 +1234,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
       {/* The full submission picture: due / extension, submitted when and how late
           (or the clock day it is missing on), resubmission, referral. */}
       {student.timeline && (
-        <div style={{ padding: '0.45rem 1rem 0', paddingLeft: 'calc(1rem + 70px + 0.75rem)' }}>
+        <div style={{ padding: '0.45rem 1rem 0', paddingLeft: meeting ? '1rem' : 'calc(1rem + 70px + 0.75rem)' }}>
           <SubmissionTimeline timeline={student.timeline} showDue={false} />
         </div>
       )}
@@ -1249,16 +1269,37 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
         </div>
       )}
 
-      {/* Rubric grid */}
+      {missing && (
+        <div className="flag-marker-note flag-marker-note--missing">
+          <FlagSymbol code={3} size="inline" showName firstName={preferredFirstName(student)} aligned={missing.hasLevels}
+            savedLevel={savedGrade?.summary ?? null} reasonLine={student.flag_line ?? null} />
+          <span>{missing.line}</span>
+        </div>
+      )}
+
+      {/* Rubric grid. A points-only task has no rubric to lock: its Score line (and a flag's
+          symbol) stays fully visible. */}
       <div style={{
         overflowX: 'auto', padding: '0.75rem 1rem 0',
-        opacity: isRubricLocked ? 0.45 : 1,
-        pointerEvents: isRubricLocked ? 'none' : 'auto',
+        opacity: isRubricLocked && !pointsOnly ? 0.45 : 1,
+        pointerEvents: isRubricLocked && !pointsOnly ? 'none' : 'auto',
       }}>
+        {pointsOnly && (
+          <div className="grade-card__score">
+            <span className="grade-card__score-label">Score:</span>
+            <ScoreLabel
+              label={gradeLabel({
+                score: student.score, max_points: assignmentRow?.max_points, exception: student.exception,
+                grading_scale_id: assignmentRow?.grading_scale_id, scales: null,
+              })}
+              savedLevel={savedGrade?.summary ?? null} firstName={preferredFirstName(student)} reasonLine={student.flag_line ?? null}
+            />
+          </div>
+        )}
         {hasFeedbackRows && (
           <div className="feedback-rows-label">Feedback rows: kept in Prism, not sent to Schoology</div>
         )}
-        {(!scoreScale || hasFeedbackRows) && (showDescriptors ? (
+        {!pointsOnly && (!scoreScale || hasFeedbackRows) && (showDescriptors ? (
           <RubricDescriptorGrid
             rows={descriptorRows}
             levels={LEVELS}
@@ -1269,6 +1310,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
             levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].finalBorder]))}
             levelDraftColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].draftFill]))}
             firstColumnLabel={hasFeedbackRows ? 'Criteria' : undefined}
+            awardedMark={iePlaceholder}
           />
         ) : (
         <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
@@ -1296,7 +1338,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
           </thead>
           <tbody>
             {topics.map(t => {
-              const currentGrade = shownScores?.[t.id]?.grade || null;
+              const currentGrade = shownGrade(t.id);
               const pendingGrade = pending[t.id] ?? null;
               const suggestedLevel = suggestedByTopic[t.id] || null;
 
@@ -1383,6 +1425,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
                             {l}
                           </span>
                         ) : null}
+                        {isFinal && iePlaceholder && <span className="rubric-cell-mark">{iePlaceholder}</span>}
                         {isSuggested && !stagedRemoval && (
                           <span style={{
                             position: 'absolute', top: 1, right: 3, lineHeight: 1,

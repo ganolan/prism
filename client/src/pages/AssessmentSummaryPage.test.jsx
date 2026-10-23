@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { useState } from 'react';
 import AssessmentSummaryPage from './AssessmentSummaryPage.jsx';
 import StudentRubricCard from '../components/gradeCard/StudentRubricCard.jsx';
+import { TOPICS, makeStudent, renderCard } from '../components/gradeCard/testFixtures.js';
 import { flagClearedPatch } from '../lib/cardPatches.js';
 import { writeMasteryScores, writeMasteryComment, sendAllGrades, getMasteryForAssignment, getSubmissionLinks, getAttemptLinks, setSuggestionState, getFeedbackForAssignment, getAssessmentAnalysis, getRubricForAssignment, getRubricConfig, rubricTemplateUrl, uploadRubricCsv, attachRubric, listRubrics, getProficiencyScale, requestResubmission, undoResubmission, getFeatures, getQuizGroupFor, getQuizResults, rebuildQuizOverall, saveRowLevels, getDraftsForAssignment, getAssignmentFileSummaries, getGradeFlags, setGradeFlag } from '../services/api.js';
 import { draftBaseline } from '../lib/assessmentDraft.js';
@@ -68,43 +69,6 @@ vi.mock('../services/api.js', () => ({
     ],
   }),
 }));
-
-const TOPICS = [
-  { id: 't1', title: 'Topic 1', category_title: 'Cat', external_id: 'X1' },
-];
-
-function makeStudent() {
-  return {
-    id: 1,
-    enrollment_id: 'enr-1',
-    schoology_uid: 'uid-1',
-    first_name: 'Ada',
-    last_name: 'Lovelace',
-    preferred_name: null,
-    preferred_name_teacher: null,
-    grade_comment: '',
-    comment_status: 0,
-    exception: null,
-    scores: {},
-  };
-}
-
-function renderCard(extraProps = {}) {
-  const { student, ...rest } = extraProps;
-  return render(
-    <MemoryRouter>
-      <StudentRubricCard
-        student={student || makeStudent()}
-        topics={TOPICS}
-        courseId="4"
-        assignmentId="8"
-        assignmentRow={{ id: 50, mastery_grading_period_id: 1, mastery_grading_category_id: 2 }}
-        onSaved={() => {}}
-        {...rest}
-      />
-    </MemoryRouter>
-  );
-}
 
 beforeEach(() => {
   localStorage.clear();

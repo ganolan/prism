@@ -2058,6 +2058,33 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
       expect(scoreOfB().score).toBe(50);
     });
 
+    test('an empty comment is stored with Display off, as Schoology keeps it (#183)', async () => {
+      vi.mocked(getSectionGrades).mockResolvedValue(freshB(null));
+      vi.mocked(getAssignmentGrades).mockResolvedValue(freshB('42'));
+      await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-P', points: 42, expectedScore: null, comment: '', commentStatus: true,
+      });
+      const status = () => getDb().prepare(
+        `SELECT g.comment_status FROM grades g JOIN students s ON s.id = g.student_id JOIN assignments a ON a.id = g.assignment_id
+         WHERE s.schoology_uid = 'uid-B' AND a.schoology_assignment_id = 'sa-P'`
+      ).get().comment_status;
+      expect(status()).toBeNull();
+
+      vi.mocked(getSectionGrades).mockResolvedValue(freshB('42'));
+      vi.mocked(getAssignmentGrades).mockResolvedValue(freshB('43'));
+      await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-B', enrollmentId: 'eB', assignmentId: 'sa-P', scores: null, grade: { points: 43, expected: 42 }, comment: { comment: '', commentStatus: true } }],
+      });
+      expect(status()).toBeNull();
+
+      // With text, Display is kept as sent.
+      vi.mocked(getSectionGrades).mockResolvedValue(freshB('43'));
+      await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-B', enrollmentId: 'eB', assignmentId: 'sa-P', scores: null, comment: { comment: 'Good', commentStatus: true } }],
+      });
+      expect(status()).toBe(1);
+    });
+
     test('send-all refuses the batch when a score changed in Schoology', async () => {
       vi.mocked(getSectionGrades).mockResolvedValue(freshB('20'));
       const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {

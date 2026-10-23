@@ -36,7 +36,7 @@ import { workLinkText } from '../../lib/workLink.js';
 import { briefFlags, textSignature } from '../../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../../lib/statusLines.js';
 import { FLAGS, isFlag, isExempt, isFinalFlag, isMarker, flagEffect } from '../../lib/flags.js';
-import { GRADE_WRITTEN_PATCH, resubmissionFieldsPatch, flagClearedPatch } from '../../lib/cardPatches.js';
+import { GRADE_WRITTEN_PATCH, resubmissionFieldsPatch, flagClearedPatch, shownCommentStatus } from '../../lib/cardPatches.js';
 import { canEditPoints, parsePoints } from '../../lib/pointsTask.js';
 
 // The rubric-locked badge takes the flag's color (#40). Only the final flags lock the rubric:
@@ -801,6 +801,14 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
     setAutoFlipArmed(student.comment_status !== 1 && !student.grade_comment);
   }
 
+  // After a publish: with no comment Schoology keeps Display off (#183), so the switch shows
+  // that and holds no change. The publish's patch sets the same (shownCommentStatus).
+  // `cleared`: the save's flagCleared, whose comment replaces the card's when a flag's line went.
+  function settleDisplay(cleared = null) {
+    const final = typeof cleared?.comment === 'string' ? cleared.comment : comment;
+    if (final === '') { setDisplay(false); setDisplayTouched(false); }
+  }
+
   // Set the display-to-student visibility. Shared by the per-card switch and the
   // page-level "show/hide all". Marks it a manual change so it counts as pending
   // (the pendingCount guard ignores it when value already equals the synced one).
@@ -871,7 +879,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
           scores: null, ...(scoreScale ? { grade: null } : {}),
           comment: { comment, commentStatus: display, ...statusLineFields() },
         },
-        patch: { grade_comment: comment, comment_status: display ? 1 : null, ...statusLinePatch() },
+        patch: { grade_comment: comment, comment_status: shownCommentStatus(comment, display), ...statusLinePatch() },
       };
     }
     if (pointsInvalid) return null;
@@ -902,7 +910,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
         patch: {
           ...(points != null ? { score: points, ...(scaleCode ? { scale_level: scaleCode } : {}), ...GRADE_WRITTEN_PATCH } : {}),
           ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
-          ...(overallChanged ? { grade_comment: comment, comment_status: display ? 1 : null, ...statusLinePatch() } : {}),
+          ...(overallChanged ? { grade_comment: comment, comment_status: shownCommentStatus(comment, display), ...statusLinePatch() } : {}),
         },
       };
     }
@@ -933,7 +941,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
         ...(scores && !(hasCommentChange || hasDisplayChange) && isMarker(student.exception) ? { settleMarker: true } : {}),
       },
       patch: {
-        scores: buildSavedScores(), ...(scores ? GRADE_WRITTEN_PATCH : {}), grade_comment: comment, comment_status: display ? 1 : null,
+        scores: buildSavedScores(), ...(scores ? GRADE_WRITTEN_PATCH : {}), grade_comment: comment, comment_status: shownCommentStatus(comment, display),
         ...statusLinePatch(),
       },
     };
@@ -955,6 +963,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
         draftSaver().remove({ immediate: true });
       }
       setInsertedLine(null);
+      settleDisplay(result?.flagCleared);
       commentHistory.clearHistory(); // undo never crosses a publish (#75)
       setNotesCollapsed(true); // published via bulk → tuck the reviewer notes away
     } else if (result?.published) {
@@ -962,6 +971,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
       // just the row picks staged to save again.
       setPending((p) => Object.fromEntries(Object.entries(p).filter(([k]) => isRowKey(k))));
       setInsertedLine(null);
+      settleDisplay();
       commentHistory.clearHistory();
       setSaveResult(`error: ${result.error}`);
     } else {
@@ -978,10 +988,11 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
     setSaveResult('saved');
     if (!heldLevels) draftSaver().remove({ immediate: true });
     setInsertedLine(null);
+    settleDisplay();
     commentHistory.clearHistory(); // undo never crosses a publish (#75)
     onSaved?.(student.schoology_uid, {
       grade_comment: comment,
-      comment_status: display ? 1 : null,
+      comment_status: shownCommentStatus(comment, display),
       ...resubmissionFieldsPatch(saved?.resubmissionFields),
       ...statusLinePatch(),
     });
@@ -1028,11 +1039,12 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
             // feedback rows did not save in Prism. Keep just the row picks staged to save again.
             setPending((p) => Object.fromEntries(Object.entries(p).filter(([k]) => isRowKey(k))));
             setInsertedLine(null);
+            settleDisplay(err.flagCleared);
             commentHistory.clearHistory();
             onSaved?.(student.schoology_uid, {
               ...scorePatch(),
               grade_comment: comment,
-              comment_status: display ? 1 : null,
+              comment_status: shownCommentStatus(comment, display),
               ...resubmissionFieldsPatch(err.resubmissionFields),
               ...statusLinePatch(),
               ...flagClearedPatch(err.flagCleared),
@@ -1050,6 +1062,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
         setSaveResult(savedWarning ? `error: ${savedWarning}` : 'saved');
         setPending({});
         setInsertedLine(null);
+        settleDisplay(saved?.flagCleared);
         commentHistory.clearHistory(); // undo never crosses a publish (#75)
         draftSaver().remove({ immediate: true });
         onSaved?.(student.schoology_uid, {
@@ -1057,7 +1070,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
           ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
           ...(overallChanged ? {
             grade_comment: comment,
-            comment_status: display ? 1 : null,
+            comment_status: shownCommentStatus(comment, display),
             ...resubmissionFieldsPatch(saved?.resubmissionFields),
             ...statusLinePatch(),
             ...flagClearedPatch(saved?.flagCleared),
@@ -1129,6 +1142,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
       setSaveResult(warning ? `error: ${warning}` : 'saved');
       setPending({});
       setInsertedLine(null);
+      settleDisplay(cleared);
       commentHistory.clearHistory(); // undo never crosses a publish (#75)
       // Explicit clear: the card stays mounted now, but the write effect runs
       // asynchronously — clear here so a fast bulk run can't race a stale key.
@@ -1137,7 +1151,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
         scores: buildSavedScores(),
         ...(rubricSaved ? GRADE_WRITTEN_PATCH : {}),
         grade_comment: comment,
-        comment_status: display ? 1 : null,
+        comment_status: shownCommentStatus(comment, display),
         ...resubmissionFieldsPatch(fields),
         ...statusLinePatch(),
         ...flagClearedPatch(cleared),

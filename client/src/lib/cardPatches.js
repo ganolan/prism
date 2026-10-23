@@ -9,6 +9,8 @@ export function flagClearedPatch(cleared) {
   return {
     exception: 0,
     ...(typeof cleared.comment === 'string' ? { grade_comment: cleared.comment } : {}),
+    // Removing the flag's line left no comment: Schoology keeps Display off (#183).
+    ...(cleared.comment === '' ? { comment_status: null } : {}),
     ...('status_line' in cleared ? { status_line: null } : {}),
   };
 }
@@ -32,3 +34,8 @@ export function resubmissionFieldsPatch(fields) {
     arrived_on: fields.arrived_on ?? null,
   };
 }
+
+// The comment_status Schoology keeps after a save: 1 (Display to student) only with a comment.
+// With an empty comment it stores null whatever was sent (#183), so the card patches that.
+// Mirror server/lib/commentStatus.js storedCommentStatus.
+export const shownCommentStatus = (comment, display) => (String(comment ?? '') !== '' && display ? 1 : null);

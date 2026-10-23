@@ -57,6 +57,9 @@ to make it enforceable rather than copy-pasted.
    *scopes* share a visual but are clearly differentiated.
    - The per-card visibility toggle and the bulk one share the eye + switch
      visual; the bulk one adds a status label and lives in a distinct bar.
+   - **Display needs a comment (#183, 23 Oct 2026).** Schoology keeps Display off on a
+     record with no comment, whatever was sent. After a publish with an empty comment, the
+     card's switch shows off and holds no change, so the bulk label counts that card as hidden.
    - Distinct scope ⇒ distinct chrome: whole-class/destructive actions sit in a
      "command bar" (subtle surface + accent left-stripe) so they can't be
      mistaken for a single card's controls when stacked.

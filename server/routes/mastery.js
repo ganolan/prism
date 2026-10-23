@@ -13,6 +13,7 @@ import { getFeedbackRows, rowLevelsError, saveRowLevels } from '../services/feed
 import { getAlignedTopics, getRoster, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
 import { gradePointsCheck, readBackPoints, sameScore } from '../services/gradePoints.js';
+import { storedCommentStatus } from '../lib/commentStatus.js';
 import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '../lib/proficiencyScale.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
@@ -907,7 +908,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
             readBack ? readBack.exception : Number(payload.exception) || 0, // what this PUT set: 0 when the grade cleared a marker
             gradeTimeAfterWrite(fresh),
             comment || '',
-            commentStatusInt,
+            storedCommentStatus(comment, commentStatusInt === 1), // what Schoology keeps (#183)
             now,
           );
         } else {
@@ -926,7 +927,7 @@ router.post('/:courseId/write-comment', async (req, res) => {
             assignmentRow.id,
             String(enrollmentId),
             comment || '',
-            commentStatusInt,
+            storedCommentStatus(comment, commentStatusInt === 1), // what Schoology keeps (#183)
             now,
           );
         }
@@ -1315,7 +1316,8 @@ router.post('/:courseId/send-all', async (req, res) => {
       const assignmentRow = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
       if (!studentRow || !assignmentRow) continue;
       const fresh = freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`) || null;
-      const commentStatusInt = e.comment.commentStatus === false ? null : 1;
+      // What Schoology keeps: null with an empty comment, whatever was sent (#183).
+      const commentStatusInt = storedCommentStatus(e.comment.comment, e.comment.commentStatus !== false);
       const readBack = readBackByUid.get(e.uid);
       upsertGrade.run(
         studentRow.id, assignmentRow.id, String(e.enrollmentId),

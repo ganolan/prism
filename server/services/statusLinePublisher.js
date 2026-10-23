@@ -13,6 +13,7 @@ import { getSectionGrades, pushGradeUpdates } from './schoology.js';
 import { composeComment, teacherText, plainLine, isPlainLine } from '../lib/statusLines.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
 import { TriageError } from './triageCommon.js';
+import { storedCommentStatus } from '../lib/commentStatus.js';
 
 // 'flag' (#40): a Schoology flag's reason line (server/services/gradeFlags.js), removed when the flag clears.
 export const STATUS_LINE_KINDS = ['ask', 'extend_resubmission', 'grade_stands', 'extension', 'make_up', 'received', 'flag'];
@@ -259,7 +260,7 @@ export async function removeStatusLine(db, { studentId, assignmentId, source = n
   }
   // An emptied comment is hidden: Schoology reads comment_status null for it (seen 22 Oct 2026), so
   // send and mirror null rather than a Display flag with nothing to show.
-  const commentStatus = comment !== '' && Number(fresh?.comment_status) === 1 ? 1 : null;
+  const commentStatus = storedCommentStatus(comment, Number(fresh?.comment_status) === 1);
   await putComment(t, fresh, comment, commentStatus);
   db.transaction(() => {
     mirror(db, t, fresh, comment, commentStatus);

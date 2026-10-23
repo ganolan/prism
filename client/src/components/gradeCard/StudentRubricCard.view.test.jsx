@@ -264,6 +264,38 @@ describe('StudentRubricCard: the points box on a points-only task (#181)', () =>
   });
 });
 
+describe('StudentRubricCard: Display with an empty comment (#183)', () => {
+  const POINTS_ROW = { id: 50, max_points: 50, grading_scale_id: '0', assignment_type: 'assignment' };
+
+  it('a save with no comment patches Display off, as Schoology keeps it, and leaves nothing pending', async () => {
+    const onSaved = vi.fn();
+    const registerCard = vi.fn();
+    vi.mocked(writeMasteryComment).mockResolvedValue({ score: 30 });
+    const { rerender } = renderCard({ topics: [], assignmentRow: POINTS_ROW, student: studentWith({ score: null }), onSaved, registerCard, unregisterCard: vi.fn() });
+    // The class switch turns Display on, then points are typed.
+    act(() => { registerCard.mock.calls.at(-1)[1].setDisplay(true); });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Score:' }), { target: { value: '30' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' })); });
+    const patch = onSaved.mock.calls.at(-1)[1];
+    expect(patch).toMatchObject({ score: 30, grade_comment: '', comment_status: null });
+    rerender(createElement(MemoryRouter, null, createElement(StudentRubricCard, {
+      student: studentWith({ score: 30, ...patch }), topics: [], courseId: '4', assignmentId: '8', assignmentRow: POINTS_ROW,
+      onSaved, registerCard, unregisterCard: vi.fn(),
+    })));
+    expect(screen.getByRole('switch', { name: 'Display to student' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeDisabled();
+  });
+
+  it('with a comment, Display is patched as chosen', async () => {
+    const onSaved = vi.fn();
+    vi.mocked(writeMasteryComment).mockResolvedValue({});
+    renderCard({ topics: [], assignmentRow: POINTS_ROW, student: studentWith({ score: 10 }), onSaved });
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment for this student/), { target: { value: 'Good work' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' })); });
+    expect(onSaved.mock.calls.at(-1)[1]).toMatchObject({ grade_comment: 'Good work', comment_status: 1 });
+  });
+});
+
 describe('StudentRubricCard: Missing shows IE on every topic (#40)', () => {
   it('with no topic levels, every topic of the descriptor grid shows IE with the Missing symbol, under the no-levels line', () => {
     renderCard({ topics: [T1, T2], rubric: RUBRIC, student: studentWith({ exception: 3 }) });

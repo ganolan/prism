@@ -20,6 +20,13 @@ function testFiles(dir) {
 }
 
 describe('test database isolation', () => {
+  // The backstop (23 Oct 2026): schoologyLogin.test.js reached getDb() through the route it tests,
+  // which no file scan can see, and created server/db/students.db. vitest.config.js sets DB_PATH for
+  // every test file; this file sets nothing, so it reads the config's value.
+  test('every test file starts with an in-memory DB_PATH (vitest.config.js test.env)', () => {
+    expect(process.env.DB_PATH).toBe(':memory:');
+  });
+
   test('every test file that calls getDb() uses an in-memory database, a mocked getDb or an injected one', () => {
     const open = DIRS.flatMap((d) => testFiles(join(ROOT, d)))
       .filter((f) => /\bgetDb\(\)/.test(readFileSync(f, 'utf8')))

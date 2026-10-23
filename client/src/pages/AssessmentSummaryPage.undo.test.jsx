@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { StudentRubricCard } from './AssessmentSummaryPage.jsx';
+import StudentRubricCard from '../components/gradeCard/StudentRubricCard.jsx';
 import { writeMasteryComment } from '../services/api.js';
 
 // Undo / redo in the card's comment box (#75). The box writes its own value on

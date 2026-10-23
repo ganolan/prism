@@ -33,6 +33,8 @@ import { levelToPoints } from '../lib/proficiencyScale.js';
 import { getAlignedTopics, scoreScaleFor } from './assessmentContext.js';
 import { getFeedbackRows, ROW_PREFIX } from './feedbackRows.js';
 import { cardBaselineFor } from './unfinishedGrading.js';
+import { POINTS_KEY } from './gradePoints.js';
+import { canEditPoints } from '../lib/pointsTask.js';
 import { listExtensions, undoExtension, undoReferral } from './triage.js';
 import { listResubmissions, undoResubmission, settleResubmissions } from './resubmissions.js';
 import { captureFeedbackSnapshots } from './feedbackSnapshots.js';
@@ -304,7 +306,8 @@ function openRecords(db, t) {
 const UNDO = { extension: undoExtension, resubmission: undoResubmission, referral: undoReferral };
 
 // What the card can stage from a saved copy, and what it cannot (to re-enter in Schoology): a
-// points-only score, or an overall that differs from what the saved levels compute to.
+// score on a task the card cannot score (a test, a named scale), or an overall that differs from
+// what the saved levels compute to. A points-only task's score goes in the points box (#181).
 function planRestore(db, a, saved) {
   const topics = getAlignedTopics(db, a.course_id, a.schoology_assignment_id);
   const scale = scoreScaleFor(a, topics.length);
@@ -332,6 +335,8 @@ function planRestore(db, a, saved) {
       if (level) pending[SCALE_KEY] = level.code;
       else notRestored.push(scoreText(score));
     }
+  } else if (score != null && canEditPoints(a, topics, scale)) {
+    pending[POINTS_KEY] = String(score);
   } else if (score != null) {
     notRestored.push(scoreText(score));
   }
@@ -358,7 +363,7 @@ function restoreDraft(db, t, copy) {
         draft = true;
         db.prepare(`UPDATE excused_grades SET restored_at = datetime('now') WHERE student_id = ? AND assignment_id = ?`).run(t.studentId, t.assignmentId);
       }
-      // Nothing the card can stage (e.g. a points-only score): the copy stays waiting, so
+      // Nothing the card can stage (e.g. a test's score): the copy stays waiting, so
       // "Restore saved grade" is still offered beside the parts to re-enter in Schoology.
     })();
     return { draft, notRestored };
@@ -374,7 +379,8 @@ function stagedSummary(scale, pending) {
   const parts = [];
   const level = pending[SCALE_KEY] ? scale?.levels.find((l) => l.code === pending[SCALE_KEY]) : null;
   if (level) parts.push(`${level.label} (${level.points})`);
-  const keys = Object.keys(pending).filter((k) => k !== SCALE_KEY);
+  if (pending[POINTS_KEY] != null) parts.push(`${pending[POINTS_KEY]} points`);
+  const keys = Object.keys(pending).filter((k) => k !== SCALE_KEY && k !== POINTS_KEY);
   const rows = keys.filter((k) => k.startsWith(ROW_PREFIX)).length;
   const topics = keys.length - rows;
   if (topics) parts.push(`${topics} topic level${topics === 1 ? '' : 's'}`);

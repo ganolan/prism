@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { hasMasterySession, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent } from '../services/masterySync.js';
-import { pushGradeUpdates, getSectionGrades } from '../services/schoology.js';
+import { pushGradeUpdates, getSectionGrades, getAssignmentGrades } from '../services/schoology.js';
 import { settleResubmissions, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
 import { refreshCourseMastery } from '../services/masteryRefresh.js';
@@ -12,7 +12,7 @@ import { FLAG_NAMES, isFinalFlag, isMarker } from '../lib/flags.js';
 import { getFeedbackRows, rowLevelsError, saveRowLevels } from '../services/feedbackRows.js';
 import { getAlignedTopics, getRoster, scoreScaleFor } from '../services/assessmentContext.js';
 import { getSchoologyConfig, getScoreScales } from '../middleware/featureGate.js';
-import { findScoreScale, isScalePoints } from '../lib/scoreScales.js';
+import { gradePointsCheck, readBackPoints, sameScore } from '../services/gradePoints.js';
 import { levelToGradeScaled, gradeScaledValues, pointsToLevel, LEVELS } from '../lib/proficiencyScale.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
@@ -23,18 +23,9 @@ import { buildAssessmentView, courseSyncedAt } from '../services/assessmentView.
 
 const router = Router();
 
-// Why `points` can't be written as a scale grade on this assignment, or null
-// when it can: the assignment must be on a configured score scale (#41) and
-// `points` must be exactly one of that scale's level values.
-function scalePointsError(db, courseId, assignmentId, points) {
-  const row = db.prepare(
-    'SELECT grading_scale_id FROM assignments WHERE schoology_assignment_id = ? AND course_id = ?'
-  ).get(String(assignmentId), courseId);
-  const scale = row ? findScoreScale(getScoreScales(), row.grading_scale_id) : null;
-  if (!scale) return `Assignment ${assignmentId} is not on a scale Prism can grade`;
-  if (!isScalePoints(scale, points)) return `${points} is not a level of ${scale.name}`;
-  return null;
-}
+// The score a write may carry with its comment: a level of the task's score scale (#41), or
+// plain points on a points-only task (#181). → { error, pointsTask } (gradePoints.js).
+const pointsCheck = (db, courseId, assignmentId, points) => gradePointsCheck(db, courseId, assignmentId, points, getScoreScales());
 
 // Sign-in to Schoology is /api/schoology-login (routes/schoologyLogin.js, any device).
 
@@ -608,6 +599,8 @@ function echoFreshGrade(db, studentId, assignmentId, fresh, label) {
 // written over a marker sends exception 0; the mastery (rubric) write clears the flag in Schoology
 // by itself (verified), so the comment write after it reads exception 0 fresh.
 const flaggedError = (code) => `This task is flagged ${FLAG_NAMES[Number(code)]} in Schoology: clear the flag before grading it. Nothing was written.`;
+// Points typed over a score that changed in Schoology since the card loaded (#181).
+const scoreChangedError = (grade) => `The score in Schoology is now ${grade == null || grade === '' ? 'empty' : Number(grade)}, not the one this card shows: nothing was written. Sync, then enter the points again.`;
 // Was this save a grade over a marker? A score sent over a fresh marker, or a rubric save (its
 // mastery write already cleared the flag, so fresh reads 0) over the marker Prism held locally.
 function gradedOverMarker({ wroteScore, wroteRubric, freshException, localException }) {
@@ -693,7 +686,7 @@ async function settleMarkerOnly(req, res) {
 // POST /api/mastery/:courseId/write-comment — write grade comment back to Schoology
 router.post('/:courseId/write-comment', async (req, res) => {
   const { courseId } = req.params;
-  const { enrollmentId, assignmentId, commentStatus, points, statusLine, statusLineKind, rubricSaved, rowLevels } = req.body;
+  const { enrollmentId, assignmentId, commentStatus, points, expectedScore, statusLine, statusLineKind, rubricSaved, rowLevels } = req.body;
   let { comment } = req.body;
 
   if (!enrollmentId || !assignmentId) {
@@ -733,12 +726,16 @@ router.post('/:courseId/write-comment', async (req, res) => {
   const courseRow = db.prepare('SELECT schoology_section_id FROM courses WHERE id = ?').get(courseId);
   if (!courseRow) return res.status(404).json({ error: 'Course not found' });
 
-  // Optional scale grade for an unaligned assignment (#41), written in the same
-  // PUT. Only a level value of the assignment's own configured scale is allowed.
+  // Optional score written in the same PUT: a level value of the assignment's own configured
+  // scale (#41), or points of 0 or more on a points-only task (#181). `expectedScore` (sent with
+  // points-only points) is the score the card was drawn from: a different one in Schoology now
+  // refuses the write.
   const hasPoints = points != null;
+  let pointsTask = false;
   if (hasPoints) {
-    const scaleError = scalePointsError(db, courseId, assignmentId, points);
-    if (scaleError) return res.status(400).json({ error: scaleError });
+    const check = pointsCheck(db, courseId, assignmentId, points);
+    if (check.error) return res.status(400).json({ error: check.error });
+    pointsTask = check.pointsTask;
   }
 
   // Feedback rows (spec 2026-10-13): Prism-only. Validated before any Schoology
@@ -825,6 +822,10 @@ router.post('/:courseId/write-comment', async (req, res) => {
     if (hasPoints && isFinalFlag(fresh?.exception)) {
       return res.status(409).json({ error: flaggedError(fresh.exception), code: 'FLAGGED' });
     }
+    // Points typed over a score that has changed in Schoology since the card loaded (#181).
+    if (hasPoints && expectedScore !== undefined && !sameScore(fresh?.grade ?? null, expectedScore)) {
+      return res.status(409).json({ error: scoreChangedError(fresh?.grade), code: 'SCORE_CHANGED' });
+    }
     const overMarker = gradedOverMarker({
       wroteScore: hasPoints, wroteRubric: rubricSaved === true, freshException: fresh?.exception, localException,
     });
@@ -852,6 +853,11 @@ router.post('/:courseId/write-comment', async (req, res) => {
         console.error('[mastery write-comment] comment PUT rejected:', result?.status, JSON.stringify(result?.data)?.slice(0, 500));
         return res.status(502).json({ error: 'Schoology rejected the update: nothing was recorded in Prism' });
       }
+      // Points on a points-only task are read back (#181): Prism mirrors what Schoology holds.
+      const readBack = pointsTask ? await readBackPoints({
+        read: () => getAssignmentGrades(courseRow.schoology_section_id, assignmentId),
+        enrollmentId, points, sentException: Number(payload.exception) || 0,
+      }) : null;
 
       // Mirror to local DB. Use upsert so virgin records (no prior grade row)
       // also get cached locally — without this, the assessment page would
@@ -897,8 +903,8 @@ router.post('/:courseId/write-comment', async (req, res) => {
             studentRow.id,
             assignmentRow.id,
             String(enrollmentId),
-            hasPoints ? Number(points) : (fresh.grade ?? null),
-            Number(payload.exception) || 0, // what this PUT set: 0 when the grade cleared a marker
+            readBack ? readBack.score : hasPoints ? Number(points) : (fresh.grade ?? null),
+            readBack ? readBack.exception : Number(payload.exception) || 0, // what this PUT set: 0 when the grade cleared a marker
             gradeTimeAfterWrite(fresh),
             comment || '',
             commentStatusInt,
@@ -969,7 +975,10 @@ router.post('/:courseId/write-comment', async (req, res) => {
       if (rowsSaveFailed) {
         return res.status(500).json({ error: ROWS_NOT_SAVED, published: true, resubmissionFields, ...(flagCleared ? { flagCleared } : {}) });
       }
-      res.json({ ...result, resubmissionFields, ...(flagCleared ? { flagCleared } : {}) });
+      res.json({
+        ...result, resubmissionFields, ...(flagCleared ? { flagCleared } : {}),
+        ...(readBack ? { score: readBack.score, ...(readBack.warning ? { warning: readBack.warning } : {}) } : {}),
+      });
     } catch (err) {
       console.error('[mastery write-comment] Error:', err);
       res.status(500).json({ error: err.message });
@@ -1008,13 +1017,14 @@ router.post('/:courseId/send-all', async (req, res) => {
   }
   const settleEntries = entries.filter((e) => e.settleMarker === true);
 
-  // Scale grades (#41) ride the comment PUT; validate them all before writing
-  // anything, so one bad entry can't leave the batch half-sent.
+  // Scale grades (#41) and points-only points (#181) ride the comment PUT; validate them all
+  // before writing anything, so one bad entry can't leave the batch half-sent.
+  const pointsTaskUids = new Set(); // entries whose points are read back after the PUT (#181)
   for (const e of entries.filter(e => e.grade)) {
-    const scaleError = !e.comment
-      ? 'a scale grade must be sent with its comment'
-      : scalePointsError(db, courseId, e.assignmentId, e.grade.points);
+    const check = e.comment ? pointsCheck(db, courseId, e.assignmentId, e.grade.points) : null;
+    const scaleError = !e.comment ? 'a scale grade must be sent with its comment' : check.error;
     if (scaleError) return res.status(400).json({ error: scaleError, results: entries.map(x => ({ uid: x.uid, ok: false })) });
+    if (check.pointsTask) pointsTaskUids.add(e.uid);
   }
 
   // Feedback rows: validate every entry's rows before any write.
@@ -1107,6 +1117,7 @@ router.post('/:courseId/send-all', async (req, res) => {
     let freshByKey = new Map();
     const sentException = new Map(); // uid → the exception each comment PUT set
     const overMarker = new Set();    // uids whose grade cleared a marker (#40)
+    const readBackByUid = new Map(); // uid → what Schoology holds after a points write (#181)
     if (commentEntries.length > 0) {
       const allGrades = await getSectionGrades(sectionId);
       for (const g of allGrades) {
@@ -1143,6 +1154,13 @@ router.post('/:courseId/send-all', async (req, res) => {
         const code = freshByKey.get(`${flaggedNow.assignmentId}::${flaggedNow.enrollmentId}`).exception;
         return res.status(409).json({ error: failMessage(flaggedError(code)), code: 'FLAGGED', results: entries.map((x) => ({ uid: x.uid, ok: false })) });
       }
+      // Points typed over a score that changed in Schoology since the card loaded (#181).
+      const changedNow = commentEntries.find((e) => e.grade && e.grade.expected !== undefined
+        && !sameScore(freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`)?.grade ?? null, e.grade.expected));
+      if (changedNow) {
+        const now = freshByKey.get(`${changedNow.assignmentId}::${changedNow.enrollmentId}`)?.grade;
+        return res.status(409).json({ error: failMessage(scoreChangedError(now)), code: 'SCORE_CHANGED', results: entries.map((x) => ({ uid: x.uid, ok: false })) });
+      }
 
       const payloads = commentEntries.map(e => {
         const fresh = freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`) || null;
@@ -1176,6 +1194,17 @@ router.post('/:courseId/send-all', async (req, res) => {
             : 'Schoology rejected the update: nothing was recorded in Prism',
           results: entries.map((x) => ({ uid: x.uid, ok: false })),
         });
+      }
+      // Points on a points-only task are read back (#181), one grades read per task.
+      const reads = new Map();
+      const readTask = (assignmentId) => {
+        if (!reads.has(assignmentId)) reads.set(assignmentId, getAssignmentGrades(sectionId, assignmentId));
+        return reads.get(assignmentId);
+      };
+      for (const e of commentEntries.filter((x) => pointsTaskUids.has(x.uid))) {
+        readBackByUid.set(e.uid, await readBackPoints({
+          read: () => readTask(String(e.assignmentId)), enrollmentId: e.enrollmentId, points: e.grade.points, sentException: sentException.get(e.uid) ?? 0,
+        }));
       }
     }
 
@@ -1287,10 +1316,11 @@ router.post('/:courseId/send-all', async (req, res) => {
       if (!studentRow || !assignmentRow) continue;
       const fresh = freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`) || null;
       const commentStatusInt = e.comment.commentStatus === false ? null : 1;
+      const readBack = readBackByUid.get(e.uid);
       upsertGrade.run(
         studentRow.id, assignmentRow.id, String(e.enrollmentId),
-        e.grade ? Number(e.grade.points) : (fresh ? (fresh.grade ?? null) : null),
-        sentException.get(e.uid) ?? 0, // 0 when the grade cleared a marker
+        readBack ? readBack.score : e.grade ? Number(e.grade.points) : (fresh ? (fresh.grade ?? null) : null),
+        readBack ? readBack.exception : sentException.get(e.uid) ?? 0, // 0 when the grade cleared a marker
         gradeTimeAfterWrite(fresh),
         e.comment.comment || '', commentStatusInt, now,
       );
@@ -1347,8 +1377,9 @@ router.post('/:courseId/send-all', async (req, res) => {
         const cleared = flagClearedByUid.has(e.uid) ? { flagCleared: flagClearedByUid.get(e.uid) } : {};
         // published: the grade and comment are in Schoology and mirrored; only the rows are not.
         if (rowsFailed.has(e.uid)) return { uid: e.uid, ok: false, published: true, error: ROWS_NOT_SAVED, resubmissionFields, ...cleared };
-        const warning = mirrorFailed.get(e.uid) || (settleReadFailed && e.settleMarker ? SETTLE_NOT_READ : null);
-        return { uid: e.uid, ok: true, resubmissionFields, ...cleared, ...(warning ? { warning } : {}) };
+        const readBack = readBackByUid.get(e.uid);
+        const warning = mirrorFailed.get(e.uid) || readBack?.warning || (settleReadFailed && e.settleMarker ? SETTLE_NOT_READ : null);
+        return { uid: e.uid, ok: true, resubmissionFields, ...cleared, ...(readBack ? { score: readBack.score } : {}), ...(warning ? { warning } : {}) };
       }),
     });
   } catch (err) {

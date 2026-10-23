@@ -27,6 +27,7 @@ vi.mock('../services/feedbackRows.js', async (importOriginal) => {
 vi.mock('../services/schoology.js', () => ({
   pushGradeUpdates: vi.fn(),
   getSectionGrades: vi.fn(),
+  getAssignmentGrades: vi.fn(),
 }));
 // The OneDrive lookup drives a real browser — never launch one in tests (#120).
 vi.mock('../services/oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }));
@@ -39,7 +40,7 @@ import triageRouter from './triage.js';
 import { getDb } from '../db/index.js';
 import { saveRowLevels } from '../services/feedbackRows.js';
 import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
-import { getSectionGrades, pushGradeUpdates } from '../services/schoology.js';
+import { getSectionGrades, getAssignmentGrades, pushGradeUpdates } from '../services/schoology.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { getLtiSubmissionApp, getSubmittedDocuments } from '../services/ltiSubmissionApps.js';
 import { requestResubmission, resubmissionByStudent } from '../services/resubmissions.js';
@@ -172,8 +173,8 @@ describe('GET /api/mastery/:courseId/assignment/:assignmentId — resubmit flags
     try {
       const st = (await get(`/api/mastery/${courseId}/assignment/sa-1`)).body.students[0];
       expect(st.saved_grade).toMatchObject({ score: 75, topics: { t1: 'EX' }, flag: 1, savedAt: '2026-10-21 02:00:00', summary: '75 / 100 and 1 topic level' });
-      // What clearing can stage: nothing on a task with no topics or scale (the score is re-entered).
-      expect(st.saved_grade).toMatchObject({ restoreSummary: null, notRestored: ['75'] });
+      // What clearing can stage: on a points-only task, the score in the card's points box (#181).
+      expect(st.saved_grade).toMatchObject({ restoreSummary: '75 points', notRestored: [] });
       expect(st.flag_line).toBe('Marked exempt on Wed 21/10. Medical leave.');
       // Restored: no longer waiting. Another kind of status line is not the flag's.
       db.prepare(`UPDATE excused_grades SET restored_at = '2026-10-22 00:00:00'`).run();
@@ -1951,6 +1952,121 @@ describe('Score-scale grading for unaligned assignments (#41)', () => {
     });
     expect(status).toBe(400);
     expect(pushGradeUpdates).not.toHaveBeenCalled();
+  });
+
+  describe('points-only tasks (#181)', () => {
+    beforeEach(() => {
+      vi.mocked(getAssignmentGrades).mockReset();
+      const db = getDb();
+      db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id, max_points) VALUES (?, 'sa-P', 'Paper test', '0', 50)`).run(courseId);
+      db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id, assignment_type, max_points) VALUES (?, 'sa-Q', 'Quiz', '0', 'assessment', 20)`).run(courseId);
+    });
+    const freshB = (grade, exception = 0) => [{ assignment_id: 'sa-P', enrollment_id: 'eB', grade, exception, timestamp: '1700000000' }];
+    const scoreOfB = () => getDb().prepare(
+      `SELECT g.score, g.exception FROM grades g JOIN students s ON s.id = g.student_id JOIN assignments a ON a.id = g.assignment_id
+       WHERE s.schoology_uid = 'uid-B' AND a.schoology_assignment_id = 'sa-P'`
+    ).get();
+
+    test('write-comment writes the points with the comment, reads them back and mirrors them', async () => {
+      vi.mocked(getSectionGrades).mockResolvedValue(freshB(null));
+      vi.mocked(getAssignmentGrades).mockResolvedValue(freshB('42.5'));
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-P', points: 42.5, expectedScore: null, comment: 'Well done', commentStatus: true,
+      });
+      expect(status).toBe(200);
+      expect(body.score).toBe(42.5);
+      expect(body.warning).toBeUndefined();
+      expect(pushGradeUpdates).toHaveBeenCalledWith('sec-S', [{
+        assignment_id: 'sa-P', enrollment_id: 'eB', comment: 'Well done', comment_status: 1, grade: '42.5', exception: 0,
+      }]);
+      expect(getAssignmentGrades).toHaveBeenCalledWith('sec-S', 'sa-P');
+      expect(scoreOfB()).toEqual({ score: 42.5, exception: 0 });
+    });
+
+    test('write-comment refuses when the score changed in Schoology since the card loaded', async () => {
+      vi.mocked(getSectionGrades).mockResolvedValue(freshB('30'));
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-P', points: 45, expectedScore: 40, comment: '', commentStatus: true,
+      });
+      expect(status).toBe(409);
+      expect(body.code).toBe('SCORE_CHANGED');
+      expect(body.error).toMatch(/The score in Schoology is now 30/);
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+    });
+
+    test('write-comment: a read-back that differs mirrors what Schoology holds, with a warning', async () => {
+      vi.mocked(getSectionGrades).mockResolvedValue(freshB('40'));
+      vi.mocked(getAssignmentGrades).mockResolvedValue(freshB('40'));
+      const { status, body } = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-P', points: 45, expectedScore: '40', comment: '', commentStatus: true,
+      });
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ score: 40, warning: 'Schoology holds 40, not the 45 sent: check the grade in Schoology' });
+      expect(scoreOfB().score).toBe(40);
+    });
+
+    test('write-comment refuses points over Exempt or Missing, and clears a marker', async () => {
+      vi.mocked(getSectionGrades).mockResolvedValue(freshB(null, 1));
+      const exempt = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-P', points: 45, expectedScore: null, comment: '', commentStatus: true,
+      });
+      expect(exempt.status).toBe(409);
+      expect(exempt.body.code).toBe('FLAGGED');
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+
+      vi.mocked(getSectionGrades).mockResolvedValue(freshB(null, 6));
+      vi.mocked(getAssignmentGrades).mockResolvedValue(freshB('45', 0));
+      const late = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-P', points: 45, expectedScore: null, comment: '', commentStatus: true,
+      });
+      expect(late.status).toBe(200);
+      expect(pushGradeUpdates).toHaveBeenCalledWith('sec-S', [expect.objectContaining({ grade: '45', exception: 0 })]);
+      expect(scoreOfB()).toEqual({ score: 45, exception: 0 });
+    });
+
+    test('write-comment refuses points on a test or quiz, and a negative score', async () => {
+      const quiz = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-Q', points: 10, comment: '', commentStatus: true,
+      });
+      expect(quiz.status).toBe(400);
+      expect(quiz.body.error).toBe('Schoology scores tests and quizzes: Prism writes no points to them');
+      const negative = await post(`/api/mastery/${courseId}/write-comment`, {
+        enrollmentId: 'eB', assignmentId: 'sa-P', points: -2, comment: '', commentStatus: true,
+      });
+      expect(negative.status).toBe(400);
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+    });
+
+    test('send-all writes points, reads each task back once, and mirrors the score', async () => {
+      vi.mocked(getSectionGrades).mockResolvedValue([
+        ...freshB(null), { assignment_id: 'sa-P', enrollment_id: 'eA', grade: '10', exception: 0, timestamp: '0' },
+      ]);
+      vi.mocked(getAssignmentGrades).mockResolvedValue([
+        ...freshB('50'), { assignment_id: 'sa-P', enrollment_id: 'eA', grade: '12', exception: 0, timestamp: '0' },
+      ]);
+      const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [
+          { uid: 'uid-B', enrollmentId: 'eB', assignmentId: 'sa-P', scores: null, grade: { points: 50, expected: null }, comment: { comment: 'Full marks', commentStatus: true } },
+          { uid: 'uid-A', enrollmentId: 'eA', assignmentId: 'sa-P', scores: null, grade: { points: 11, expected: 10 }, comment: { comment: '', commentStatus: true } },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(getAssignmentGrades).toHaveBeenCalledTimes(1);
+      expect(body.results[0]).toMatchObject({ uid: 'uid-B', ok: true, score: 50 });
+      expect(body.results[0].warning).toBeUndefined();
+      expect(body.results[1]).toMatchObject({ uid: 'uid-A', ok: true, score: 12, warning: 'Schoology holds 12, not the 11 sent: check the grade in Schoology' });
+      expect(scoreOfB().score).toBe(50);
+    });
+
+    test('send-all refuses the batch when a score changed in Schoology', async () => {
+      vi.mocked(getSectionGrades).mockResolvedValue(freshB('20'));
+      const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{ uid: 'uid-B', enrollmentId: 'eB', assignmentId: 'sa-P', scores: null, grade: { points: 50, expected: null }, comment: { comment: '', commentStatus: true } }],
+      });
+      expect(status).toBe(409);
+      expect(body.code).toBe('SCORE_CHANGED');
+      expect(pushGradeUpdates).not.toHaveBeenCalled();
+    });
   });
 
   describe('feedback rows (spec 2026-10-13)', () => {

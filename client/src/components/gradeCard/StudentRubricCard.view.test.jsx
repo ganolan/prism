@@ -5,7 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { cardInputs } from '../../lib/cardInputs.js';
 import { draftBaseline } from '../../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../../lib/assessmentDraftSaver.js';
-import { getProficiencyScale } from '../../services/api.js';
+import { getProficiencyScale, writeMasteryComment, writeMasteryScores } from '../../services/api.js';
 import StudentRubricCard from './StudentRubricCard.jsx';
 import { TOPICS, makeStudent, renderCard } from './testFixtures.js';
 
@@ -125,11 +125,12 @@ function rowCard(student, extra = {}) {
 describe('StudentRubricCard: a points-only task', () => {
   it('shows its score as "50 / 100" with no table', () => {
     renderCard({
-      topics: [], assignmentRow: { id: 50, max_points: 100 },
+      topics: [], assignmentRow: { id: 50, max_points: 100 }, mode: 'view',
       student: studentWith({ score: 50 }),
     });
     expect(screen.getByText('Score:')).toBeInTheDocument();
     expect(screen.getByText('50 / 100')).toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Score:' })).not.toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 
@@ -169,6 +170,97 @@ describe('StudentRubricCard: a points-only task', () => {
     });
     expect(screen.getByText('Meets')).toBeInTheDocument();
     expect(screen.queryByText('50 / 100')).not.toBeInTheDocument();
+  });
+});
+
+describe('StudentRubricCard: the points box on a points-only task (#181)', () => {
+  const POINTS_ROW = { id: 50, max_points: 50, grading_scale_id: '0', assignment_type: 'assignment' };
+  const pointsCard = (student, extra = {}) => renderCard({ topics: [], assignmentRow: POINTS_ROW, student: studentWith(student), ...extra });
+  const box = () => screen.getByRole('textbox', { name: 'Score:' });
+  const publish = () => screen.getByRole('button', { name: 'Publish to Schoology' });
+
+  it('the edit card shows the score in a box beside the maximum', () => {
+    pointsCard({ score: 40 });
+    expect(box()).toHaveValue('40');
+    expect(screen.getByText('/ 50')).toBeInTheDocument();
+    expect(publish()).toBeDisabled();
+  });
+
+  it('publishes the typed points with the comment and the score it was drawn from', async () => {
+    const onSaved = vi.fn();
+    vi.mocked(writeMasteryComment).mockResolvedValueOnce({ score: 42.5 });
+    pointsCard({ score: 40 }, { onSaved });
+    fireEvent.change(box(), { target: { value: '42.5' } });
+    expect(publish()).toBeEnabled();
+    await act(async () => { fireEvent.click(publish()); });
+    expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({
+      enrollmentId: 'enr-1', assignmentId: '8', points: 42.5, expectedScore: 40,
+    }));
+    expect(writeMasteryScores).not.toHaveBeenCalled();
+    expect(onSaved).toHaveBeenCalledWith('uid-1', expect.objectContaining({ score: 42.5 }));
+  });
+
+  it('a read-back that differs shows the warning and patches the score Schoology holds', async () => {
+    const onSaved = vi.fn();
+    vi.mocked(writeMasteryComment).mockResolvedValueOnce({ score: 40, warning: 'Schoology holds 40, not the 45 sent: check the grade in Schoology' });
+    pointsCard({ score: null }, { onSaved });
+    fireEvent.change(box(), { target: { value: '45' } });
+    await act(async () => { fireEvent.click(publish()); });
+    expect(writeMasteryComment).toHaveBeenCalledWith('4', expect.objectContaining({ points: 45, expectedScore: null }));
+    expect(onSaved).toHaveBeenCalledWith('uid-1', expect.objectContaining({ score: 40 }));
+    expect(screen.getByText(/Schoology holds 40, not the 45 sent/)).toBeInTheDocument();
+  });
+
+  it('text that is not a score of 0 or more blocks the publish, and an emptied box too', () => {
+    pointsCard({ score: 40 });
+    for (const bad of ['-3', 'abc', '']) {
+      fireEvent.change(box(), { target: { value: bad } });
+      expect(screen.getByText('Enter a score of 0 or more.')).toBeInTheDocument();
+      expect(publish()).toBeDisabled();
+    }
+    fireEvent.change(box(), { target: { value: '40' } }); // back to the synced score: nothing staged
+    expect(screen.queryByText('Enter a score of 0 or more.')).not.toBeInTheDocument();
+    expect(publish()).toBeDisabled();
+  });
+
+  it('a score over the maximum is allowed, with a note', () => {
+    pointsCard({ score: null });
+    fireEvent.change(box(), { target: { value: '55' } });
+    expect(screen.getByText('Over the maximum of 50.')).toBeInTheDocument();
+    expect(publish()).toBeEnabled();
+  });
+
+  it('Publish all sends the points with the expected score, and its patch', () => {
+    const registerCard = vi.fn();
+    pointsCard({ score: 10 }, { registerCard, unregisterCard: vi.fn() });
+    fireEvent.change(box(), { target: { value: '12' } });
+    const { getEntry } = registerCard.mock.calls.at(-1)[1];
+    const built = getEntry();
+    expect(built.entry).toMatchObject({ scores: null, grade: { points: 12, expected: 10 }, comment: { comment: '' } });
+    expect(built.patch).toMatchObject({ score: 12 });
+  });
+
+  it('Exempt or Missing keeps the read-only score; a marker keeps the box', () => {
+    pointsCard({ score: null, exception: 1 });
+    expect(screen.queryByRole('textbox', { name: 'Score:' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('img', { name: 'Exempt' }).length).toBeGreaterThan(0);
+  });
+
+  it('a late task keeps the box (grading it clears Late)', () => {
+    pointsCard({ score: null, exception: 6 });
+    expect(box()).toBeInTheDocument();
+    expect(screen.getByText('Grading this work clears Late.')).toBeInTheDocument();
+  });
+
+  it('no box on a test or quiz', () => {
+    pointsCard({ score: 8 }, { assignmentRow: { ...POINTS_ROW, assignment_type: 'assessment' } });
+    expect(screen.queryByRole('textbox', { name: 'Score:' })).not.toBeInTheDocument();
+    expect(screen.getByText('Score:')).toBeInTheDocument();
+  });
+
+  it('no box on a task on a named Schoology scale', () => {
+    pointsCard({ score: 8 }, { assignmentRow: { ...POINTS_ROW, grading_scale_id: '1293963' } });
+    expect(screen.queryByRole('textbox', { name: 'Score:' })).not.toBeInTheDocument();
   });
 });
 

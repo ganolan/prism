@@ -14,6 +14,7 @@ vi.mock('./oneDriveLinks.js', () => ({ getAssignmentFiles: vi.fn() }));
 import { getDb } from '../db/index.js';
 import masteryRouter from '../routes/mastery.js';
 import { draftBaseline } from '../../client/src/lib/assessmentDraft.js';
+import { canEditPoints } from '../../client/src/lib/pointsTask.js';
 import { getUnfinishedGrading, UNFINISHED_GRADING_REASONS } from './unfinishedGrading.js';
 import { markSeen } from './submissionCommentStore.js';
 
@@ -52,7 +53,9 @@ async function cardBase(sa, uid) {
     const res = await fetch(`http://localhost:${server.address().port}/api/mastery/${courseId}/assignment/${sa}`);
     const body = await res.json();
     const s = body.students.find((x) => x.schoology_uid === uid);
-    return draftBaseline(s, body.scoreScale ? [] : body.topics, { includeScore: !!body.scoreScale, rowLevels: body.scoreScale ? s.row_levels : undefined });
+    // The card's rule: the score is in the baseline on a scale task or a points-only task (#181).
+    const includeScore = !!body.scoreScale || canEditPoints(body.assignment, body.topics, body.scoreScale);
+    return draftBaseline(s, body.scoreScale ? [] : body.topics, { includeScore, rowLevels: body.scoreScale ? s.row_levels : undefined });
   } finally {
     server.close();
   }

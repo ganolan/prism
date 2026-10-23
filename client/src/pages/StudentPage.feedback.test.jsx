@@ -548,7 +548,9 @@ describe('StudentPage', () => {
     await screen.findByRole('button', { name: 'Done' });
     fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Done' })).toHaveLength(2));
-    expect(screen.getAllByRole('textbox')).toHaveLength(2);
+    expect(screen.getAllByPlaceholderText(/Teacher comment for this student/)).toHaveLength(2);
+    // One of the two is the points-only task: its edit card has the points box (#181).
+    expect(screen.getAllByRole('textbox', { name: 'Score:' })).toHaveLength(1);
     expect(screen.getAllByRole('button', { name: 'Edit' })).toHaveLength(4);
   });
 

@@ -410,8 +410,11 @@ export default function AssessmentSummaryPage() {
         const success = r?.ok ?? false;
         cardsRef.current[i.uid]?.applyResult(success, r);
         // Each saved pair's post-save resubmission state comes back with its result (I2), and a
-        // grade that cleared a marker its flagCleared (#40).
-        if (success) { handleCardSaved(i.uid, { ...i.patch, ...resubmissionFieldsPatch(r.resubmissionFields), ...flagClearedPatch(r.flagCleared) }); ok++; } else { fail++; }
+        // grade that cleared a marker its flagCleared (#40), and points the score Schoology holds (#181).
+        if (success) {
+          handleCardSaved(i.uid, { ...i.patch, ...(r.score !== undefined ? { score: r.score } : {}), ...resubmissionFieldsPatch(r.resubmissionFields), ...flagClearedPatch(r.flagCleared) });
+          ok++;
+        } else { fail++; }
         // Published, but its feedback rows did not save in Prism: the grade and comment are in
         // Schoology (the server retired any saved copy), so the card shows them; the rows stay staged.
         if (!success && r?.published) {

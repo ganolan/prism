@@ -756,6 +756,12 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
 /* A points-only task's score on the card (no rubric to show). */
 .grade-card__score { display: flex; align-items: center; gap: 0.1rem; font-size: 0.85rem; padding-bottom: 0.25rem; }
 .grade-card__score-label { font-weight: 700; margin-right: 5px; }
+/* The points box on a points-only task (#181): a short number field, the maximum beside it. */
+.grade-card__points-input { width: 5rem; padding: 0.2rem 0.4rem; font-size: 0.85rem; border: 1px solid var(--border); border-radius: 6px; background: var(--card-bg); color: var(--text); }
+.grade-card__points-input--invalid { border-color: var(--danger); }
+.grade-card__points-max { margin-left: 0.35rem; color: var(--text-muted); }
+.grade-card__points-note { margin-left: 0.6rem; color: var(--text-muted); font-size: 0.8rem; }
+.grade-card__points-note--error { color: var(--danger); }
 /* A view card's comment (#176): the published text under its label, in a boxed block. */
 .grade-card__comment-view { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; white-space: pre-line; overflow-wrap: anywhere; }
 .grade-card__comment-label { font-weight: 700; margin-right: 5px; }

@@ -485,8 +485,19 @@ describe('setGradeFlag: clearing', () => {
     expect(draftRow().pending).toEqual({ t1: 'EX', t2: 'EX' });
   });
 
-  test('a points-only task: the score is listed (nothing the card can stage), no draft', async () => {
+  test('a points-only task: the score is staged in the card\'s points box (#181)', async () => {
     db.exec('DELETE FROM mastery_scores; DELETE FROM mastery_alignments');
+    await flag(1);
+    const out = await flag(0);
+    const aRow = db.prepare('SELECT * FROM assignments WHERE id = ?').get(a);
+    expect(out.restored).toEqual({ draft: true, notRestored: [] });
+    expect(draftRow()).toMatchObject({ pending: { __points__: '75' }, base: cardBaselineFor(db, aRow)({ schoology_uid: 'u1' }) });
+    expect(copyRow().restored_at).not.toBeNull();
+  });
+
+  test('a test or quiz: the score is listed (nothing the card can stage), no draft', async () => {
+    db.exec('DELETE FROM mastery_scores; DELETE FROM mastery_alignments');
+    db.prepare(`UPDATE assignments SET assignment_type = 'assessment' WHERE id = ?`).run(a);
     await flag(1);
     const out = await flag(0);
     expect(out.restored).toEqual({ draft: false, notRestored: ['75'] });

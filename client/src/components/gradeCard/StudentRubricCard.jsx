@@ -37,6 +37,7 @@ import { briefFlags, textSignature } from '../../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../../lib/statusLines.js';
 import { FLAGS, isFlag, isExempt, isFinalFlag, isMarker, flagEffect } from '../../lib/flags.js';
 import { GRADE_WRITTEN_PATCH, resubmissionFieldsPatch, flagClearedPatch } from '../../lib/cardPatches.js';
+import { canEditPoints, parsePoints } from '../../lib/pointsTask.js';
 
 // The rubric-locked badge takes the flag's color (#40). Only the final flags lock the rubric:
 // Exempt green, Missing red.
@@ -48,6 +49,8 @@ const REMOVE = '__remove__';
 // pending key for a score-scale grade (#41): an unaligned assignment graded on
 // a plain Schoology scale has one level for the whole assignment, not per topic.
 const SCALE = '__scale__';
+// pending key for the points typed on a points-only task (#181): the box's text, as typed.
+const POINTS = '__points__';
 
 function displayName(student) {
   return studentFullName(student);
@@ -128,11 +131,16 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
   // attached rubric's criteria. Row levels stay in Prism; only the overall
   // scale level is published.
   const hasFeedbackRows = !!scoreScale && topics.length > 0;
+  // A points-only task (#181): the edit card has a points box (not on a test or quiz, which
+  // Schoology scores).
+  const pointsTask = !isView && canEditPoints(assignmentRow, topics, scoreScale);
   // On a score-scale task the baseline never depends on the rows (topics): it
   // reads the row finals directly, so a draft stays valid while the rubric
   // loads and after one is attached (a draft saved before has no row finals).
+  // The score is part of it wherever the card can write one, so typed points over a
+  // score Schoology has since changed are dropped (#47).
   const currentBaseline = draftBaseline(student, scoreScale ? [] : topics, {
-    includeScore: !!scoreScale,
+    includeScore: !!scoreScale || pointsTask,
     rowLevels: scoreScale ? student.row_levels : undefined,
   });
 
@@ -324,6 +332,14 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
   const stagedScale = scoreScale ? (pending[SCALE] ?? autoScale) : null;
   const averageLabel = average.level ? scoreScale.levels.find((l) => l.code === average.level)?.label : null;
   const currentOverall = pending[SCALE] ?? autoScale ?? student.scale_level ?? null;
+  // Typed points (#181): the number to write, or null; text that is not a number of 0 or more
+  // blocks the publish.
+  const typedPoints = pointsTask ? (pending[POINTS] ?? null) : null;
+  const stagedPoints = typedPoints != null ? parsePoints(typedPoints) : null;
+  const pointsInvalid = typedPoints != null && stagedPoints == null;
+  const maxPoints = assignmentRow?.max_points ?? null;
+  // The score this save writes with the comment: the staged level's points (#41) or the typed points.
+  const gradePoints = () => (scoreScale ? (stagedScale ? scalePointsFor(stagedScale) : null) : stagedPoints);
   // "Use the rubric average": drop a different pick (the average then stages by
   // itself while nothing is published), or stage the average over a published level.
   function useRubricAverage() {
@@ -351,7 +367,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
   // so a publish sends only the comment and Display (#177): "Publish the comment only".
   const commentOrDisplayChanged = commentDirty || display !== loadedDisplay;
   const heldLevels = isRubricLocked && Object.keys(pending).length > 0;
-  const canPublish = isRubricLocked ? commentOrDisplayChanged : hasPendingChanges;
+  const canPublish = isRubricLocked ? commentOrDisplayChanged : (hasPendingChanges && !pointsInvalid);
   // A save that touches only feedback rows stays in Prism (no Schoology call), so its
   // button reads "Save in Prism"; the condition mirrors handleSave's overallChanged.
   const rowsOnlySave = !isRubricLocked && hasFeedbackRows && stagedScale == null
@@ -725,6 +741,19 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
     setPending(p => ({ ...p, [SCALE]: code }));
   }
 
+  // The points box (#181). The text is staged as typed; typing the synced score back drops it.
+  // Prism never removes a score: an emptied box over a score blocks the publish.
+  function typePoints(text) {
+    if (isRubricLocked) return;
+    const synced = student.score == null ? '' : String(student.score);
+    if (text === synced) {
+      setPending((p) => { const n = { ...p }; delete n[POINTS]; return n; });
+      return;
+    }
+    armAutoFlip();
+    setPending((p) => ({ ...p, [POINTS]: text }));
+  }
+
   // Whole-class "Mark all …" (#41): stage `code` only on a card with no grade,
   // no pending choice and no locking exception. Returns whether it staged.
   function stageScaleLevel(code) {
@@ -845,14 +874,16 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
         patch: { grade_comment: comment, comment_status: display ? 1 : null, ...statusLinePatch() },
       };
     }
+    if (pointsInvalid) return null;
     const scaleCode = stagedScale;
-    const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
+    const points = gradePoints();
+    const hasScoreChanges = !scoreScale && !pointsTask && Object.keys(pending).length > 0;
     const hasCommentChange = comment !== (student.grade_comment || '');
     const hasDisplayChange = display !== loadedDisplay;
-    if (!hasScoreChanges && !scaleCode && !hasCommentChange && !hasDisplayChange && !rowLevelsToSave()) return null;
-    if (scoreScale) {
+    if (!hasScoreChanges && points == null && !hasCommentChange && !hasDisplayChange && !rowLevelsToSave()) return null;
+    if (scoreScale || pointsTask) {
       const rowLevels = rowLevelsToSave();
-      const overallChanged = scaleCode != null || hasCommentChange || hasDisplayChange;
+      const overallChanged = points != null || hasCommentChange || hasDisplayChange;
       if (!overallChanged && !rowLevels) return null;
       return {
         entry: {
@@ -860,14 +891,16 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
           enrollmentId: student.enrollment_id,
           assignmentId,
           scores: null,
-          grade: scaleCode ? { points: scalePointsFor(scaleCode) } : null,
+          // Typed points carry the score the card was drawn from: the server refuses them over a
+          // score that changed in Schoology since (#181).
+          grade: points != null ? { points, ...(pointsTask ? { expected: student.score ?? null } : {}) } : null,
           // One PUT carries grade + comment + visibility, so the comment rides
           // along; a rows-only entry sends nothing to Schoology.
           comment: overallChanged ? { comment, commentStatus: display, ...statusLineFields() } : null,
           ...(rowLevels ? { rowLevels } : {}),
         },
         patch: {
-          ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode, ...GRADE_WRITTEN_PATCH } : {}),
+          ...(points != null ? { score: points, ...(scaleCode ? { scale_level: scaleCode } : {}), ...GRADE_WRITTEN_PATCH } : {}),
           ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
           ...(overallChanged ? { grade_comment: comment, comment_status: display ? 1 : null, ...statusLinePatch() } : {}),
         },
@@ -962,16 +995,21 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
     try {
       if (isRubricLocked) return await publishCommentOnly();
       const scaleCode = stagedScale;
-      const hasScoreChanges = !scoreScale && Object.keys(pending).length > 0;
+      const points = gradePoints();
+      const hasScoreChanges = !scoreScale && !pointsTask && Object.keys(pending).length > 0;
       const hasCommentChange = comment !== (student.grade_comment || '');
       const hasDisplayChange = display !== loadedDisplay;
 
-      if (scoreScale) {
-        // Score-scale grade (#41): grade + comment + visibility in one write.
-        // Feedback rows ride along with it, or save alone (no Schoology call)
+      if (scoreScale || pointsTask) {
+        // Score-scale grade (#41) or typed points (#181): grade + comment + visibility in one
+        // write. Feedback rows ride along with it, or save alone (no Schoology call)
         // when only the rows changed.
         const rowLevels = rowLevelsToSave();
-        const overallChanged = scaleCode != null || hasCommentChange || hasDisplayChange;
+        const overallChanged = points != null || hasCommentChange || hasDisplayChange;
+        // The score in the card's patch: what Schoology holds after a points write (read back).
+        const scorePatch = (held) => (points != null
+          ? { score: held !== undefined ? held : points, ...(scaleCode ? { scale_level: scaleCode } : {}), ...GRADE_WRITTEN_PATCH }
+          : {});
         let saved = null;
         if (overallChanged) {
           try {
@@ -980,7 +1018,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
               assignmentId,
               comment,
               commentStatus: display,
-              ...(scaleCode ? { points: scalePointsFor(scaleCode) } : {}),
+              ...(points != null ? { points, ...(pointsTask ? { expectedScore: student.score ?? null } : {}) } : {}),
               ...(rowLevels ? { rowLevels } : {}),
               ...statusLineFields(),
             });
@@ -992,7 +1030,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
             setInsertedLine(null);
             commentHistory.clearHistory();
             onSaved?.(student.schoology_uid, {
-              ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode, ...GRADE_WRITTEN_PATCH } : {}),
+              ...scorePatch(),
               grade_comment: comment,
               comment_status: display ? 1 : null,
               ...resubmissionFieldsPatch(err.resubmissionFields),
@@ -1006,14 +1044,16 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
         } else if (rowLevels) {
           await saveRowLevels(assignmentId, student.schoology_uid, rowLevels);
         }
-        // A grade over a marker whose line stayed in the comment: published, and the card says so.
-        setSaveResult(saved?.flagCleared?.lineError ? `error: ${saved.flagCleared.lineError}` : 'saved');
+        // A grade over a marker whose line stayed in the comment, or points Schoology did not keep
+        // as sent (#181): published, and the card says so.
+        const savedWarning = saved?.flagCleared?.lineError || saved?.warning || null;
+        setSaveResult(savedWarning ? `error: ${savedWarning}` : 'saved');
         setPending({});
         setInsertedLine(null);
         commentHistory.clearHistory(); // undo never crosses a publish (#75)
         draftSaver().remove({ immediate: true });
         onSaved?.(student.schoology_uid, {
-          ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode, ...GRADE_WRITTEN_PATCH } : {}),
+          ...scorePatch(saved?.score),
           ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
           ...(overallChanged ? {
             grade_comment: comment,
@@ -1368,7 +1408,26 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
         opacity: isRubricLocked && !pointsOnly ? 0.45 : 1,
         pointerEvents: isRubricLocked && !pointsOnly ? 'none' : 'auto',
       }}>
-        {pointsOnly && (
+        {pointsTask && !isRubricLocked && (
+          // The points box (#181): published with the comment, read back from Schoology.
+          <div className="grade-card__score">
+            <label className="grade-card__score-label" htmlFor={`points-${assignmentId}-${student.schoology_uid}`}>Score:</label>
+            <input
+              id={`points-${assignmentId}-${student.schoology_uid}`}
+              className={`grade-card__points-input${pointsInvalid ? ' grade-card__points-input--invalid' : ''}`}
+              type="text" inputMode="decimal" autoComplete="off"
+              value={typedPoints ?? (student.score == null ? '' : String(student.score))}
+              onChange={(e) => typePoints(e.target.value)}
+              aria-invalid={pointsInvalid || undefined}
+            />
+            {maxPoints != null && <span className="grade-card__points-max">/ {maxPoints}</span>}
+            {pointsInvalid && <span className="grade-card__points-note grade-card__points-note--error">Enter a score of 0 or more.</span>}
+            {!pointsInvalid && stagedPoints != null && maxPoints != null && stagedPoints > maxPoints && (
+              <span className="grade-card__points-note">Over the maximum of {maxPoints}.</span>
+            )}
+          </div>
+        )}
+        {pointsOnly && !(pointsTask && !isRubricLocked) && (
           <div className="grade-card__score">
             <span className="grade-card__score-label">Score:</span>
             <ScoreLabel
@@ -1913,7 +1972,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
           <button
             className="primary"
             onClick={handleSave}
-            disabled={saving || !canPublish || (!isRubricLocked && !scoreScale && !scale.ready)}
+            disabled={saving || !canPublish || (!isRubricLocked && !scoreScale && !pointsTask && !scale.ready)}
             title={heldLevels
               ? 'Publish the comment and Display to Schoology. Your staged levels stay as a draft until the flag is cleared.'
               : rowsOnlySave ? 'Save the feedback rows in Prism (nothing is sent to Schoology)' : 'Publish scores & comment to Schoology'}

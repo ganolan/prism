@@ -15,6 +15,7 @@ import { epochToLocalDate } from '../lib/schoolDays.js';
 import { currentCourses, ALIGNED_SQL, fullName } from './triageCommon.js';
 import { getAlignedTopics, getRoster, getScoreMap, getGradeMetaRows, scoreScaleFor } from './assessmentContext.js';
 import { getFeedbackRows, getRowLevels } from './feedbackRows.js';
+import { canEditPoints } from '../lib/pointsTask.js';
 import { readThread } from './submissionCommentStore.js';
 
 export const UNFINISHED_GRADING_REASONS = ['draft', 'feedback_hidden', 'unread_comment'];
@@ -30,6 +31,8 @@ export function cardBaselineFor(db, a) {
   const meta = new Map(getGradeMetaRows(db, a.schoology_assignment_id).map((g) => [g.schoology_uid, g]));
   const rowNames = new Set((getFeedbackRows(db, a.schoology_assignment_id, scale)?.rows ?? []).map((r) => r.criterion));
   const rowLevels = scale ? getRowLevels(db, a.schoology_assignment_id) : {};
+  // The card puts the score in the baseline wherever it can write one: a scale, or points (#181).
+  const includeScore = !!scale || canEditPoints(a, topics, scale);
   return (st) => {
     const g = meta.get(st.schoology_uid) || {};
     const levels = Object.fromEntries(Object.entries(rowLevels[st.schoology_uid] || {}).filter(([name]) => rowNames.has(name)));
@@ -41,7 +44,7 @@ export function cardBaselineFor(db, a) {
       score: g.score ?? null,
       row_levels: levels,
     };
-    return draftBaseline(student, scale ? [] : topics, { includeScore: !!scale, rowLevels: scale ? student.row_levels : undefined });
+    return draftBaseline(student, scale ? [] : topics, { includeScore, rowLevels: scale ? student.row_levels : undefined });
   };
 }
 

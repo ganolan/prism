@@ -71,7 +71,7 @@ describe('FlagsMenu: the closed pill', () => {
     expect(b).toHaveTextContent('⚑');
   });
 
-  it('size sm is the smaller pill (the shared view\'s badge row)', () => {
+  it('size sm is the smaller pill (a Triage flags row)', () => {
     renderMenu({ size: 'sm' });
     expect(pill()).toHaveClass('flags-pill--sm');
   });

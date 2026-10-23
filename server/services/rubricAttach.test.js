@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { migrate } from '../db/index.js';
 import { saveRubric } from './rubricStore.js';
 import { saveRowLevels } from './feedbackRows.js';
-import { attachRubric, getAttachmentForAssignment, getAttachmentsForAssignments, setMapping, reorderCriteria } from './rubricAttach.js';
+import { attachRubric, getAttachmentForAssignment, setMapping, reorderCriteria } from './rubricAttach.js';
 
 let db, rubricId;
 beforeEach(() => {
@@ -107,33 +107,5 @@ describe('rubricAttach on an unaligned score-scale task (feedback rows)', () => 
 
   test('an aligned task keeps topic matching (mode topics)', () => {
     expect(attachRubric(db, { rubricId, courseId: 4, assignmentId: '800' }).mode).toBe('topics');
-  });
-});
-
-describe('getAttachmentsForAssignments (shared feedback view, #135)', () => {
-  test('returns the attached rubric per assignment id, in one call, and leaves out the rest', () => {
-    db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('801', 't1', 4)`).run();
-    attachRubric(db, { rubricId, courseId: 4, assignmentId: '800' });
-    attachRubric(db, { rubricId, courseId: 4, assignmentId: '801' });
-    const out = getAttachmentsForAssignments(db, ['800', '801', '802']);
-    expect(Object.keys(out).sort()).toEqual(['800', '801']);
-    expect(out['800']).toEqual({ ...getAttachmentForAssignment(db, '800'), mode: 'topics' });
-    expect(out['801'].topicByCriterion).toEqual([expect.objectContaining({ topic_id: 't1', criterion_name: 'UI/UX' })]);
-  });
-
-  test('an empty id list is an empty result', () => {
-    expect(getAttachmentsForAssignments(db, [])).toEqual({});
-  });
-
-  test('a feedback-row task carries one student\'s row levels, only for the attached rows', () => {
-    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (4, '900', 'Flappy (F)', '23495360')`).run();
-    attachRubric(db, { rubricId, courseId: 4, assignmentId: '900' });
-    saveRowLevels(db, { assignmentSchoologyId: '900', studentUid: 'u1', rowLevels: { 'UI/UX': 'EX', Func: 'D', Aesthetic: 'ED' } });
-    saveRowLevels(db, { assignmentSchoologyId: '900', studentUid: 'u2', rowLevels: { 'UI/UX': 'IE' } });
-    const out = getAttachmentsForAssignments(db, ['900', '800'], { studentUid: 'u1' });
-    expect(out['900']).toMatchObject({ mode: 'feedback_rows', rowLevels: { 'UI/UX': 'EX', Func: 'D' } });
-    expect(out['900'].rowLevels).not.toHaveProperty('Aesthetic');
-    // Without a student, no row levels at all.
-    expect(getAttachmentsForAssignments(db, ['900'])['900']).not.toHaveProperty('rowLevels');
   });
 });

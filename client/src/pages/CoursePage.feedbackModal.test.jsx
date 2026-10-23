@@ -18,7 +18,6 @@ vi.mock('../services/api.js', async (orig) => ({
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
   getQuizGroups: vi.fn().mockResolvedValue({ groups: [] }),
   getCourseCommentSummaries: vi.fn().mockResolvedValue({ assignments: {} }),
-  getRubricsForAssignments: vi.fn().mockResolvedValue({ attachments: {} }),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: { produc: '#B4A7D6' } }),
   getSettings: vi.fn().mockResolvedValue({ triage: { resubmitLessonsDefault: 4 } }),
   getTriagePair: vi.fn().mockResolvedValue(null),
@@ -40,7 +39,7 @@ vi.mock('../services/api.js', async (orig) => ({
 import { RubricModal, GradebookView } from './CoursePage.jsx';
 import { draftBaseline } from '../lib/assessmentDraft.js';
 import {
-  getGradeCards, getRubricsForAssignments, getCourseCommentSummaries, getGradeFlags, setGradeFlag, getFeedbackForAssignment,
+  getGradeCards, getCourseCommentSummaries, getGradeFlags, setGradeFlag, getFeedbackForAssignment,
 } from '../services/api.js';
 
 // ── Card fixtures, in the shape GET /api/students/:id/grade-cards returns ───────────────────────
@@ -112,7 +111,6 @@ describe('RubricModal: the grade card, read-only (#176)', () => {
     expect(awarded).toHaveAttribute('data-awarded', 'true');
     expect(getGradeCards).toHaveBeenCalledWith(10, { courseId: '5', assignmentId: 'sa-1' });
     expect(getGradeCards).toHaveBeenCalledTimes(1);
-    expect(getRubricsForAssignments).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toHaveClass('feedback-modal--wide');
     expect(follows(awarded, screen.getByText('Great use of evidence.'))).toBe(true);
     // The pop-up's own header and footer stay; the card has no heading of its own.

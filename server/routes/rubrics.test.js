@@ -129,37 +129,3 @@ test('PUT /row-levels saves Prism-only row levels and validates them', async () 
   const bad = await put('/api/rubrics/row-levels/sa-F/uid-B', { rowLevels: { Evaluation: 'EX' } });
   expect(bad.status).toBe(400);
 });
-
-describe('GET /assignments?ids= (shared feedback view, #135)', () => {
-  test('returns every attached rubric for the listed assignments in one request', async () => {
-    const db = getDb();
-    db.exec('DELETE FROM rubric_attachments;');
-    const id = saveRubric(db, { name: 'Batch', source: 'csv', criteria: [
-      { position: 1, criterion_name: 'UI/UX', standard_title: 'S', reporting_category: 'Produce', descriptors: { ED: 'Polished.', EX: 'Clear.' } },
-    ] });
-    db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'sa-1', NULL, 'now')`).run(id);
-    const { status, body } = await call('GET', '/api/rubrics/assignments?ids=sa-1,sa-2');
-    expect(status).toBe(200);
-    expect(Object.keys(body.attachments)).toEqual(['sa-1']);
-    expect(body.attachments['sa-1'].rubric.criteria[0].descriptors.ED).toBe('Polished.');
-  });
-
-  test('?student_uid= adds that student\'s feedback-row levels and nobody else\'s', async () => {
-    const db = getDb();
-    db.exec('DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM assignments; DELETE FROM courses;');
-    const courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-R', 'MGD')`).run().lastInsertRowid;
-    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, grading_scale_id) VALUES (?, 'sa-R', 'Flappy (F)', '23495360')`).run(courseId);
-    const id = saveRubric(db, { name: 'Flappy', source: 'mcp', criteria: [{ position: 1, criterion_name: 'Playtesting' }] });
-    db.prepare(`INSERT INTO rubric_attachments (rubric_id, assignment_schoology_id, course_id, created_at) VALUES (?, 'sa-R', ?, 'now')`).run(id, courseId);
-    db.prepare(`INSERT INTO rubric_row_levels (assignment_schoology_id, student_uid, criterion_name, level) VALUES ('sa-R', 'u-A', 'Playtesting', 'EX'), ('sa-R', 'u-B', 'Playtesting', 'IE')`).run();
-    const { body } = await call('GET', '/api/rubrics/assignments?ids=sa-R&student_uid=u-A');
-    expect(body.attachments['sa-R']).toMatchObject({ mode: 'feedback_rows', rowLevels: { Playtesting: 'EX' } });
-    expect(JSON.stringify(body)).not.toContain('u-B');
-  });
-
-  test('no ids is an empty result, not an error', async () => {
-    const { status, body } = await call('GET', '/api/rubrics/assignments');
-    expect(status).toBe(200);
-    expect(body).toEqual({ attachments: {} });
-  });
-});

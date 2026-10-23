@@ -23,8 +23,8 @@ const num = (v) => (v == null || v === '' ? null : Number(v));
 const sameScore = (x, y) => (x == null || y == null ? x == null && y == null : Math.abs(x - y) < 1e-9);
 
 // The Flags control (#40, spec "The Flags control"): one pill in the style of Schoology's
-// gradebook button, on the assessment card header (after Refer) and in the shared feedback view's
-// badge row (size "sm"). Closed it reads "⚑ Flags ▾", or the set flag's symbol and name in its
+// gradebook button, on the grade card's header (after Refer) and in Triage's Flags panel rows
+// (size "sm", compact). Closed it reads "⚑ Flags ▾", or the set flag's symbol and name in its
 // color. Open: the subheading "Flag in Schoology", the five flags in FLAG_ORDER with their lines,
 // the set one ticked ("Choose again to clear it."), and a note under a divider. Arrow keys, Enter
 // and Escape work the menu.
@@ -60,7 +60,7 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
   const firstName = student?.firstName || null;
 
   // Place the menu under the pill (fixed, so neither the card nor the pop-up clips it): its right
-  // edge on the pill's in the card header, its left edge on the pill's in the shared view.
+  // edge on the pill's in the card header, its left edge on the pill's in a Triage row (size "sm").
   const placeRef = useRef(() => {});
   placeRef.current = () => {
     if (!pillRef.current) return;

@@ -25,7 +25,7 @@ export const isFlag = (code) => code !== '' && code != null && Object.hasOwn(FLA
 export const isExempt = (code) => isFlag(code) && Number(code) === 1;
 
 // Two final flags, three markers (Graham, 21 October 2026; server/lib/flags.js has the same).
-// Exempt (1) and Missing (3) are final: the assessment card keeps its rubric locked and they count as handled (the shared feedback view shows Missing as IE).
+// Exempt (1) and Missing (3) are final: the assessment card keeps its rubric locked and they count as handled (the grade card's view mode shows Missing as IE).
 // Late (6), Incomplete (2) and Absent (5) are markers the teacher grades straight through:
 // publishing a grade clears them, and until then the work stays in feedback owed.
 export const FINAL_FLAGS = [1, 3];

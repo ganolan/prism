@@ -756,7 +756,7 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
 /* A points-only task's score on the card (no rubric to show). */
 .grade-card__score { display: flex; align-items: center; gap: 0.1rem; font-size: 0.85rem; padding-bottom: 0.25rem; }
 .grade-card__score-label { font-weight: 700; margin-right: 5px; }
-/* A view card's comment (#176): the published text under its label, as the shared feedback view drew it. */
+/* A view card's comment (#176): the published text under its label, in a boxed block. */
 .grade-card__comment-view { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; white-space: pre-line; overflow-wrap: anywhere; }
 .grade-card__comment-label { font-weight: 700; margin-right: 5px; }
 
@@ -1544,8 +1544,8 @@ img.file-viewer-media { background: transparent; }
 .flag-pop__line + .flag-pop__line { margin-top: 0.25rem; }
 .badge-slate { background: var(--flag-absent-bg); color: var(--flag-absent); }
 
-/* The Flags control (#40, FlagsMenu.jsx): a pill in the card header (after Refer) and, smaller
-   (--sm), in the shared view's badge row. Closed it reads "⚑ Flags ▾"; a set flag fills it with
+/* The Flags control (#40, FlagsMenu.jsx): a pill in the grade card's header (after Refer) and,
+   smaller (--sm), in Triage's Flags panel rows (#174). Closed it reads "⚑ Flags ▾"; a set flag fills it with
    the flag's color and shows its disc and name (Missing stays outlined, on the card color). */
 .flags-control { display: inline-flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
 .flags-pill {
@@ -1593,7 +1593,7 @@ img.file-viewer-media { background: transparent; }
 .flags-menu__line { grid-column: 2 / 4; font-size: 0.75rem; font-weight: 400; color: var(--text-muted); }
 .flags-menu__divider { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
 .flags-menu__note { margin: 0; padding: 4px 8px 6px; font-size: 0.72rem; color: var(--text-muted); }
-/* The panels (FlagPanel, ClearFlagPanel), in the card's action-panel row or the shared view's. */
+/* The panels (FlagPanel, ClearFlagPanel), in the card's action-panel row or a Triage flags row's. */
 .flag-panel__field { display: flex; flex-direction: column; gap: 4px; max-width: 36rem; font-size: 0.8rem; font-weight: 600; }
 .flag-panel__input.triage-note { width: 100%; box-sizing: border-box; font-weight: 400; }
 .flag-panel__preview { font-weight: 400; color: var(--text-muted); }

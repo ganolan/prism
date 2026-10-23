@@ -29,8 +29,8 @@ function savedNote(code, state) {
 
 // The panel for setting a flag (#40): "Mark Sam exempt?", an optional reason for the student (the
 // status line Prism writes at the top of the comment, previewed), the records Exempt withdraws,
-// the saved-grade note and a marker's next steps. Drawn in the card's action-panel row (host), or
-// inline inside the shared view.
+// the saved-grade note and a marker's next steps. Drawn in the host given (the card's action-panel
+// row, or a Triage flags row's), or inline without one.
 //   state    the fresh read (readFlagState)
 //   onConfirm(reason | null)
 export default function FlagPanel({ code, firstName = null, state, host = null, busy = false, onCancel, onConfirm }) {

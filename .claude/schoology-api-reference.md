@@ -728,6 +728,14 @@ same.)*
   return the **same 28 assignment ids**; the rosters do not overlap (12 and 11 students); `/grades` is per section (360 rows
   on the parent, 330 on the child, every child row on a child enrolment). So a task id is not unique to one section.
   Prism holds a linked set as one course (`linked_sections`, `CONTEXT.md`).
+- **A write through the parent section does not reach a child-section student (VERIFIED 2026-10-23, #179, one teacher-approved
+  write, `scripts/probe-linked-section-write.js`).** AI & ML 2023-24, parent `6803621358`, child `6803621359`, task
+  `6861510545`, child enrolment `2973036591` (grade 100, empty comment, `comment_status` null). `PUT /sections/6803621358/grades`
+  with that enrolment, the grade echoed and a marker comment → **207** with the entry `{"response_code": 404}`; read back, the
+  child section's record was unchanged (grade 100, empty comment) and the parent's `/grades` lists no row for that enrolment,
+  before or after. So each grade write for a linked set must go to the student's **own** section
+  (`enrolments.schoology_section_id`). The Schoology interface shows one combined class page and combined grading (Graham,
+  23 Oct 2026); the API keeps both per section.
 - **`GET /gradingperiods/{id}`** → `{ id, title: "2023-2024: 08/15/23 - 06/14/24", start: "2023-08-15", end: "2024-06-18",
   active: 0, has_children: false, parent: "0" }`. **`GET /gradingperiods?limit=200` → 403.** Prism reads each period id
   once (`server/services/archivedCourses.js`).

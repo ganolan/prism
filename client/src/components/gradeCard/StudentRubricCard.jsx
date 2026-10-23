@@ -1031,6 +1031,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
       // The pair's post-save resubmission state — from the last write that reported it.
       let fields = null;
       let rubricSaved = false;
+      let scoreWarning = null; // the levels are in Schoology, but Prism's copy was not updated (#182)
       if (hasScoreChanges && assignmentRow) {
         const scored = await writeMasteryScores(courseId, {
           enrollmentId: student.enrollment_id,
@@ -1040,11 +1041,12 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
           gradingCategoryId: assignmentRow.mastery_grading_category_id,
         });
         fields = scored?.resubmissionFields ?? fields;
+        scoreWarning = scored?.warning || null;
         rubricSaved = true;
       }
 
       let cleared = null;
-      let warning = null; // published, with a part that was not (shown as the card's error)
+      let warning = scoreWarning; // published, with a part that was not (shown as the card's error)
       if (hasCommentChange || hasDisplayChange) {
         let saved;
         try {

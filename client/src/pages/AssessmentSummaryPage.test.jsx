@@ -2699,6 +2699,17 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
     expect(await screen.findByText(/^error: Levels published to Schoology; the flag's line was not removed from the comment \(Another update/)).toBeInTheDocument();
   });
 
+  it('#182: levels Schoology accepted but Prism could not mirror: the card shows the warning, and the levels are no longer pending', async () => {
+    writeMasteryScores.mockResolvedValueOnce({ warning: "Levels published to Schoology, but Prism's copy was not updated (disk full). Sync to refresh it." });
+    renderCard({ student: { ...makeStudent(), grade_comment: 'Hi', comment_status: 1 } });
+    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
+    expect(await screen.findByText(/^error: Levels published to Schoology, but Prism's copy was not updated \(disk full\)\. Sync to refresh it\.$/)).toBeInTheDocument();
+    expect(writeMasteryScores).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+  });
+
   it('M4: the levels publish but the comment write fails: the card says so, keeps the comment and drops the pending levels', async () => {
     const onSaved = vi.fn();
     writeMasteryComment.mockRejectedValueOnce(new Error('Another update for this student is in progress: try again'));

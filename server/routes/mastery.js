@@ -425,19 +425,22 @@ router.post('/:courseId/write', async (req, res) => {
 
     // Mirror the just-confirmed Schoology state into our local mastery_scores
     // so the UI re-fetch shows the new values immediately.
-    const studentRow = db.prepare(
-      'SELECT s.id, s.schoology_uid FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?'
-    ).get(String(enrollmentId));
-    // Round 5: capture the pair unstamped before mirroring, so levels a pull wrote meanwhile
-    // (or a revision a running sync upserted) are never credited to this rubric save.
-    let preAssignment = null;
+    // Schoology accepted the write: from here a local failure is a warning (#182), never a 500.
+    let studentRow = null;
+    let warning = null;
     try {
-      preAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+      studentRow = db.prepare(
+        'SELECT s.id, s.schoology_uid FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.schoology_enrolment_id = ?'
+      ).get(String(enrollmentId)) || null;
+      // Round 5: capture the pair unstamped before mirroring, so levels a pull wrote meanwhile
+      // (or a revision a running sync upserted) are never credited to this rubric save.
+      const preAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
+      if (studentRow && preAssignment) captureBeforeSave(db, studentRow.id, preAssignment.id, 'mastery write');
+      if (studentRow) mirrorPairLevels(db, studentRow.schoology_uid, assignmentId, gradeInfo, new Date().toISOString());
     } catch (err) {
-      console.error('[mastery write] pre-save lookup failed:', err.message);   // Schoology already accepted the write
+      console.error('[mastery write] local mirror failed after an accepted write:', err.message);
+      warning = mirrorNotSaved(err.message);
     }
-    if (studentRow && preAssignment) captureBeforeSave(db, studentRow.id, preAssignment.id, 'mastery write');
-    if (studentRow) mirrorPairLevels(db, studentRow.schoology_uid, assignmentId, gradeInfo, new Date().toISOString());
     // Best-effort: snapshot the pair's new visible feedback (a Prism save) so a rubric
     // regrade of an arrived resubmission is seen at once (Amendment B), then settle.
     const localAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(assignmentId));
@@ -456,7 +459,7 @@ router.post('/:courseId/write', async (req, res) => {
       resubmissionFields = savedPairFields(db, studentRow.id, localAssignment.id, 'write');
     }
 
-    res.json({ ...(result && typeof result === 'object' ? result : {}), resubmissionFields });
+    res.json({ ...(result && typeof result === 'object' ? result : {}), resubmissionFields, ...(warning ? { warning } : {}) });
   } catch (err) {
     console.error('[mastery write] Error:', err);
     res.status(500).json({ error: err.message });
@@ -533,6 +536,9 @@ function feedbackRowsFor(db, courseId, assignmentId) {
 // A row save that failed after Schoology accepted the grade (spec 2026-10-13 §5).
 const ROWS_NOT_SAVED = 'Published to Schoology, but the feedback rows were not saved in Prism: save again';
 // Levels published over a marker, but Prism could not read Schoology back to settle it (#177).
+// #182: Schoology accepted the levels, but mirroring them into Prism's copy failed. A warning, not an
+// error: publishing again would repeat a write that already landed, and the next sync repairs the copy.
+const mirrorNotSaved = (message) => `Levels published to Schoology, but Prism's copy was not updated (${message}). Sync to refresh it.`;
 const SETTLE_NOT_READ = 'Levels published to Schoology, but Prism could not read the flag again, so its line may still be in the comment. Sync, then check the comment.';
 
 // The student's schoology_uid for an enrolment id, or null.
@@ -1250,6 +1256,7 @@ router.post('/:courseId/send-all', async (req, res) => {
       if (p) echoFreshGrade(db, p.studentId, p.assignmentId, freshByKey.get(`${e.assignmentId}::${e.enrollmentId}`) || null, 'mastery send-all');
     }
 
+    const mirrorFailed = new Map(); // uid → warning (#182)
     const mirrorSettled = db.prepare('UPDATE grades SET score = ?, exception = 0, submitted_at = ? WHERE student_id = ? AND assignment_id = ?');
     for (const e of scoreEntries) {
       const studentRow = db.prepare(
@@ -1261,7 +1268,13 @@ router.post('/:courseId/send-all', async (req, res) => {
         const settledAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
         if (settledAssignment) mirrorSettled.run(fresh.grade ?? null, gradeTimeAfterWrite(fresh), studentRow.id, settledAssignment.id);
       }
-      mirrorPairLevels(db, studentRow.schoology_uid, e.assignmentId, e.scores.gradeInfo, now);
+      try {
+        mirrorPairLevels(db, studentRow.schoology_uid, e.assignmentId, e.scores.gradeInfo, now);
+      } catch (err) {
+        // Schoology holds these levels: the entry stays published, with a warning (#182).
+        console.error('[mastery send-all] local mirror failed after an accepted write:', e.uid, err.message);
+        mirrorFailed.set(e.uid, mirrorNotSaved(err.message));
+      }
       const scoredAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
       if (scoredAssignment) touch(scoredAssignment.id, studentRow.id, e.uid);
     }
@@ -1334,7 +1347,7 @@ router.post('/:courseId/send-all', async (req, res) => {
         const cleared = flagClearedByUid.has(e.uid) ? { flagCleared: flagClearedByUid.get(e.uid) } : {};
         // published: the grade and comment are in Schoology and mirrored; only the rows are not.
         if (rowsFailed.has(e.uid)) return { uid: e.uid, ok: false, published: true, error: ROWS_NOT_SAVED, resubmissionFields, ...cleared };
-        const warning = settleReadFailed && e.settleMarker ? SETTLE_NOT_READ : null;
+        const warning = mirrorFailed.get(e.uid) || (settleReadFailed && e.settleMarker ? SETTLE_NOT_READ : null);
         return { uid: e.uid, ok: true, resubmissionFields, ...cleared, ...(warning ? { warning } : {}) };
       }),
     });

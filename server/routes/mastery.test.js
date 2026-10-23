@@ -2570,8 +2570,47 @@ describe('a removed level leaves Prism\'s copy when Schoology\'s does (#176)', (
       const { status } = await post(`/api/mastery/${courseId}/write`, {
         enrollmentId: 'enr-rm', assignmentId: 'sa-rm', gradeInfo: { 't-keep': info(100), 't-x': null },
       });
-      expect(status).toBe(500);
+      expect(status).toBe(200);
       expect(levels()).toEqual({ 't-keep': 75, 't-drop': 75 });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // #182: Schoology accepted the write, so a failed local mirror is a warning, not an error.
+  test('POST /write: a failed mirror after an accepted write answers 200 with a warning', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { status, body } = await post(`/api/mastery/${courseId}/write`, {
+        enrollmentId: 'enr-rm', assignmentId: 'sa-rm', gradeInfo: { 't-keep': info(100), 't-x': null },
+      });
+      expect(status).toBe(200);
+      expect(body.error).toBeUndefined();
+      expect(body.warning).toMatch(/^Levels published to Schoology, but Prism's copy was not updated/);
+      expect(writeMasteryScores).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('POST /send-all: a failed mirror marks only that entry with a warning; it stays published', async () => {
+    getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-rm', enrollment_id: 'enr-rm', grade: 95, exception: 0, timestamp: 1779418446 }]);
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+        entries: [{
+          uid: 'uid-rm', enrollmentId: 'enr-rm', assignmentId: 'sa-rm',
+          scores: { gradeInfo: { 't-keep': info(100), 't-x': null }, gradingPeriodId: 1, gradingCategoryId: 2 },
+          comment: { comment: 'note', commentStatus: true },
+        }],
+      });
+      expect(status).toBe(200);
+      expect(body.results).toHaveLength(1);
+      expect(body.results[0]).toMatchObject({ uid: 'uid-rm', ok: true });
+      expect(body.results[0].warning).toMatch(/^Levels published to Schoology, but Prism's copy was not updated/);
+      expect(levels()).toEqual({ 't-keep': 75, 't-drop': 75 });
+      // The comment, which comes after the levels, is still mirrored.
+      expect(getDb().prepare(`SELECT grade_comment FROM grades WHERE assignment_id = (SELECT id FROM assignments WHERE schoology_assignment_id = 'sa-rm')`).get()?.grade_comment).toBe('note');
     } finally {
       spy.mockRestore();
     }

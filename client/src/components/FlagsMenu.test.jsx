@@ -55,6 +55,22 @@ describe('FlagsMenu: the closed pill', () => {
       expect(pill().querySelector(`.flag-symbol--${key}`)).not.toBeNull();
     });
 
+  // #174: the Triage Flags panel's row control, a symbol in place of the name.
+  it('compact shows the symbol only, with the name kept for screen readers', () => {
+    renderMenu({ compact: true, exception: 6 });
+    const b = screen.getByRole('button', { name: /Flag set in Schoology: Late/ });
+    expect(b).not.toHaveTextContent('Late');
+    expect(b).toHaveClass('flags-pill--compact');
+    expect(b.querySelector('.flag-symbol--late')).not.toBeNull();
+  });
+
+  it('compact with no flag shows the flag icon only', () => {
+    renderMenu({ compact: true });
+    const b = screen.getByRole('button', { name: 'Flag this work in Schoology' });
+    expect(b).not.toHaveTextContent('Flags');
+    expect(b).toHaveTextContent('⚑');
+  });
+
   it('size sm is the smaller pill (the shared view\'s badge row)', () => {
     renderMenu({ size: 'sm' });
     expect(pill()).toHaveClass('flags-pill--sm');

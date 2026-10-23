@@ -35,6 +35,8 @@ const sameScore = (x, y) => (x == null || y == null ? x == null && y == null : M
 //   exception   the flag the page loaded (0 or null for none); score the score it loaded;
 //               comment the comment it loaded (sent as expected.comment when given)
 //   aligned     the task has measurement topics (Missing's line)
+//   compact     the closed pill shows only the symbol (the set flag's disc, else ⚑) and the caret,
+//               its name kept as the button's accessible name (Triage's Flags panel rows, #174)
 //   panelHost   where the panel draws (the card's action-panel row); inline when null
 //   beforeWrite()  awaited before each write (the card settles its queued draft save, so a
 //               debounced save cannot overwrite a draft the write restores)
@@ -42,7 +44,7 @@ const sameScore = (x, y) => (x == null || y == null ? x == null && y == null : M
 //               read-back mismatch); may return a promise (the page refetching the pair), and the
 //               pill stays busy until it settles; a rejection shows "Saved, but the page could not
 //               refresh. Reload to see it."
-export default function FlagsMenu({ student, assignmentId, exception = 0, score = null, comment, aligned = false, size = 'md', panelHost = null, beforeWrite = null, onChange }) {
+export default function FlagsMenu({ student, assignmentId, exception = 0, score = null, comment, aligned = false, size = 'md', compact = false, panelHost = null, beforeWrite = null, onChange }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -184,7 +186,8 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
     }
   }
 
-  const pillClass = ['flags-pill', flag && `flags-pill--${flag.key}`, size === 'sm' && 'flags-pill--sm', busy && 'flags-pill--busy']
+  const pillTitle = flag ? `Flag set in Schoology: ${flag.name}. ${flagEffect(current)}` : 'Flag this work in Schoology';
+  const pillClass = ['flags-pill', flag && `flags-pill--${flag.key}`, size === 'sm' && 'flags-pill--sm', compact && 'flags-pill--compact', busy && 'flags-pill--busy']
     .filter(Boolean).join(' ');
 
   return (
@@ -192,12 +195,12 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
       <button
         type="button" ref={pillRef} className={pillClass}
         aria-haspopup="menu" aria-expanded={open} aria-busy={busy || undefined} disabled={busy}
-        title={flag ? `Flag set in Schoology: ${flag.name}. ${flagEffect(current)}` : 'Flag this work in Schoology'}
+        title={pillTitle} aria-label={compact ? pillTitle : undefined}
         onClick={() => { if (panel) setPanel(null); else setOpen((o) => !o); }}
         onKeyDown={(e) => { if (e.key === 'ArrowDown' && !open) { e.preventDefault(); setOpen(true); } }}
       >
         {flag ? <FlagDisc code={current} /> : <span className="flags-pill__icon" aria-hidden="true">⚑</span>}
-        <span>{flag ? flag.name : 'Flags'}</span>
+        {!compact && <span>{flag ? flag.name : 'Flags'}</span>}
         <span className="flags-pill__caret" aria-hidden="true">▾</span>
       </button>
       {error && <span className="flags-error text-sm" role="alert">{error}</span>}

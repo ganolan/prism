@@ -1243,6 +1243,10 @@ a.triage-row__title:hover { text-decoration: underline; }
 }
 .triage-row__count { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: help; }
 .triage-row__more { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; padding-top: 0.35rem; }
+/* Flags panel (#174): the advice line under the task, and the row's flag-panel host, which takes
+   no room until a flag panel draws in it. */
+.triage-row__advice { font-size: 0.72rem; }
+.triage-row__flag-panel:empty { display: none; }
 /* LessonHint: "→ Thu 15/10 · 3 lessons from today" + Next lesson picks, beside a school-day stepper. */
 .lesson-hint { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 .triage-row button.triage-row__quiet { color: var(--text-muted); }
@@ -1572,6 +1576,9 @@ img.file-viewer-media { background: transparent; }
 .flags-pill--sm { height: 1.5rem; font-size: 0.75rem; padding: 0 0.55rem; }
 .flags-pill--sm.flags-pill--exempt, .flags-pill--sm.flags-pill--late, .flags-pill--sm.flags-pill--absent,
 .flags-pill--sm.flags-pill--incomplete, .flags-pill--sm.flags-pill--missing { padding-left: 0.3rem; }
+/* Compact (#174, Triage's Flags panel rows): the symbol and caret only; the name is the button's
+   accessible name and tooltip. */
+.flags-pill.flags-pill--compact, .flags-pill--compact.flags-pill--sm { padding: 0 0.4rem; gap: 0.2rem; }
 .flags-pill--busy, .flags-pill:disabled { opacity: 0.6; cursor: progress; }
 .flags-error { color: var(--danger); }
 /* The open menu: fixed under the pill (FlagsMenu places it), so the card and the pop-up never clip it. */

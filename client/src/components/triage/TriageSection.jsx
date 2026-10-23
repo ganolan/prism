@@ -12,11 +12,12 @@ import FeedbackOwedPanel from './FeedbackOwedPanel.jsx';
 import MakeUpPanel from './MakeUpPanel.jsx';
 import ResubmissionsPanel from './ResubmissionsPanel.jsx';
 import UnfinishedGradingPanel from './UnfinishedGradingPanel.jsx';
+import FlagsPanel from './FlagsPanel.jsx';
 
 // The triage rail: an <aside> of stacked panels, most urgent first (orderPanels):
 // Unfinished grading on top whenever it has rows (quick fixes, a standing reminder),
 // then the clocked panels by their most urgent row (red, then amber, then the rest),
-// keeping the default order make-up tests, late work, resubmissions, feedback owed
+// keeping the default order make-up tests, late work, resubmissions, flags (#174), feedback owed
 // within a level — across all current courses (no courseId — Dashboard) or
 // for one course (CoursePage). The page lays it out beside its main column (.triage-layout).
 // Owns its fetch; onLoaded hands the payload up (the Dashboard uses it for
@@ -187,6 +188,10 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
               onCloseHistory={() => setShowResubHistory(false)} onHistoryChanged={load}
             />
           ),
+        },
+        {
+          key: 'flags', rows: data.flags ?? [],
+          el: <FlagsPanel rows={data.flags ?? []} showCourse={showCourse} scope={scope} onChange={load} />,
         },
         {
           key: 'feedback', rows: data.feedbackOwed,

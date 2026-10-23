@@ -44,6 +44,13 @@ const makeUpPanel = async () => screen.findByLabelText('Make-up tests');
 const rowOf = (el) => el.closest('.triage-row');
 const referButtons = () => screen.getAllByRole('button', { name: 'Refer' });
 
+const FLAG_ROW = {
+  kind: 'flag', flag: 6, exception: 6, studentId: 1, studentName: 'Maya Chen', firstName: 'Maya', courseId: 5, courseName: 'AP CSP',
+  assignmentId: 11, schoologyAssignmentId: 'a11', title: 'Essay', dueDate: '2026-10-05', aligned: true, score: null,
+  flagSeenOn: '2026-10-12', submittedAfter: false, advice: 'Grade the work, or mark it Missing if it is too late to count.',
+  semesterEnd: '2026-12-18', day: 5, limit: 50, tone: 'red', approx: false,
+};
+
 function renderSection(props = {}) {
   return render(<MemoryRouter><TriageSection {...props} /></MemoryRouter>);
 }
@@ -74,6 +81,16 @@ const publishBtn = async (name) => {
 const SCHOOLOGY_WRITES = ['recordExtension', 'updateResubmission', 'undoResubmission', 'undoExtension'];
 
 describe('TriageSection', () => {
+  it('shows the Flags panel (#174), ordered with the others by its worst row', async () => {
+    api.getTriage.mockResolvedValue({ ...PAYLOAD, lateWork: [], feedbackOwed: [], makeUps: [], flags: [FLAG_ROW] });
+    renderSection();
+    const flags = await screen.findByLabelText('Flags');
+    expect(flags).toHaveTextContent('Maya Chen');
+    const panels = [...document.querySelectorAll('.triage-panel')].map((p) => p.getAttribute('aria-label'));
+    expect(panels[0]).toBe('Flags');
+  });
+
+
   it('renders both panels with counts, tags and course chips (all-courses view)', async () => {
     renderSection();
     expect(await screen.findByText('Maya Chen')).toBeInTheDocument();

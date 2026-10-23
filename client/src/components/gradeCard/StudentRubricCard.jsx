@@ -82,22 +82,39 @@ function topLineIs(text, line) {
 
 // ── Per-student rubric card ──────────────────────────────────────────────────
 
+// `mode` (#176): 'edit' (the assessment page) or 'view', the read-only card the student page and the
+// gradebook pop-up draw for every task. A view card draws what is published: no editor, no draft
+// saver, no autosave or listeners, nothing reported to a page. `onEdit` gives it an Edit button; in
+// edit mode `onDone` gives a Done button that settles the draft save first. `hasDraft` marks a view
+// card whose task holds an unpublished draft. `heading` replaces the student's name link (false: none).
+// The card remounts when its mode changes, so edit mode starts from the props it is given then (the
+// fresh grade, the draft) and its saver and listeners start and stop with it.
+export default function StudentRubricCard(props) {
+  const mode = props.mode === 'view' ? 'view' : 'edit';
+  return <GradeCard key={mode} {...props} mode={mode} />;
+}
+
 // `meeting` (a student conference, #176): the card is shown to the student, so it hides the photo and
 // every AI suggestion (reviewer notes, suggested cells and levels, the suggested narrative).
-export default function StudentRubricCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow: feedbackRowGiven, meeting = false, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, filesEnabled = false, fileSummary = null, onFileSummary = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onRefreshPair = null, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow: feedbackRowGiven, mode, heading, hasDraft = false, onEdit = null, onDone = null, meeting = false, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, filesEnabled = false, fileSummary = null, onFileSummary = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onRefreshPair = null, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
+  const isView = mode === 'view';
   // A meeting shows no AI suggestion: with no feedback row there is nothing to suggest from.
   const feedbackRow = meeting ? null : feedbackRowGiven;
   // The card's action-panel row (ActionPanel portals into it).
   const [panelHost, setPanelHost] = useState(null);
   const loadedDisplay = student.comment_status === 1;
-  // Per-card DB draft saver (replaces the former localStorage key). Created once.
+  // Per-card DB draft saver (replaces the former localStorage key). Created on first use, which is
+  // only ever in edit mode: a view card never starts one.
   const saverRef = useRef(null);
-  if (!saverRef.current) {
-    saverRef.current = makeDraftSaver(
-      { assignmentId, studentId: student.id, enrollmentId: student.enrollment_id },
-      { delay: 500 }
-    );
+  function draftSaver() {
+    if (!saverRef.current) {
+      saverRef.current = makeDraftSaver(
+        { assignmentId, studentId: student.id, enrollmentId: student.enrollment_id },
+        { delay: 500 }
+      );
+    }
+    return saverRef.current;
   }
   // Set true by discrete handlers (proficiency / display) so the next autosave
   // flushes immediately instead of debouncing.
@@ -184,8 +201,9 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
   // card, so auto-flip starts disarmed. A draft whose `base` no longer matches
   // the synced data is stale — Schoology changed underneath it — so it is
   // discarded and the synced values (the source of truth) win.
+  // A view card draws what is published, so it restores no draft (hasDraft marks one).
   const [restoredDraft] = useState(() => {
-    if (!draftRow) return null;
+    if (isView || !draftRow) return null;
     // Stale: Schoology changed underneath the draft (#47). Ignore it; the mount
     // effect below deletes the orphaned server row.
     if (draftRow.base !== currentBaseline) return null;
@@ -299,7 +317,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
   }
   const average = hasFeedbackRows ? rubricAverage(scoreScale, topics.map((t) => rowName(t.id)), effectiveRows) : { level: null, reason: null };
   // Never on a final flag (Exempt, Missing): no grade is written over it.
-  const autoScale = hasFeedbackRows && !isRubricLocked && student.scale_level == null && pending[SCALE] == null ? average.level : null;
+  const autoScale = !isView && hasFeedbackRows && !isRubricLocked && student.scale_level == null && pending[SCALE] == null ? average.level : null;
   const stagedScale = scoreScale ? (pending[SCALE] ?? autoScale) : null;
   const averageLabel = average.level ? scoreScale.levels.find((l) => l.code === average.level)?.label : null;
   const currentOverall = pending[SCALE] ?? autoScale ?? student.scale_level ?? null;
@@ -345,7 +363,8 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
   // truth; this autosave is fire-and-forget. Typing debounces (~500ms); a
   // discrete proficiency/display change flushes immediately (flushNextRef).
   useEffect(() => {
-    const saver = saverRef.current;
+    if (isView) return;
+    const saver = draftSaver();
     if (hasPendingChanges) {
       didDraftRef.current = true;
       saver.save(
@@ -364,7 +383,8 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
   // Flush a pending save on tab-hide (sendBeacon) and on SPA unmount (keepalive);
   // delete a stale server draft once on mount.
   useEffect(() => {
-    const saver = saverRef.current;
+    if (isView) return undefined;
+    const saver = draftSaver();
     if (draftWasStale) saver.remove({ immediate: true });
     const onPageHide = () => saver.flush({ beacon: true });
     const onVisibility = () => { if (document.visibilityState === 'hidden') saver.flush({ beacon: true }); };
@@ -383,7 +403,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
   // browser still holds the old key and the server has no draft, seed React
   // state from it (the autosave effect then persists it) and clear localStorage.
   useEffect(() => {
-    if (draftRow) return;
+    if (isView || draftRow) return;
     const legacyKey = `prism:assessment-draft:${courseId}:${assignmentId}:${student.enrollment_id}`;
     let legacy = null;
     try { const raw = localStorage.getItem(legacyKey); legacy = raw ? JSON.parse(raw) : null; } catch { /* ignore */ }
@@ -427,16 +447,19 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
   // changes are levels a final flag holds back (#177), so the bar does not count it.
   const pendingState = canPublish ? 'publish' : (hasPendingChanges ? 'held' : false);
   useEffect(() => {
+    if (isView) return;
     onPendingChange?.(student.schoology_uid, pendingState);
-  }, [pendingState, student.schoology_uid, onPendingChange]);
+  }, [isView, pendingState, student.schoology_uid, onPendingChange]);
 
   // Report this card's current visibility up so the page bar's "show all to
   // students" toggle can reflect the class-wide aggregate (all / none / mixed).
   useEffect(() => {
+    if (isView) return;
     onDisplayChange?.(student.schoology_uid, display);
-  }, [display, student.schoology_uid, onDisplayChange]);
+  }, [isView, display, student.schoology_uid, onDisplayChange]);
 
   useEffect(() => {
+    if (isView) return undefined;
     const uid = student.schoology_uid;
     registerCard?.(uid, {
       getEntry: () => entryRef.current(),
@@ -448,7 +471,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
       acceptScaleSuggestion: () => acceptRef.current(),
     });
     return () => unregisterCard?.(uid);
-  }, [student.schoology_uid, registerCard, unregisterCard]);
+  }, [isView, student.schoology_uid, registerCard, unregisterCard]);
 
   // Apply a new comment value, auto-flipping the display toggle ON the first
   // time a virgin record's comment goes empty → non-empty. Shared by the
@@ -554,7 +577,8 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
       if (!displayTouched) setDisplay(fresh.comment_status === 1);
       flushNextRef.current = true;
     }
-    if (result?.restored?.draft) {
+    // A view card shows what is published; the restored draft waits for edit mode.
+    if (!isView && result?.restored?.draft) {
       const drafts = await getDraftsForAssignment(assignmentId).catch(() => null);
       const d = drafts?.[student.id];
       if (d) {
@@ -579,7 +603,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
     let result;
     try {
       // A debounced draft save landing after the restore would overwrite the restored draft.
-      await saverRef.current.settle();
+      await draftSaver().settle();
       result = await setGradeFlag({
         studentId: student.id, assignmentId: assignmentRow.id, code: 0,
         expected: { exception: Number(student.exception) || 0, score: student.score ?? null, comment: student.grade_comment || '' },
@@ -890,7 +914,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
       // Levels held by a final flag stay staged; the autosave keeps them as the draft (#177).
       if (!heldLevels) {
         setPending({});
-        saverRef.current.remove({ immediate: true });
+        draftSaver().remove({ immediate: true });
       }
       setInsertedLine(null);
       commentHistory.clearHistory(); // undo never crosses a publish (#75)
@@ -914,7 +938,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
       enrollmentId: student.enrollment_id, assignmentId, comment, commentStatus: display, ...statusLineFields(),
     });
     setSaveResult('saved');
-    if (!heldLevels) saverRef.current.remove({ immediate: true });
+    if (!heldLevels) draftSaver().remove({ immediate: true });
     setInsertedLine(null);
     commentHistory.clearHistory(); // undo never crosses a publish (#75)
     onSaved?.(student.schoology_uid, {
@@ -982,7 +1006,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
         setPending({});
         setInsertedLine(null);
         commentHistory.clearHistory(); // undo never crosses a publish (#75)
-        saverRef.current.remove({ immediate: true });
+        draftSaver().remove({ immediate: true });
         onSaved?.(student.schoology_uid, {
           ...(scaleCode ? { score: scalePointsFor(scaleCode), scale_level: scaleCode, ...GRADE_WRITTEN_PATCH } : {}),
           ...(rowLevels ? { row_levels: savedRowLevels(rowLevels) } : {}),
@@ -1061,7 +1085,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
       commentHistory.clearHistory(); // undo never crosses a publish (#75)
       // Explicit clear: the card stays mounted now, but the write effect runs
       // asynchronously — clear here so a fast bulk run can't race a stale key.
-      saverRef.current.remove({ immediate: true });
+      draftSaver().remove({ immediate: true });
       onSaved?.(student.schoology_uid, {
         scores: buildSavedScores(),
         ...(rubricSaved ? GRADE_WRITTEN_PATCH : {}),
@@ -1103,6 +1127,17 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
     };
   };
   const showDescriptors = viewMode === 'descriptors' && !!rubric;
+  // The unpublished-draft mark: the comment's own in edit mode, the task's (hasDraft) in view mode.
+  const draftMark = (
+    <span style={{ fontSize: '0.66rem', fontWeight: 600, color: 'var(--warning)' }}>
+      ● Draft - not published
+    </span>
+  );
+  // Done: the queued draft save lands first, so the view the parent draws next includes it.
+  async function handleDone() {
+    await draftSaver().settle();
+    onDone();
+  }
 
   return (
     <div
@@ -1154,9 +1189,11 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
             {(student.first_name?.[0] || '')}{(student.last_name?.[0] || '')}
           </div>
         ))}
-        <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap' }}>
-          {displayName(student)}
-        </Link>
+        {heading === undefined ? (
+          <Link to={`/student/${student.id}`} className="link" style={{ fontWeight: 600, fontSize: '0.95rem', whiteSpace: 'nowrap' }}>
+            {displayName(student)}
+          </Link>
+        ) : (heading || null)}
         <SubmissionStatusPill student={student} assignment={assignmentRow} aligned={!scoreScale && topics.length > 0} />
         {/* Why this student needs attention: the Needs action / Watch reasons, the same
             names as the filter pills above the cards. "Resubmitted" is left out: the
@@ -1214,9 +1251,11 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
         {/* Extend (late work, or a missed test's make-up): before or after the due date.
             Summative or Schoology test only, in a current course, not for an exempt student. */}
         {/* Refer / Waive at the referral limit, the same row the dashboard's Late work shows. */}
-        {resubmitEnabled && (
+        {/* A view card offers only the Flags menu (and Edit). */}
+        {isView && hasDraft && draftMark}
+        {!isView && resubmitEnabled && (
           <ReferControl student={student} assignmentId={assignmentRow?.id} panelHost={panelHost} onChange={handlePairChange}
-            beforeWrite={() => saverRef.current.settle()} onSchoologyChange={() => handleFlagChange(null)} />
+            beforeWrite={() => draftSaver().settle()} onSchoologyChange={() => handleFlagChange(null)} />
         )}
         {/* Schoology's flags (#40): after Refer, before Extend. */}
         {resubmitEnabled && assignmentRow?.id && (
@@ -1228,16 +1267,16 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
             comment={student.grade_comment || ''}
             aligned={!scoreScale && topics.length > 0}
             panelHost={panelHost}
-            beforeWrite={() => saverRef.current.settle()}
+            beforeWrite={isView ? null : () => draftSaver().settle()}
             onChange={handleFlagChange}
           />
         )}
         {/* Hidden once the work is in (no deadline left to extend) and for Exempt (the student is not doing the task). */}
-        {resubmitEnabled && (topics.length > 0 || assignmentRow?.is_test === 1) && !isExempt(student.exception)
+        {!isView && resubmitEnabled && (topics.length > 0 || assignmentRow?.is_test === 1) && !isExempt(student.exception)
           && student.timeline?.submission?.state !== 'submitted' && (
           <ExtendControl student={student} assignment={assignmentRow || {}} courseId={courseId} panelHost={panelHost} onChange={handleExtensionChange} />
         )}
-        {resubmitEnabled && <ResubmitControl
+        {!isView && resubmitEnabled && <ResubmitControl
           student={student}
           assignmentId={assignmentRow?.id}
           courseId={courseId}
@@ -1250,6 +1289,9 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
           <span className={`badge ${LOCK_BADGE[student.exception]}`} style={{ fontSize: '0.68rem' }} title={`Flag set in Schoology. ${flagEffect(student.exception)}`}>
             {exceptionLabel}, rubric locked
           </span>
+        )}
+        {isView && onEdit && (
+          <button type="button" className="secondary btn-sm" onClick={() => onEdit()}>Edit</button>
         )}
         </div>
       </div>
@@ -1275,7 +1317,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
           {`Saved before the flag${savedOn ? ` on ${savedOn}` : ''}. Clear the flag to restore it.`}
         </div>
       )}
-      {offerRestore && (
+      {offerRestore && !isView && (
         <div className="flag-saved-offer">
           <span>
             {`Grade saved in Prism${savedOn ? ` on ${savedOn}` : ''}: ${savedGrade.summary || 'a grade'}.`}
@@ -1331,7 +1373,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
             rows={descriptorRows}
             levels={LEVELS}
             cellState={cellStateFor}
-            onSelect={selectLevel}
+            onSelect={isView ? undefined : selectLevel}
             palette={rubricPalette}
             levelHeaderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].headerFill]))}
             levelBorderColors={Object.fromEntries(LEVELS.map(l => [l, LEVEL_COLORS[l].finalBorder]))}
@@ -1393,7 +1435,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
                       padding: '0.25rem 0.4rem',
                       border: '1px solid var(--border)',
                       textAlign: 'center',
-                      cursor: 'pointer',
+                      cursor: isView ? 'default' : 'pointer',
                       userSelect: 'none',
                       transition: 'all 0.1s',
                       color: CELL_TEXT,
@@ -1444,8 +1486,8 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
                       <td
                         key={l}
                         style={cellStyle}
-                        onClick={() => selectLevel(t.id, l)}
-                        title={`Set ${t.title} to ${LEVEL_LABELS[l]}`}
+                        onClick={isView ? undefined : () => selectLevel(t.id, l)}
+                        title={isView ? undefined : `Set ${t.title} to ${LEVEL_LABELS[l]}`}
                       >
                         {showCode ? (
                           <span style={{ fontSize: '0.75rem', color: CELL_TEXT }}>
@@ -1483,13 +1525,13 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
               syncedCode={shownScaleLevel}
               pendingCode={stagedScale}
               suggestedCode={suggestedScaleLabel ? suggestedScale : null}
-              locked={isRubricLocked}
+              locked={isRubricLocked || isView}
               // Under feedback rows the overall picker follows the Descriptors/Compact toggle.
               showDescriptors={!hasFeedbackRows || viewMode === 'descriptors'}
               onSelect={selectScaleLevel}
             />
             {/* No hint or button on a locked student (an exception): nothing can be staged there. */}
-            {hasFeedbackRows && !isRubricLocked && (
+            {hasFeedbackRows && !isRubricLocked && !isView && (
               <div className="feedback-rows-average">
                 {average.reason === 'insufficient_evidence' && pending[SCALE] == null && student.scale_level == null
                   ? 'A row is Insufficient Evidence: choose the overall level'
@@ -1708,7 +1750,8 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
               <div style={{ fontSize: '0.84rem', lineHeight: 1.45, color: '#1a1a1a', whiteSpace: 'pre-wrap' }}>
                 {narrativeSuggestion}
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
+              {/* Use and Ignore act on the comment editor, which a view card does not draw. */}
+              {!isView && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
                 <button
                   type="button"
                   onClick={ignoreSuggestion}
@@ -1733,14 +1776,23 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
                 >
                   ↓ Use suggestion
                 </button>
-              </div>
+              </div>}
             </div>
           )}
         </div>
       )}
 
+      {/* A view card: the published comment as text (none drawn when there is none). */}
+      {isView && syncedComment.trim() !== '' && (
+        <div style={{ padding: '0.75rem 1rem' }}>
+          <div className="grade-card__comment-view text-sm">
+            <span className="grade-card__comment-label">Comment:</span>{syncedComment}
+          </div>
+        </div>
+      )}
+
       {/* Overall Comment — the hero */}
-      <div style={{ padding: '0.75rem 1rem' }}>
+      {!isView && <div style={{ padding: '0.75rem 1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0 0 0.35rem' }}>
           <label style={{ fontSize: '0.7rem', fontWeight: 700, color: '#333' }}>
             Overall Comment
@@ -1751,11 +1803,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
               ✓ Published to Schoology
             </span>
           )}
-          {commentDirty && (
-            <span style={{ fontSize: '0.66rem', fontWeight: 600, color: 'var(--warning)' }}>
-              ● Draft - not published
-            </span>
-          )}
+          {commentDirty && draftMark}
           {comment.trim() && (
             <button
               type="button"
@@ -1894,8 +1942,12 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
             </span>
           )}
 
+          {/* Done (a card edited in place, #176): back to the view, the draft kept. */}
+          {onDone && (
+            <button type="button" className="ghost" style={{ marginLeft: 'auto' }} onClick={handleDone}>Done</button>
+          )}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

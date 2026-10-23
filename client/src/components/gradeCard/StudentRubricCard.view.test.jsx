@@ -1,16 +1,22 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { screen, within, fireEvent, act } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { createElement, Fragment } from 'react';
+import { render, screen, within, fireEvent, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { cardInputs } from '../../lib/cardInputs.js';
+import { draftBaseline } from '../../lib/assessmentDraft.js';
+import { makeDraftSaver } from '../../lib/assessmentDraftSaver.js';
+import { getProficiencyScale, deleteAssessmentDraft } from '../../services/api.js';
+import StudentRubricCard from './StudentRubricCard.jsx';
 import { rowScores } from '../../lib/feedbackRows.js';
 import { TOPICS, makeStudent, renderCard } from './testFixtures.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
 let mockSaver;
 vi.mock('../../lib/assessmentDraftSaver.js', () => ({
-  makeDraftSaver: () => {
+  makeDraftSaver: vi.fn(() => {
     mockSaver = { save: vi.fn(), remove: vi.fn(), flush: vi.fn(), settle: vi.fn(async () => {}), dispose: vi.fn() };
     return mockSaver;
-  },
+  }),
 }));
 
 vi.mock('../../services/api.js', () => ({
@@ -27,6 +33,7 @@ vi.mock('../../services/api.js', () => ({
   getFeedbackForAssignment: vi.fn().mockResolvedValue({}),
   getAssessmentAnalysis: vi.fn().mockResolvedValue(null),
   getDraftsForAssignment: vi.fn().mockResolvedValue({}),
+  deleteAssessmentDraft: vi.fn().mockResolvedValue({}),
   syncMasteryForAssignment: vi.fn(),
   writeMasteryScores: vi.fn().mockResolvedValue({}),
   writeMasteryComment: vi.fn().mockResolvedValue({}),
@@ -364,5 +371,217 @@ describe('StudentRubricCard: Add update on the comment', () => {
   it('no Add update with an empty comment', () => {
     renderCard({ student: studentWith({ grade_comment: '' }) });
     expect(screen.queryByRole('button', { name: 'Add update' })).not.toBeInTheDocument();
+  });
+
+  it('no Add update in view mode', () => {
+    renderCard({ mode: 'view', student: studentWith({ grade_comment: 'Good work.' }) });
+    expect(screen.getByText('Good work.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Add update' })).not.toBeInTheDocument();
+  });
+});
+
+describe('StudentRubricCard: view mode', () => {
+  const ONE_TOPIC = { topics: [T1], rubric: { ...RUBRIC, topicByCriterion: [RUBRIC.topicByCriterion[0]] } };
+  const setTitles = () => [...document.querySelectorAll('[title]')].filter((el) => /^Set /.test(el.title));
+
+  it('view mode draws the grid read-only', () => {
+    const { unmount } = renderCard({ ...ONE_TOPIC, student: studentWith({ scores: { t1: { grade: 'EX' } } }) });
+    expect(setTitles().length).toBeGreaterThan(0); // edit mode offers the cells (so the next checks prove something)
+    unmount();
+    renderCard({ ...ONE_TOPIC, mode: 'view', student: studentWith({ scores: { t1: { grade: 'EX' } } }) });
+    expect(setTitles()).toHaveLength(0);
+    const awarded = screen.getByText('Clear and usable.').closest('td');
+    expect(awarded).toHaveAttribute('data-awarded', 'true');
+    fireEvent.click(screen.getByText('Polished and intuitive.'));
+    expect(screen.getByText('Polished and intuitive.').closest('td')).not.toHaveAttribute('data-awarded');
+    expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+  });
+
+  it('view mode draws the compact grid read-only too', () => {
+    renderCard({ topics: [T1], viewMode: 'compact', mode: 'view', student: studentWith({ scores: { t1: { grade: 'EX' } } }) });
+    expect(setTitles()).toHaveLength(0);
+    const row = screen.getByText('Select, analyze').closest('tr');
+    fireEvent.click(within(row).getAllByRole('cell')[1]);
+    expect(within(row).getAllByRole('cell')[1]).toHaveTextContent('');
+    expect(within(row).getByText('EX')).toBeInTheDocument();
+  });
+
+  it('view mode locks the overall scale picker', () => {
+    renderCard(rowCard({ scale_level: 'EX' }, { mode: 'view' }));
+    const group = screen.getByRole('group', { name: SCALE.name });
+    within(group).getAllByRole('button').forEach((b) => expect(b).toBeDisabled());
+    expect(screen.queryByRole('button', { name: /Use the rubric average/ })).not.toBeInTheDocument();
+  });
+
+  it('view mode shows the comment as text, with no textarea or Publish', () => {
+    renderCard({ mode: 'view', student: studentWith({ grade_comment: 'Good work.\nKeep going.', comment_status: 1 }) });
+    const view = document.querySelector('.grade-card__comment-view');
+    expect(view).not.toBeNull();
+    expect(within(view).getByText('Comment:')).toBeInTheDocument();
+    expect(view).toHaveTextContent('Good work. Keep going.');
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Publish/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Discard/ })).not.toBeInTheDocument();
+  });
+
+  it('view mode shows the published grade and comment, not a draft', () => {
+    const student = studentWith({ grade_comment: 'Published words.', scores: { t1: { grade: 'EX' } } });
+    const base = draftBaseline(student, [T1], { includeScore: false });
+    renderCard({
+      ...ONE_TOPIC, mode: 'view', student,
+      draftRow: { base, pending: { t1: 'ED' }, comment: 'Draft words.', display: false, displayTouched: false },
+    });
+    expect(screen.getByText('Published words.')).toBeInTheDocument();
+    expect(screen.queryByText('Draft words.')).not.toBeInTheDocument();
+    expect(screen.getByText('Clear and usable.').closest('td')).toHaveAttribute('data-awarded', 'true');
+  });
+
+  it('switching a view card to edit in place starts the editor from the draft, and its saver', () => {
+    const student = studentWith({ grade_comment: 'Published words.' });
+    const draftRow = { base: draftBaseline(student, TOPICS, { includeScore: false }), pending: {}, comment: 'Draft words.', display: false, displayTouched: false };
+    const props = { student, topics: TOPICS, courseId: '4', assignmentId: '8', assignmentRow: { id: 50 }, onSaved: () => {}, draftRow };
+    const tree = (mode) => createElement(MemoryRouter, null, createElement(StudentRubricCard, { ...props, mode }));
+    const { rerender } = render(tree('view'));
+    expect(makeDraftSaver).not.toHaveBeenCalled();
+    rerender(tree('edit'));
+    expect(screen.getByPlaceholderText(/Teacher comment/).value).toBe('Draft words.');
+    expect(makeDraftSaver).toHaveBeenCalledTimes(1);
+    rerender(tree('view'));
+    expect(mockSaver.dispose).toHaveBeenCalled();
+    expect(screen.getByText('Published words.')).toBeInTheDocument();
+  });
+
+  it('view mode with no comment draws no comment block', () => {
+    renderCard({ mode: 'view' });
+    expect(document.querySelector('.grade-card__comment-view')).toBeNull();
+  });
+
+  it('view mode hides the restore box', () => {
+    const saved_grade = { topics: { t1: 'D' }, savedAt: '2026-10-20 01:00:00', summary: 'Developing', restoreSummary: 'Developing' };
+    const { unmount } = renderCard({ topics: [T1], student: studentWith({ saved_grade }) });
+    expect(screen.getByRole('button', { name: 'Restore saved grade' })).toBeInTheDocument();
+    unmount();
+    renderCard({ topics: [T1], mode: 'view', student: studentWith({ saved_grade }) });
+    expect(screen.queryByText(/Grade saved in Prism/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Restore saved grade' })).not.toBeInTheDocument();
+  });
+
+  it('view mode starts no draft saver', async () => {
+    const legacyKey = 'prism:assessment-draft:4:8:enr-1';
+    localStorage.setItem(legacyKey, JSON.stringify({ base: 'whatever', pending: {}, comment: 'old' }));
+    const onPendingChange = vi.fn();
+    const onDisplayChange = vi.fn();
+    const registerCard = vi.fn();
+    const { unmount } = renderCard({
+      mode: 'view', onPendingChange, onDisplayChange, registerCard, unregisterCard: vi.fn(),
+      // A stale draft: edit mode would delete it on mount.
+      draftRow: { base: 'stale', pending: {}, comment: 'x' },
+    });
+    await act(async () => {});
+    window.dispatchEvent(new Event('pagehide'));
+    unmount();
+    expect(makeDraftSaver).not.toHaveBeenCalled();
+    expect(deleteAssessmentDraft).not.toHaveBeenCalled();
+    expect(localStorage.getItem(legacyKey)).not.toBeNull(); // the legacy migration did not run
+    expect(onPendingChange).not.toHaveBeenCalled();
+    expect(onDisplayChange).not.toHaveBeenCalled();
+    expect(registerCard).not.toHaveBeenCalled();
+  });
+
+  it('view mode shows the Flags menu only', () => {
+    const props = {
+      topics: [T1],
+      assignmentRow: { id: 50, due_date: '2026-10-01 23:59:00', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+      student: studentWith({ late_work: { tone: 'red' } }),
+    };
+    const controls = () => ({
+      refer: screen.queryByTitle('Refer to the academic office') != null,
+      flags: screen.queryByRole('button', { name: /Flags/ }) != null,
+      extend: screen.queryByRole('button', { name: 'Extend' }) != null,
+      resubmit: screen.queryByRole('button', { name: /Ask to resubmit/ }) != null,
+    });
+    const { unmount } = renderCard(props);
+    expect(controls()).toEqual({ refer: true, flags: true, extend: true, resubmit: true });
+    unmount();
+    renderCard({ ...props, mode: 'view' });
+    expect(controls()).toEqual({ refer: false, flags: true, extend: false, resubmit: false });
+  });
+
+  it('view mode with resubmitEnabled false shows no Flags menu either', () => {
+    renderCard({ mode: 'view', resubmitEnabled: false });
+    expect(screen.queryByRole('button', { name: /Flags/ })).not.toBeInTheDocument();
+  });
+
+  it('Edit calls onEdit; Done calls onDone', async () => {
+    const onEdit = vi.fn();
+    const { unmount } = renderCard({ mode: 'view', onEdit });
+    expect(screen.queryByRole('button', { name: 'Done' })).not.toBeInTheDocument();
+    const edit = screen.getByRole('button', { name: 'Edit' });
+    expect(edit).toHaveClass('secondary', 'btn-sm');
+    fireEvent.click(edit);
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    unmount();
+
+    const order = [];
+    const onDone = vi.fn(() => order.push('done'));
+    renderCard({ onDone });
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    mockSaver.settle.mockImplementation(async () => { order.push('settled'); });
+    const done = screen.getByRole('button', { name: 'Done' });
+    expect(done).toHaveClass('ghost');
+    await act(async () => { fireEvent.click(done); });
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['settled', 'done']);
+  });
+
+  it('no Edit without onEdit, and no Done without onDone', () => {
+    const { unmount } = renderCard({ mode: 'view' });
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+    unmount();
+    renderCard();
+    expect(screen.queryByRole('button', { name: 'Done' })).not.toBeInTheDocument();
+  });
+
+  it('hasDraft shows the draft mark', () => {
+    const { unmount } = renderCard({ mode: 'view' });
+    expect(screen.queryByText('● Draft - not published')).not.toBeInTheDocument();
+    unmount();
+    renderCard({ mode: 'view', hasDraft: true });
+    expect(screen.getByText('● Draft - not published')).toBeInTheDocument();
+  });
+
+  it('heading replaces the name; false draws none', () => {
+    const { unmount } = renderCard({ mode: 'view' });
+    expect(screen.getByRole('link', { name: 'Ada Lovelace' })).toBeInTheDocument();
+    unmount();
+    const second = renderCard({ mode: 'view', heading: createElement('span', null, 'Unit 3 project') });
+    expect(screen.getByText('Unit 3 project')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Ada Lovelace' })).not.toBeInTheDocument();
+    second.unmount();
+    renderCard({ mode: 'view', heading: false });
+    expect(screen.queryByRole('link', { name: 'Ada Lovelace' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Ada Lovelace')).not.toBeInTheDocument();
+  });
+
+  describe('the proficiency scale', () => {
+    afterEach(() => { vi.unstubAllGlobals(); });
+
+    it('twenty view cards request the proficiency scale once', async () => {
+      // The real (memoised) request behind the mocked export: the card asks per mount, the
+      // network sees one request.
+      const actual = await vi.importActual('../../services/api.js');
+      getProficiencyScale.mockImplementation(actual.getProficiencyScale);
+      const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ schoologyScaleId: 1, levels: [] }) }));
+      vi.stubGlobal('fetch', fetchMock);
+      const cards = Array.from({ length: 20 }, (_, i) => createElement(StudentRubricCard, {
+        key: i, mode: 'view', student: { ...makeStudent(), id: i + 1, enrollment_id: `enr-${i + 1}`, schoology_uid: `uid-${i + 1}` },
+        topics: TOPICS, courseId: '4', assignmentId: '8', assignmentRow: { id: 50 }, onSaved: () => {},
+      }));
+      render(createElement(MemoryRouter, null, createElement(Fragment, null, ...cards)));
+      await act(async () => {});
+      expect(getProficiencyScale).toHaveBeenCalledTimes(20);
+      expect(fetchMock.mock.calls.filter(([url]) => url === '/api/proficiency-scale')).toHaveLength(1);
+    });
   });
 });

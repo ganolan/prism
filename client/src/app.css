@@ -756,6 +756,9 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
 /* A points-only task's score on the card (no rubric to show). */
 .grade-card__score { display: flex; align-items: center; gap: 0.1rem; font-size: 0.85rem; padding-bottom: 0.25rem; }
 .grade-card__score-label { font-weight: 700; margin-right: 5px; }
+/* A view card's comment (#176): the published text under its label, as the shared feedback view drew it. */
+.grade-card__comment-view { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; white-space: pre-line; overflow-wrap: anywhere; }
+.grade-card__comment-label { font-weight: 700; margin-right: 5px; }
 
 /* ========================================================================
    MODAL

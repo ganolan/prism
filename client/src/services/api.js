@@ -112,8 +112,19 @@ export const getGroups = (courseIds, count, balanced) => request(`/tools/groups/
 // Grading scales — global lookup map
 export const getGradingScales = () => request('/grading-scales');
 
-// Proficiency scale — config-derived 5-level mastery scale
-export const getProficiencyScale = () => request('/proficiency-scale');
+// Proficiency scale — config-derived 5-level mastery scale. One request per page load: every
+// grade card asks on mount, and the student page draws one per task (#176). A failure is not
+// kept, so the next call asks again.
+let proficiencyScaleRequest = null;
+export const getProficiencyScale = () => {
+  if (!proficiencyScaleRequest) {
+    proficiencyScaleRequest = request('/proficiency-scale').catch((err) => {
+      proficiencyScaleRequest = null;
+      throw err;
+    });
+  }
+  return proficiencyScaleRequest;
+};
 
 // Analytics
 export const getCourseAnalytics = (id) => request(`/analytics/course/${id}`);

@@ -103,3 +103,19 @@ describe('updateParent (#173)', () => {
     }));
   });
 });
+
+describe('getProficiencyScale', () => {
+  it('requests once per page load, and again after a failure', async () => {
+    const scale = { schoologyScaleId: 1, levels: [] };
+    const f = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 502, statusText: 'Bad Gateway', json: async () => ({ error: 'down' }) })
+      .mockResolvedValue({ ok: true, status: 200, json: async () => scale });
+    vi.stubGlobal('fetch', f);
+    await expect(api.getProficiencyScale()).rejects.toThrow('down');
+    const [a, b] = await Promise.all([api.getProficiencyScale(), api.getProficiencyScale()]);
+    expect(a).toEqual(scale);
+    expect(b).toBe(a);
+    expect(await api.getProficiencyScale()).toBe(a);
+    expect(f.mock.calls.map((c) => c[0])).toEqual(['/api/proficiency-scale', '/api/proficiency-scale']);
+  });
+});

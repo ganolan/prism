@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import {
-  getTriage, listReferrals, recordReferral, undoReferral,
+  getTriage, listReferrals,
   listExtensions, recordExtension, undoExtension, setMakeUpIgnored, assertCanExtend, TriageError,
 } from '../services/triage.js';
 import {
@@ -19,18 +19,20 @@ import { lessonPlan } from '../services/lessonPlan.js';
 import { timelineForPair, pairState } from '../services/submissionTimeline.js';
 import { todayLocal } from '../lib/schoolDays.js';
 import { getUnfinishedGrading } from '../services/unfinishedGrading.js';
+import { referPair, undoReferralPair } from '../services/referralMarks.js';
 
 const router = Router();
 const STATUS = {
   BAD_ACTION: 400, BAD_LESSONS: 400, BAD_VALUE: 400, NOT_FOUND: 404,
   NOT_ON_LIST: 409, NOT_AT_LIMIT: 409, NOT_ELIGIBLE: 409, ALREADY_OPEN: 409, NOT_AT_DEADLINE: 409,
+  NOT_MISSING: 409, NO_TOPICS: 409, CHANGED: 409, READBACK_MISMATCH: 502, LINKED_SECTION: 409,
   SCHOOLOGY_READ_FAILED: 502, SCHOOLOGY_WRITE_FAILED: 502, SCHOOLOGY_SESSION: 502, BUSY: 409, BAD_LINE: 400,
 };
 const optBool = (v) => (v === undefined ? undefined : v === 'true');
 const flag = (v) => v === '1' || v === 'true';
 
 function sendError(res, err) {
-  if (err instanceof TriageError) return res.status(STATUS[err.code] || 400).json({ error: err.message, code: err.code });
+  if (err instanceof TriageError || err?.code === 'LINKED_SECTION') return res.status(STATUS[err.code] || 400).json({ error: err.message, code: err.code });
   console.error('[triage]', err);
   return res.status(500).json({ error: err.message });
 }
@@ -120,15 +122,18 @@ router.get('/referrals', (req, res) => {
   res.json(listReferrals(getDb(), { courseId: req.query.courseId ?? null }));
 });
 
-// POST /api/triage/referrals — { studentId, assignmentId, action: 'referred', note? }
+// POST /api/triage/referrals — { studentId, assignmentId, action: 'referred' | 'waived', note?,
+// schoology? }. schoology: true (#175, missing work only) first writes IE on every topic and
+// Missing in Schoology (server/services/referralMarks.js).
 router.post('/referrals', (req, res) => {
-  const { studentId, assignmentId, action, note } = req.body || {};
-  write(res, () => recordReferral(getDb(), { studentId, assignmentId, action, note, source: 'app' }));
+  const { studentId, assignmentId, action, note, schoology } = req.body || {};
+  act(res, { run: (db) => referPair(db, { studentId, assignmentId, action, note, source: 'app', schoology: schoology === true }) });
 });
 
-// DELETE /api/triage/referrals/:id — undo a referral.
+// DELETE /api/triage/referrals/:id[?schoology=1] — undo a referral; schoology=1 also clears the
+// Missing and IE it wrote, when Schoology still holds exactly that.
 router.delete('/referrals/:id', (req, res) => {
-  res.json(undoReferral(getDb(), req.params.id));
+  act(res, { run: (db) => undoReferralPair(db, { id: req.params.id, schoology: flag(req.query.schoology) }) }, 200);
 });
 
 // GET /api/triage/pair?studentId=&assignmentId= — one student's card state after a

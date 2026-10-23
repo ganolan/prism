@@ -735,13 +735,13 @@ describe('triage tools', () => {
     expect(getTriageTool(db, {}).lateWork[0]).toMatchObject({ courseName: 'AP Computer Science Principles', blockNumber: '7' });
   });
 
-  test('listReferralsTool returns referrals + extensions, filtered by student id or name fragment', () => {
+  test('listReferralsTool returns referrals + extensions, filtered by student id or name fragment', async () => {
     const db = getDb();
     const { courseId, studentId, assignmentId } = seedLate(db);
     const zed = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'Zed', 'Young')`).run().lastInsertRowid;
     db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(zed, courseId);
-    recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred' });
-    recordReferralTool(db, { student_id: zed, assignment_id: assignmentId, action: 'referred' });
+    await recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred', schoology: false });
+    await recordReferralTool(db, { student_id: zed, assignment_id: assignmentId, action: 'referred', schoology: false });
     extendDeadlineTool(db, { student_id: zed, assignment_id: assignmentId, lessons: 2 });
     const names = (out) => ({ referrals: out.referrals.map((r) => r.studentName), extensions: out.extensions.map((r) => r.studentName) });
     expect(names(listReferralsTool(db, { student: 'maya' }))).toEqual({ referrals: ['Maya Chen'], extensions: [] });
@@ -838,20 +838,40 @@ describe('triage tools', () => {
     expect(() => setMakeupTrackingTool(db, { assignment_id: 99999, tracked: false })).toThrow(expect.objectContaining({ code: 'NOT_FOUND' }));
   });
 
-  test('record → list → undo through the tools (source mcp)', () => {
+  test('record → list → undo through the tools (source mcp)', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedLate(db);
-    const r = recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred', note: 'emailed AO' });
-    expect(r).toMatchObject({ action: 'referred', source: 'mcp', note: 'emailed AO' });
+    const r = await recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred', note: 'emailed AO', schoology: false });
+    expect(r).toMatchObject({ action: 'referred', source: 'mcp', note: 'emailed AO', schoologyMark: null });
     expect(listReferralsTool(db, {}).referrals).toHaveLength(1);
-    expect(undoReferralTool(db, { id: r.id })).toEqual({ deleted: true });
+    expect(await undoReferralTool(db, { id: r.id })).toEqual({ deleted: true });
   });
 
-  test("record_referral rejects 'exempt'", () => {
+  test("record_referral rejects 'exempt'", async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedLate(db);
-    expect(() => recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'exempt' }))
-      .toThrow(expect.objectContaining({ code: 'BAD_ACTION' }));
+    await expect(recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'exempt' }))
+      .rejects.toThrow(expect.objectContaining({ code: 'BAD_ACTION' }));
+  });
+
+  // #175: missing work writes IE and Missing by default, so a dev copy refuses unless schoology: false.
+  test('record_referral of missing work: a dev copy refuses the default Schoology write, records nothing', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLate(db);
+    await expect(recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred' }, { devCopy: true }))
+      .rejects.toThrow(expect.objectContaining({ code: 'DEV_COPY', message: expect.stringContaining('schoology: false') }));
+    expect(listReferralsTool(db, {}).referrals).toEqual([]);
+    const r = await recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred', schoology: false }, { devCopy: true });
+    expect(r.schoologyMark).toBeNull();
+  });
+
+  test('undo_referral: a referral that wrote Missing is cleared in Schoology by default (a dev copy refuses)', async () => {
+    const db = getDb();
+    const { studentId, assignmentId } = seedLate(db);
+    const r = await recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred', schoology: false });
+    db.prepare('UPDATE referrals SET schoology_mark = ? WHERE id = ?').run(JSON.stringify({ at: 'x', topics: ['t1'], missing: true }), r.id);
+    await expect(undoReferralTool(db, { id: r.id }, { devCopy: true })).rejects.toThrow(expect.objectContaining({ code: 'DEV_COPY' }));
+    expect(await undoReferralTool(db, { id: r.id, schoology: false }, { devCopy: true })).toEqual({ deleted: true });
   });
 
   test('extend_deadline → get_triage row carries it → undo_extension (source mcp)', async () => {
@@ -874,12 +894,12 @@ describe('triage tools', () => {
       .rejects.toThrow(expect.objectContaining({ code: 'BAD_LESSONS' }));
   });
 
-  test('record_referral rejects a pair not on the list', () => {
+  test('record_referral rejects a pair not on the list', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedLate(db);
-    recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred' });
-    expect(() => recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred' }))
-      .toThrow(/not on the late-work list/);
+    await recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred', schoology: false });
+    await expect(recordReferralTool(db, { student_id: studentId, assignment_id: assignmentId, action: 'referred' }))
+      .rejects.toThrow(/not on the late-work list/);
   });
 
   test('schoolCalendarTool: between + today info, weekday fallback when empty', () => {

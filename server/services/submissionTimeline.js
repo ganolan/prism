@@ -52,6 +52,12 @@ function submissionState(assignment, g) {
   return assignment.accepts_submissions === 1 ? 'not_submitted' : 'unknown';
 }
 
+function schoologyMarkOf(raw) {
+  if (!raw) return null;
+  const m = JSON.parse(raw);
+  return { topics: (m.topics || []).length, missing: Boolean(m.missing), cleared: Boolean(m.cleared) };
+}
+
 export function buildTimeline({
   assignment, grade, extension = null, referral = null, resubmission = null, cal, today, referralLimitDays = 8,
 }) {
@@ -125,6 +131,8 @@ export function buildTimeline({
           id: referral.id ?? null,
           action: referral.action === 'exempt' ? 'waived' : 'referred', // 'exempt' is how a waiver is stored
           on: epochToLocalDate(sqliteUtcToEpoch(referral.created_at)), day: (referral.days_late ?? 0) + 1, note: referral.note ?? null,
+          // #175: what the referral wrote to Schoology ({ topics: count, missing, cleared }), or null.
+          schoology: schoologyMarkOf(referral.schoology_mark),
         }
       : null,
     limit: referralLimitDays,
@@ -140,7 +148,7 @@ export function timelineContext(db, { courseId, today = todayLocal() }) {
   const byPair = (rows) => new Map(rows.map((r) => [`${r.student_id}:${r.assignment_id}`, r]));
   const extensions = byPair(db.prepare('SELECT id, student_id, assignment_id, lessons, until, note FROM extensions WHERE course_id = ?').all(Number(courseId)));
   const referrals = byPair(db.prepare(
-    'SELECT id, student_id, assignment_id, action, days_late, note, created_at FROM referrals WHERE course_id = ?',
+    'SELECT id, student_id, assignment_id, action, days_late, note, created_at, schoology_mark FROM referrals WHERE course_id = ?',
   ).all(Number(courseId)));
   // Summative = aligned, exactly as triage decides it (only summative work is referred).
   const aligned = new Set(db.prepare(`SELECT a.id FROM assignments a WHERE a.course_id = ? AND ${ALIGNED_SQL} = 1`).all(Number(courseId)).map((r) => r.id));

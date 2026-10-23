@@ -693,6 +693,10 @@ CREATE TABLE IF NOT EXISTS referrals (
   days_late INTEGER,
   source TEXT NOT NULL DEFAULT 'app',   -- 'app' | 'mcp'
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  -- #175: what the referral wrote to Schoology, as JSON { at, topics: [topic ids], missing }:
+  -- IE on each listed topic, then (missing: true) the Missing flag. NULL = Prism only.
+  -- Levels it lists are not a grade: a flag's saved copy leaves them out (gradeFlags.js).
+  schoology_mark TEXT,
   UNIQUE(student_id, assignment_id)
 );
 

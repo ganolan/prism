@@ -79,6 +79,17 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
   }
   const handleRecord = (row, action, note) =>
     write(() => recordReferral({ studentId: row.studentId, assignmentId: row.assignmentId, action, note }));
+  // Refer through ReferPanel (#175, missing work): a refusal throws, so the panel shows it in
+  // place; a warning (IE written, Missing not) shows above the lists. The lists refresh either way.
+  const handleRefer = async (row, schoology) => {
+    try {
+      const out = await recordReferral({ studentId: row.studentId, assignmentId: row.assignmentId, action: 'referred', schoology });
+      if (out?.schoology?.warning) setError(out.schoology.warning);
+    } finally {
+      setHistoryVersion((v) => v + 1);
+      load();
+    }
+  };
   const handleIgnore = (row) => write(async () => {
     await setMakeUpIgnored(row.assignmentId, true);
     onMakeUpIgnored?.(row.assignmentId);
@@ -168,7 +179,7 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
           el: (
             <LateWorkPanel
               rows={data.lateWork} settings={data.settings} showCourse={showCourse} scope={scope}
-              onRecord={handleRecord} onExtend={handleExtend}
+              onRecord={handleRecord} onRefer={handleRefer} onExtend={handleExtend}
               historyCount={data.historyCount}
               historyOpen={showHistory} onToggleHistory={() => setShowHistory((v) => !v)}
               courseId={courseId} historyVersion={historyVersion}

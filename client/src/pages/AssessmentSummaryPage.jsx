@@ -1218,7 +1218,8 @@ export function StudentRubricCard({ student, topics, courseId, assignmentId, ass
             Summative or Schoology test only, in a current course, not for an exempt student. */}
         {/* Refer / Waive at the referral limit, the same row the dashboard's Late work shows. */}
         {resubmitEnabled && (
-          <ReferControl student={student} assignmentId={assignmentRow?.id} panelHost={panelHost} onChange={handlePairChange} />
+          <ReferControl student={student} assignmentId={assignmentRow?.id} panelHost={panelHost} onChange={handlePairChange}
+            beforeWrite={() => saverRef.current.settle()} onSchoologyChange={() => handleFlagChange(null)} />
         )}
         {/* Schoology's flags (#40): after Refer, before Extend. */}
         {resubmitEnabled && assignmentRow?.id && (

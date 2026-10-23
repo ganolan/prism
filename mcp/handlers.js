@@ -18,10 +18,11 @@ import { preferredFirstName } from '../server/services/studentNames.js';
 import { findStudents, getStudentHistory, resolveStudent } from '../server/services/studentHistory.js';
 import { schoolYearOf } from '../server/lib/schoolYear.js';
 import {
-  getTriage, listReferrals, recordReferral, undoReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
+  getTriage, listReferrals, checkReferral, listExtensions, recordExtension, undoExtension, setMakeUpIgnored,
   assertCanExtend, TriageError,
 } from '../server/services/triage.js';
 import { getSubmissionStatus } from '../server/services/submissionStatus.js';
+import { referPair, undoReferralPair } from '../server/services/referralMarks.js';
 import { getUnfinishedGrading } from '../server/services/unfinishedGrading.js';
 import {
   extendResubmission, gradeStands, listResubmissions,
@@ -375,12 +376,22 @@ export function schoolCalendarTool(db, { date, to } = {}) {
   };
 }
 
-export function recordReferralTool(db, { student_id, assignment_id, action, note } = {}) {
-  return recordReferral(db, { studentId: student_id, assignmentId: assignment_id, action, note, source: 'mcp' });
+// #175: a referral of missing work also writes IE on every topic and Missing in Schoology unless
+// `schoology: false` (the app's tick box is on by default too); handed-in work is never written.
+export async function recordReferralTool(db, { student_id, assignment_id, action, note, schoology } = {}, { devCopy = false } = {}) {
+  const args = { studentId: student_id, assignmentId: assignment_id, action, note, source: 'mcp' };
+  const write = schoology ?? (action === 'referred' && checkReferral(db, args).row.kind === 'outstanding');
+  if (write) assertSchoologyWritable({ devCopy, instead: 'Call again with schoology: false to record the referral in Prism only.' });
+  return referPair(db, { ...args, schoology: write });
 }
 
-export function undoReferralTool(db, { id } = {}) {
-  return undoReferral(db, id);
+// Undoing a referral that wrote IE and Missing also clears them unless `schoology: false`.
+export async function undoReferralTool(db, { id, schoology } = {}, { devCopy = false } = {}) {
+  const raw = db.prepare('SELECT schoology_mark FROM referrals WHERE id = ?').get(Number(id))?.schoology_mark;
+  const mark = raw ? JSON.parse(raw) : null;
+  const write = schoology ?? Boolean(mark?.missing && !mark.cleared);
+  if (write) assertSchoologyWritable({ devCopy, instead: 'Call again with schoology: false to undo the referral in Prism only.' });
+  return undoReferralPair(db, { id, schoology: write });
 }
 
 // Make-up tracking for one Schoology test/quiz (all students): tracked false = ignore.
@@ -406,11 +417,11 @@ export function assertSchoologyConfigured(env = process.env) {
 // A write to Schoology (a status line, an LTI unsubmit): refused on a dev copy of Prism, whose
 // students and database are not the ones Schoology holds (prod's copy would never learn of the
 // write), else the credentials check. A refusal records nothing.
-export function assertSchoologyWritable({ devCopy = false, env = process.env } = {}) {
+export function assertSchoologyWritable({ devCopy = false, env = process.env, instead = null } = {}) {
   if (devCopy) {
     throw new TriageError('DEV_COPY',
       'This is a dev copy of Prism, so it refuses Schoology writes: nothing was published, unsubmitted or recorded. ' +
-      'Call again without comment_line / remove_line, and with unsubmit: false, to keep the action Prism-only.');
+      (instead ?? 'Call again without comment_line / remove_line, and with unsubmit: false, to keep the action Prism-only.'));
   }
   assertSchoologyConfigured(env);
 }

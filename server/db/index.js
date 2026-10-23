@@ -233,6 +233,8 @@ const MIGRATIONS = [
   // #174: each course's PowerSchool term (schema.sql has the columns, with their note).
   `ALTER TABLE courses ADD COLUMN term_start TEXT`,
   `ALTER TABLE courses ADD COLUMN term_end TEXT`,
+  // #175: what a referral wrote to Schoology (IE on every topic, then Missing); schema.sql has the note.
+  `ALTER TABLE referrals ADD COLUMN schoology_mark TEXT`,
   `CREATE TRIGGER IF NOT EXISTS grades_flag_seen_insert AFTER INSERT ON grades
     WHEN COALESCE(NEW.exception, 0) != 0
     BEGIN

@@ -7,6 +7,7 @@ import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.js
 import ReferralHistory from './ReferralHistory.jsx';
 import { cardLink } from './ResubmissionsPanel.jsx';
 import EmailMenu, { MailLink } from './EmailMenu.jsx';
+import ReferPanel from '../ReferPanel.jsx';
 
 // Late summative work, worst first, counted in school days late (referral at `limit`).
 // The action column: work still missing stacks Refer (red rows, title "Mark referred")
@@ -19,15 +20,21 @@ import EmailMenu, { MailLink } from './EmailMenu.jsx';
 // ReferralHistory open immediately below it, inside this panel (owned by the parent
 // TriageSection so a record elsewhere in the rail can still reload it).
 // "@ ▾" (EmailMenu) copies still-owing students' addresses; ✉ (MailLink) on each row opens a mailto.
+// Refer on missing work opens ReferPanel below the row (#175): its box, ticked by default, also
+// writes IE on every topic and Missing in Schoology (onRefer(row, schoology), which throws on a
+// refusal so the panel shows it). Refer on work handed in records at once (onRecord).
 const daysLeft = (day, limit) => (limit - day > 0 ? `${limit - day} left` : 'last day');
 
 export default function LateWorkPanel({
-  rows, settings, showCourse, scope, onRecord, onExtend, historyCount,
+  rows, settings, showCourse, scope, onRecord, onRefer, onExtend, historyCount,
   historyOpen, onToggleHistory, courseId, historyVersion, onCloseHistory, onHistoryChanged,
 }) {
   const [extending, setExtending] = useState(null);
   const [waiving, setWaiving] = useState(null);
   const [waiveNote, setWaiveNote] = useState('');
+  const [referring, setReferring] = useState(null); // the row whose ReferPanel is open
+  const [referBusy, setReferBusy] = useState(false);
+  const [referError, setReferError] = useState(null);
   const [showAll, toggleShowAll] = useShowAll(`late.${scope}`);
   const limit = settings.referralLimitDays;
   const toRefer = rows.filter((r) => r.tone === 'red').length;
@@ -47,6 +54,20 @@ export default function LateWorkPanel({
         const open = extending === k;
         const waive = waiving === k;
         const handedIn = r.kind === 'submitted_late';
+        const refer = referring === k;
+        const openRefer = () => { setReferring(refer ? null : k); setReferError(null); setExtending(null); setWaiving(null); };
+        async function confirmRefer(schoology) {
+          setReferBusy(true);
+          setReferError(null);
+          try {
+            await onRefer(r, schoology);
+            setReferring(null);
+          } catch (err) {
+            setReferError(err.message);
+          } finally {
+            setReferBusy(false);
+          }
+        }
         return (
           <div key={k} className="triage-row">
             <UrgencyRing day={r.day} limit={limit} tone={r.tone} approx={r.approx} size={28} />
@@ -62,12 +83,18 @@ export default function LateWorkPanel({
             </div>
             <div className="triage-row__actions">
               {red
-                ? <button className="primary danger btn-sm" title="Mark referred" onClick={() => onRecord(r, 'referred')}>Refer</button>
+                ? <button className="primary danger btn-sm" title="Mark referred" aria-expanded={handedIn ? undefined : refer}
+                    onClick={() => (handedIn ? onRecord(r, 'referred') : openRefer())}>Refer</button>
                 : <span className="text-sm text-muted">{daysLeft(r.day, limit)}</span>}
               {handedIn
                 ? <button className="secondary btn-sm" title="Don't refer: record why" onClick={() => { setWaiveNote(''); setWaiving(waive ? null : k); setExtending(null); }}>Waive</button>
-                : <button className="secondary btn-sm" onClick={() => { setExtending(open ? null : k); setWaiving(null); }}>Extend</button>}
+                : <button className="secondary btn-sm" onClick={() => { setExtending(open ? null : k); setWaiving(null); setReferring(null); }}>Extend</button>}
             </div>
+            {refer && (
+              <div className="triage-row__more">
+                <ReferPanel busy={referBusy} error={referError} onCancel={() => setReferring(null)} onConfirm={confirmRefer} />
+              </div>
+            )}
             {waive && (
               <div className="triage-row__more">
                 <input

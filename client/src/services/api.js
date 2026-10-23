@@ -228,7 +228,8 @@ export const getTriage = ({ courseId, includeFormative } = {}) => {
 export const getReferrals = ({ courseId } = {}) =>
   request(`/triage/referrals${courseId != null ? `?courseId=${courseId}` : ''}`);
 export const recordReferral = (body) => request('/triage/referrals', { method: 'POST', body: JSON.stringify(body) });
-export const undoReferral = (id) => request(`/triage/referrals/${id}`, { method: 'DELETE' });
+// schoology: true (#175) also clears the Missing and IE the referral wrote in Schoology.
+export const undoReferral = (id, { schoology = false } = {}) => request(`/triage/referrals/${id}${schoology ? '?schoology=1' : ''}`, { method: 'DELETE' });
 // Schoology's grade flags (#40). getGradeFlags: a fresh Schoology read for the Flags panels,
 // { exception, score, comment, commentStatus, graded, gradeText, savedGrade, openRecords,
 // hasDraft, storedLine }. setGradeFlag: { studentId, assignmentId, code (0 clears),

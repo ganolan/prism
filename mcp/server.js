@@ -488,24 +488,31 @@ export function createServer({ devCopy = false } = {}) {
   server.registerTool(
     'record_referral',
     {
-      description: "Record the teacher's decision on a late-work row at the referral limit: 'referred' (referred to the academic office) or 'waived' (work handed in late that the teacher decides not to refer, e.g. a pre-arranged absence; only for kind submitted_late, else NOT_SUBMITTED). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list, and rows not yet at the referral limit (tone red: 8+ school days late by default) with NOT_AT_LIMIT. To give a student more time use extend_deadline; a true exemption from the task is Schoology's Exempt flag (the Absent flag is only a marker: it changes nothing in Prism, so an absent student is still owed, late and listed like any other).",
+      description: "Record the teacher's decision on a late-work row at the referral limit: 'referred' (referred to the academic office) or 'waived' (work handed in late that the teacher decides not to refer, e.g. a pre-arranged absence; only for kind submitted_late, else NOT_SUBMITTED). ONLY call when the teacher explicitly says so. Use student_id/assignment_id from get_triage lateWork; rejects pairs not currently on the list, and rows not yet at the referral limit (tone red: 8+ school days late by default) with NOT_AT_LIMIT. To give a student more time use extend_deadline; a true exemption from the task is Schoology's Exempt flag (the Absent flag is only a marker: it changes nothing in Prism, so an absent student is still owed, late and listed like any other). " +
+        "Referring work still missing (kind outstanding) also writes Insufficient Evidence on every measurement topic of the task, then the Missing flag, in Schoology (the result's `schoology` { topics, missing, warning? }), unless schoology: false; without the IE levels Missing adds no evidence to the topic averages. Missing replaces a Late, Incomplete or Absent flag. It refuses (nothing written) when Schoology holds a score or levels for the work (CHANGED), or the task has no topics read (NO_TOPICS). Work handed in late is never written to Schoology: grade it.",
       inputSchema: {
         student_id: z.number().describe('lateWork[].studentId'),
         assignment_id: z.number().describe('lateWork[].assignmentId'),
         action: z.enum(['referred', 'waived']),
         note: z.string().optional().describe('Optional note, e.g. "emailed the academic office"'),
+        schoology: z.boolean().optional().describe('Missing work only: also write IE on every topic and Missing in Schoology. Default true for missing work; false records the referral in Prism only.'),
       },
     },
-    async (args) => text(() => recordReferralTool(getDb(), args))
+    async (args) => text(() => recordReferralTool(getDb(), args, { devCopy }))
   );
 
   server.registerTool(
     'undo_referral',
     {
-      description: 'Undo a referral by its id (from list_referrals or record_referral). The pair returns to the late-work list if still late. Only when the teacher asks.',
-      inputSchema: { id: z.number().describe('Referral id') },
+      description: 'Undo a referral by its id (from list_referrals or record_referral). The pair returns to the late-work list if still late. Only when the teacher asks. ' +
+        'A referral that wrote IE and Missing (list_referrals `schoologyMark` { topics, missing, cleared? }) also has them cleared in Schoology, one write that removes both, unless schoology: false; a Missing set before the referral is set again. ' +
+        'When Schoology has changed since (a grade, other levels, or no Missing), nothing is changed (CHANGED): undo with schoology: false and change the grade in Schoology.',
+      inputSchema: {
+        id: z.number().describe('Referral id'),
+        schoology: z.boolean().optional().describe('Also clear the Missing and IE the referral wrote. Default true when it wrote them and Missing is still set.'),
+      },
     },
-    async (args) => text(() => undoReferralTool(getDb(), args))
+    async (args) => text(() => undoReferralTool(getDb(), args, { devCopy }))
   );
 
   server.registerTool(

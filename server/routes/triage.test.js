@@ -76,6 +76,22 @@ describe('/api/triage', () => {
     expect((await call('DELETE', `/api/triage/referrals/${created.body.id}`)).body).toEqual({ deleted: true });
   });
 
+  // #175: schoology: true goes to referralMarks.js; a refusal records nothing.
+  test('POST schoology: true refuses with a 409 and records nothing when the write cannot start', async () => {
+    const res = await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'referred', schoology: true });
+    expect(res.status).toBe(409);
+    expect(['NOT_ELIGIBLE', 'NO_TOPICS']).toContain(res.body.code);
+    expect(pushGradeUpdates).not.toHaveBeenCalled();
+    expect((await call('GET', '/api/triage/referrals')).body).toEqual([]);
+  });
+
+  test('DELETE ?schoology=1 on a referral that wrote nothing to Schoology undoes it in Prism', async () => {
+    const created = await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'referred', schoology: false });
+    expect(created.body.schoologyMark).toBeNull();
+    expect((await call('DELETE', `/api/triage/referrals/${created.body.id}?schoology=1`)).body).toEqual({ deleted: true });
+    expect(getSectionGrades).not.toHaveBeenCalled();
+  });
+
   test('POST errors map to status codes', async () => {
     expect((await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'x' })).status).toBe(400);
     expect((await call('POST', '/api/triage/referrals', { studentId, assignmentId: 999, action: 'referred' })).status).toBe(404);

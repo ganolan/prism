@@ -3,6 +3,7 @@ import { getReferrals, undoReferral, getExtensions, undoExtension, getResubmissi
 import { formatDate } from '../../lib/formatDate.js';
 import CourseLine from './CourseLine.jsx';
 import StatusLineModal from '../StatusLineModal.jsx';
+import ReferPanel, { canClearInSchoology } from '../ReferPanel.jsx';
 
 // SQLite UTC 'YYYY-MM-DD HH:MM:SS'. A re-extended extension dates from its updatedAt.
 // Resubmission history rows carry updatedAt/closedAt/createdAt instead (see `recordedAt` below).
@@ -71,6 +72,10 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
   useEffect(() => { load(); }, [courseId, version, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [confirming, setConfirming] = useState(null); // a row whose Undo is in the confirm
+  // A referral that wrote IE and Missing (#175): Undo opens ReferPanel below its row.
+  const [undoingReferral, setUndoingReferral] = useState(null);
+  const [referBusy, setReferBusy] = useState(false);
+  const [referError, setReferError] = useState(null);
   const undoCall = (r, opts) => (r.kind === 'extension' ? undoExtension(r.id, opts)
     : r.kind === 'resubmission' ? undoResubmission(r.id, opts) : undoReferral(r.id));
 
@@ -90,6 +95,29 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
     }
     await refresh();
   }
+
+  async function confirmReferralUndo(schoology) {
+    setReferBusy(true);
+    setReferError(null);
+    try {
+      const out = await undoReferral(undoingReferral.id, { schoology });
+      setUndoingReferral(null);
+      setError(out?.schoology?.warning || null);
+      await refresh();
+    } catch (err) {
+      setReferError(err.message);
+    } finally {
+      setReferBusy(false);
+    }
+  }
+  const undoClick = (r) => {
+    if (r.kind === 'referral' && canClearInSchoology(r.schoologyMark)) {
+      setReferError(null);
+      setUndoingReferral(undoingReferral?.id === r.id ? null : r);
+      return;
+    }
+    return mayHaveLine(r) ? setConfirming(r) : undo(r);
+  };
 
   // Through the confirm: errors stay in the modal; a Schoology change that Prism
   // then failed to record still refreshes the lists.
@@ -133,8 +161,13 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
             {r.kind === 'extension' && <span className="badge badge-gray">Extended to {formatDate(`${r.until}T00:00:00`)}</span>}
             {r.kind === 'resubmission' && <span className="badge badge-resubmit">{resubLabel(r)}</span>}
             <span className="text-sm text-muted">{recordedOn(r)}{extraText(r) ? `: ${extraText(r)}` : ''}</span>
-            <button className="ghost" onClick={() => (mayHaveLine(r) ? setConfirming(r) : undo(r))}>Undo</button>
+            <button className="ghost" onClick={() => undoClick(r)}>Undo</button>
           </div>
+          {r.kind === 'referral' && undoingReferral?.id === r.id && (
+            <div className="triage-row__more">
+              <ReferPanel mode="undo" busy={referBusy} error={referError} onCancel={() => setUndoingReferral(null)} onConfirm={confirmReferralUndo} />
+            </div>
+          )}
         </div>
       ))}
       {confirming && (

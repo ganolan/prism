@@ -316,7 +316,7 @@ export function listReferrals(db, { courseId = null, studentId = null, since = n
            r.days_late + 1 AS day, r.student_id AS studentId, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
            r.assignment_id AS assignmentId, a.schoology_assignment_id AS schoologyAssignmentId, a.title,
            substr(a.due_date, 1, 10) AS dueDate, r.course_id AS courseId, c.course_name AS courseName,
-           c.block_number AS blockNumber
+           c.block_number AS blockNumber, r.schoology_mark
     FROM referrals r
     JOIN students s ON s.id = r.student_id
     JOIN assignments a ON a.id = r.assignment_id
@@ -325,9 +325,11 @@ export function listReferrals(db, { courseId = null, studentId = null, since = n
       AND (? IS NULL OR r.student_id = ?) AND (? IS NULL OR date(r.created_at, 'localtime') >= ?)
     ORDER BY r.created_at DESC, r.id DESC
   `).all(id, id, courseId, courseId, studentId, studentId, since, since)
-    .map(({ first_name, last_name, preferred_name, preferred_name_teacher, ...r }) => ({
+    .map(({ first_name, last_name, preferred_name, preferred_name_teacher, schoology_mark, ...r }) => ({
       ...r,
       action: r.action === 'exempt' ? 'waived' : r.action, // stored as the legacy 'exempt'
+      // #175: what the referral wrote to Schoology ({ at, topics, missing }), or null (Prism only).
+      schoologyMark: schoology_mark ? JSON.parse(schoology_mark) : null,
       studentName: `${preferredFirstName({ first_name, preferred_name, preferred_name_teacher })} ${last_name}`,
     }));
 }
@@ -343,7 +345,9 @@ function requireStudent(db, studentId) {
 
 // Referral = the at-limit action ('referred' only; a per-student extension is
 // recordExtension, a true exemption is Schoology's Exempt flag).
-export function recordReferral(db, { studentId, assignmentId, action, note = null, source = 'app', today = todayLocal() } = {}) {
+// The checks alone, before anything is written (referralMarks.js runs them before its
+// Schoology write): → { sid, a, row } where row is the pair's late-work row.
+export function checkReferral(db, { studentId, assignmentId, action, today = todayLocal() } = {}) {
   // 'waived' = the teacher decides a submitted-late pair is not referred (stored as
   // the legacy 'exempt', which meant the same; the schema CHECK allows only those two).
   if (action !== 'referred' && action !== 'waived') {
@@ -361,12 +365,19 @@ export function recordReferral(db, { studentId, assignmentId, action, note = nul
   if (action === 'waived' && row.kind !== 'submitted_late') {
     throw new TriageError('NOT_SUBMITTED', 'Only work that has been handed in late can have its referral waived: refer it, or extend the deadline');
   }
+  return { sid, a, row };
+}
+
+// `mark` (#175): what the referral wrote to Schoology ({ at, topics, missing }), stored as JSON.
+export function recordReferral(db, { studentId, assignmentId, action, note = null, source = 'app', today = todayLocal(), mark = null } = {}) {
+  const { sid, a, row } = checkReferral(db, { studentId, assignmentId, action, today });
   let id;
   try {
     id = db.prepare(`
-      INSERT INTO referrals (student_id, assignment_id, course_id, action, note, days_late, source)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(sid, a.id, a.course_id, action === 'waived' ? 'exempt' : action, note || null, row.daysLate, source).lastInsertRowid;
+      INSERT INTO referrals (student_id, assignment_id, course_id, action, note, days_late, source, schoology_mark)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(sid, a.id, a.course_id, action === 'waived' ? 'exempt' : action, note || null, row.daysLate, source,
+      mark ? JSON.stringify(mark) : null).lastInsertRowid;
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_UNIQUE' || err.code === 'SQLITE_CONSTRAINT') {
       throw new TriageError('NOT_ON_LIST', 'That student and assignment already has a referral record');

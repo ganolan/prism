@@ -139,11 +139,59 @@ describe('TriageSection', () => {
     expect(screen.queryByText('[BK 7] AP CSP')).not.toBeInTheDocument();
   });
 
-  it('Mark referred (the inline Refer button) posts and reloads', async () => {
+  // #175: Refer on missing work opens ReferPanel; its box (ticked) also writes IE and Missing.
+  const referPanel = () => screen.getByRole('group', { name: 'Refer to the academic office?' });
+  const confirmRefer = () => fireEvent.click(within(referPanel()).getByRole('button', { name: 'Refer' }));
+
+  it('Refer on missing work: the panel, ticked by default, posts with schoology: true and reloads', async () => {
     renderSection();
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Refer' }))[0]);
-    await waitFor(() => expect(api.recordReferral).toHaveBeenCalledWith({ studentId: 1, assignmentId: 9, action: 'referred', note: undefined }));
-    expect(api.getTriage).toHaveBeenCalledTimes(2);
+    const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
+    fireEvent.click(within(maya).getByRole('button', { name: 'Refer' }));
+    expect(api.recordReferral).not.toHaveBeenCalled();
+    expect(within(referPanel()).getByRole('checkbox', { name: 'Also record IE on every topic and mark Missing in Schoology' })).toBeChecked();
+    confirmRefer();
+    await waitFor(() => expect(api.recordReferral).toHaveBeenCalledWith({ studentId: 1, assignmentId: 9, action: 'referred', schoology: true }));
+    await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('group', { name: 'Refer to the academic office?' })).not.toBeInTheDocument();
+  });
+
+  it('Refer with the box unticked records in Prism only', async () => {
+    renderSection();
+    fireEvent.click(within(rowOf(within(await latePanel()).getByText('Maya Chen'))).getByRole('button', { name: 'Refer' }));
+    fireEvent.click(within(referPanel()).getByRole('checkbox'));
+    confirmRefer();
+    await waitFor(() => expect(api.recordReferral).toHaveBeenCalledWith({ studentId: 1, assignmentId: 9, action: 'referred', schoology: false }));
+  });
+
+  it('a refused Refer shows its error in the panel, which stays open', async () => {
+    api.recordReferral.mockRejectedValue(new Error('Schoology holds a score for this work (50): nothing was written.'));
+    renderSection();
+    fireEvent.click(within(rowOf(within(await latePanel()).getByText('Maya Chen'))).getByRole('button', { name: 'Refer' }));
+    confirmRefer();
+    expect(await within(referPanel()).findByText(/Schoology holds a score/)).toBeInTheDocument();
+  });
+
+  it('Refer on work handed in late records at once, with no panel', async () => {
+    renderSection();
+    fireEvent.click(within(rowOf(within(await latePanel()).getByText('Ethan Wong'))).getByRole('button', { name: 'Refer' }));
+    await waitFor(() => expect(api.recordReferral).toHaveBeenCalledWith({ studentId: expect.any(Number), assignmentId: 9, action: 'referred', note: undefined }));
+    expect(screen.queryByRole('group', { name: 'Refer to the academic office?' })).not.toBeInTheDocument();
+  });
+
+  it('history: Undo on a referral that wrote Missing opens the panel; ticked, it clears in Schoology', async () => {
+    api.getReferrals.mockResolvedValue([
+      { id: 3, action: 'referred', daysLate: 9, day: 10, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', title: 'CP2', note: null,
+        schoologyMark: { topics: ['t1'], missing: true } },
+    ]);
+    api.undoReferral.mockResolvedValue({ deleted: true, schoology: { cleared: true } });
+    renderSection();
+    fireEvent.click(await screen.findByText(/Referred \/ waived \/ extended \(2\)/));
+    const history = await screen.findByLabelText('Referral history');
+    fireEvent.click(await within(history).findByText('Undo'));
+    const panel = screen.getByRole('group', { name: 'Undo the referral?' });
+    expect(within(panel).getByRole('checkbox', { name: 'Also clear Missing and the IE levels in Schoology' })).toBeChecked();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Undo referral' }));
+    await waitFor(() => expect(api.undoReferral).toHaveBeenCalledWith(3, { schoology: true }));
   });
 
   it('missing work offers Extend; work handed in late offers Waive instead; Refer only on red rows', async () => {
@@ -346,6 +394,7 @@ describe('TriageSection', () => {
     fireEvent.click(await screen.findByText(/Referred \/ waived \/ extended \(2\)/));
     await waitFor(() => expect(api.getReferrals).toHaveBeenCalledTimes(1));
     fireEvent.click(referButtons()[0]);
+    confirmRefer();
     await waitFor(() => expect(api.getReferrals).toHaveBeenCalledTimes(2));
   });
 });

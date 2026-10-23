@@ -86,19 +86,47 @@ function assertEligible(db, t) {
 const uidOf = (db, t) => db.prepare('SELECT schoology_uid FROM students WHERE id = ?').get(t.studentId).schoology_uid;
 const assignmentOf = (db, t) => db.prepare('SELECT * FROM assignments WHERE id = ?').get(t.assignmentId);
 
+// The topics a referral wrote IE on (#175, referralMarks.js), from the pair's referral record.
+// A mark stops counting once Missing is cleared (`cleared`): the teacher grades from then on.
+function referralTopics(db, t) {
+  const raw = db.prepare(`SELECT schoology_mark FROM referrals WHERE student_id = ? AND assignment_id = ? AND action = 'referred'`)
+    .get(t.studentId, t.assignmentId)?.schoology_mark;
+  const mark = raw ? JSON.parse(raw) : null;
+  return new Set(mark && !mark.cleared ? mark.topics || [] : []);
+}
+
+// Clearing Missing blanks a referral's IE levels in Schoology (grade: null): its mark is spent.
+function spendReferralMark(db, t) {
+  db.prepare(`UPDATE referrals SET schoology_mark = json_set(schoology_mark, '$.cleared', ?)
+    WHERE student_id = ? AND assignment_id = ? AND schoology_mark IS NOT NULL AND json_extract(schoology_mark, '$.cleared') IS NULL`)
+    .run(new Date().toISOString(), t.studentId, t.assignmentId);
+}
+
+// The IE levels a referral wrote are the referral's, not a grade: a copy never holds them, so
+// Restore never offers them back. → the topic levels without them.
+export function withoutReferralIEs(db, t, topics) {
+  if (!topics) return topics;
+  const marked = referralTopics(db, t);
+  if (marked.size === 0) return topics;
+  return Object.fromEntries(Object.entries(topics).filter(([id, level]) => !(marked.has(id) && level === 'IE')));
+}
+
 // The pair's grade as it stands: the fresh record plus the topic levels (Prism's, or `freshTopics`
 // read from Schoology), rubric row levels (Prism-only) and (on a score-scale task) the overall level.
+// A referral's IE levels are left out (withoutReferralIEs), and with them the 0 they compute to.
 function gradeNow(db, t, fresh, freshTopics = null) {
   const a = assignmentOf(db, t);
   const uid = uidOf(db, t);
-  const topics = freshTopics ?? Object.fromEntries(db.prepare(`
+  const all = freshTopics ?? Object.fromEntries(db.prepare(`
     SELECT topic_id, grade FROM mastery_scores WHERE student_uid = ? AND assignment_schoology_id = ? AND grade IS NOT NULL ORDER BY topic_id
   `).all(uid, String(a.schoology_assignment_id)).map((r) => [r.topic_id, r.grade]));
+  const topics = withoutReferralIEs(db, t, all);
+  const onlyReferral = Object.keys(all).length > 0 && Object.keys(topics).length === 0;
   const rows = Object.fromEntries(db.prepare(`
     SELECT criterion_name, level FROM rubric_row_levels WHERE student_uid = ? AND assignment_schoology_id = ? ORDER BY criterion_name
   `).all(uid, String(a.schoology_assignment_id)).map((r) => [r.criterion_name, r.level]));
   const scale = scoreScaleFor(a, getAlignedTopics(db, a.course_id, a.schoology_assignment_id).length);
-  const score = num(fresh?.grade);
+  const score = onlyReferral && num(fresh?.grade) === 0 ? null : num(fresh?.grade);
   return {
     score, max_points: num(fresh?.max_points), comment: fresh?.comment ?? '', comment_status: fresh?.comment_status ?? null,
     topics, rows, scale_level: scale ? levelForScore(scale, score) : null,
@@ -402,138 +430,147 @@ export async function readFlagState(db, { studentId, assignmentId } = {}) {
 // loaded ({ exception, score }); `reason` the optional line for the student; `restore` (clearing)
 // puts a saved copy back as the draft. Clearing with no flag set restores a kept copy, no write.
 // → { exception, saved (a copy is waiting), withdrawn, line, restored }.
-export async function setGradeFlag(db, { studentId, assignmentId, code, expected, reason = null, restore = true } = {}) {
+export async function setGradeFlag(db, args = {}) {
+  validCode(args.code);
+  checkExpected(args.expected);
+  const release = lockPair(args.studentId, args.assignmentId);
+  try {
+    return await setGradeFlagHeld(db, args);
+  } finally {
+    release();
+  }
+}
+
+// setGradeFlag for a caller that already holds the pair's lock (referralMarks.js, #175).
+export async function setGradeFlagHeld(db, { studentId, assignmentId, code, expected, reason = null, restore = true } = {}) {
   const target = validCode(code);
   const want = checkExpected(expected);
   const note = reason == null ? '' : String(reason).trim();
   const lineText = target !== 0 && note ? checkLine(flagLine({ code: target, on: todayLocal(), note })) : null;
-  const release = lockPair(studentId, assignmentId);
-  try {
-    const t = pairTarget(db, studentId, assignmentId);
-    assertEligible(db, t);
-    const fresh = await freshGrade(db, t);
-    const was = Number(fresh?.exception) || 0;
-    const score = num(fresh?.grade);
-    const changed = [];
-    if (was !== want.exception) changed.push(`the flag (now ${flagName(was)})`);
-    if (!sameScore(score, want.score)) changed.push(`the score (now ${score == null ? 'none' : scoreText(score)})`);
-    if (want.comment !== undefined && normalise(fresh?.comment) !== normalise(want.comment)) changed.push('the comment');
-    if (changed.length) {
-      throw new TriageError('CHANGED', `Changed in Schoology since Prism last read this task: ${changed.join(', ')}. Nothing was written. Sync, then try again.`);
-    }
-
-    if (target === was) {
-      const waiting = waitingCopy(db, t);
-      if (target === 0 && restore && waiting) {
-        return { exception: 0, saved: false, withdrawn: [], line: null, restored: restoreDraft(db, t, waiting) };
-      }
-      throw new TriageError('NOT_ELIGIBLE', target ? `This task is already flagged ${flagName(target)}` : 'There is no flag to clear on this task');
-    }
-
-    // A copy before any flag, and before clearing Missing (its grade: null blanks the levels it
-    // kept); the copy stays Missing's (flag 3) when clearing.
-    // A write that blanks Schoology's topic levels (Exempt, Incomplete, Absent or Late over levels
-    // Schoology still holds, or clearing Missing) reads them fresh first, so the copy holds what
-    // Schoology holds, not Prism's local mastery_scores (stale when a sync skipped mastery).
-    let freshTopics = null;
-    if (blanksLevels(db, t, was, target, score)) {
-      const a = assignmentOf(db, t);
-      const topicIds = getAlignedTopics(db, a.course_id, a.schoology_assignment_id).map((tp) => String(tp.id));
-      try {
-        freshTopics = await readPairLevels({ sectionId: t.sectionId, studentUid: uidOf(db, t), assignmentId: t.schoologyAssignmentId, topicIds });
-      } catch (err) {
-        console.error('[grade flag] fresh level read failed:', err.message);
-        const why = clearsMissing(was, target) ? 'Clearing Missing removes them' : `${flagName(target)} removes them`;
-        throw new TriageError('SCHOOLOGY_READ_FAILED', `Prism could not read the topic levels from Schoology, so nothing was written (${err.message}). ${why}, so Prism keeps a copy first. Try again.`);
-      }
-    }
-    let copy = { saved: false, undo: () => {} };
-    if (target !== 0 || clearsMissing(was, target)) copy = keepCopy(db, t, fresh, was, target || was, freshTopics);
-    try {
-      await putFlag(t, fresh, target, was);
-    } catch (err) {
-      try { copy.undo(); } catch (e) { console.error('[grade flag] could not put the earlier copy back:', e.message); }
-      throw err;
-    }
-    let back;
-    try {
-      back = await readBack(t, target);
-    } catch (err) {
-      // The record still reads as before the write (old flag, same score): Schoology wrote nothing,
-      // so the copy goes back exactly as on a refused PUT. Any other read-back keeps the copy.
-      const b = err.back;
-      if (b && (Number(b.exception) || 0) === was && sameScore(num(b.grade), score)) {
-        try { copy.undo(); } catch (e) { console.error('[grade flag] could not put the earlier copy back:', e.message); }
-      }
-      throw err;
-    }
-    // Clearing Missing must leave no 0 counting: the read-back shows no score, or Prism records nothing
-    // (the copy is kept, the local levels stay) and says so.
-    if (clearsMissing(was, target) && num(back.grade) != null) {
-      throw new TriageError('READBACK_MISMATCH', `Schoology cleared Missing but still shows a score of ${scoreText(back.grade)}: Prism has not recorded the change. Check the task in Schoology, then sync.`);
-    }
-    // The flag is set: Schoology must not have removed a grade Prism did not keep (anti-goal).
-    if (target !== 0 && was === 0 && score != null && !sameScore(num(back.grade), score)) {
-      const kept = waitingCopy(db, t);
-      if (!kept || !sameScore(num(JSON.parse(kept.saved_json).score), score)) {
-        throw new TriageError('READBACK_MISMATCH', `The flag is set, but Schoology removed a grade (${scoreText(score)}) Prism did not keep. Re-enter it in Schoology after clearing the flag.`);
-      }
-    }
-    // The same for the topic levels read fresh: the copy must hold every one of them.
-    if (freshTopics && Object.keys(freshTopics).length > 0) {
-      const kept = waitingCopy(db, t);
-      const held = kept ? JSON.parse(kept.saved_json).topics || {} : {};
-      const lost = Object.entries(freshTopics).filter(([id, level]) => held[id] !== level);
-      if (lost.length) {
-        throw new TriageError('READBACK_MISMATCH', `Schoology removed ${lost.length} topic level${lost.length === 1 ? '' : 's'} (${lost.map(([, l]) => l).join(', ')}) Prism did not keep: Prism has not recorded the change. Re-enter ${lost.length === 1 ? 'it' : 'them'} in Schoology after clearing the flag.`);
-      }
-    }
-
-    capture(db, t, 'before');
-    try {
-      mirror(db, t, back, target, was, freshTopics != null);
-    } catch (err) {
-      console.error('[grade flag] mirror failed (the next sync will catch up):', err.message);
-    }
-    capture(db, t, 'after');
-
-    // Exempt is a decision: the student is not doing the task, so Prism's open records on it close.
-    // Absent is only a marker and withdraws nothing.
-    let withdrawn = [];
-    if (isExempt(target)) {
-      const records = openRecords(db, t);
-      try {
-        db.transaction(() => { for (const r of records) UNDO[r.type](db, r.id); })();
-        withdrawn = records;
-      } catch (err) {
-        console.error('[grade flag] withdrawing records failed:', err.message);
-      }
-    }
-
-    // The status line: the reason replaces any stored line; without one, a line that belonged to a
-    // withdrawn record, or an earlier flag's line, comes off. A failure here leaves the flag set.
-    let line = null;
-    const stored = db.prepare('SELECT kind, source_type, source_id FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(t.studentId, t.assignmentId);
-    try {
-      if (lineText) {
-        const out = await publishStatusLine(db, { studentId: t.studentId, assignmentId: t.assignmentId, line: lineText, kind: 'flag' });
-        line = { published: true, line: out.line };
-      } else if (stored && (stored.kind === 'flag' || withdrawn.some((w) => w.type === stored.source_type && w.id === Number(stored.source_id)))) {
-        const out = await removeStatusLine(db, { studentId: t.studentId, assignmentId: t.assignmentId });
-        line = { removed: out.removed };
-      }
-    } catch (err) {
-      console.error('[grade flag] status line failed after the flag write:', err.message);
-      line = { error: `The flag is set, but the line in the comment was not changed: ${err.message}`, code: err.code ?? null };
-    }
-
-    let restored = null;
-    if (target === 0 && restore) {
-      const waiting = waitingCopy(db, t);
-      if (waiting) restored = restoreDraft(db, t, waiting);
-    }
-    return { exception: Number(back.exception) || 0, saved: Boolean(waitingCopy(db, t)), withdrawn, line, restored };
-  } finally {
-    release();
+  const t = pairTarget(db, studentId, assignmentId);
+  assertEligible(db, t);
+  const fresh = await freshGrade(db, t);
+  const was = Number(fresh?.exception) || 0;
+  const score = num(fresh?.grade);
+  const changed = [];
+  if (was !== want.exception) changed.push(`the flag (now ${flagName(was)})`);
+  if (!sameScore(score, want.score)) changed.push(`the score (now ${score == null ? 'none' : scoreText(score)})`);
+  if (want.comment !== undefined && normalise(fresh?.comment) !== normalise(want.comment)) changed.push('the comment');
+  if (changed.length) {
+    throw new TriageError('CHANGED', `Changed in Schoology since Prism last read this task: ${changed.join(', ')}. Nothing was written. Sync, then try again.`);
   }
+
+  if (target === was) {
+    const waiting = waitingCopy(db, t);
+    if (target === 0 && restore && waiting) {
+      return { exception: 0, saved: false, withdrawn: [], line: null, restored: restoreDraft(db, t, waiting) };
+    }
+    throw new TriageError('NOT_ELIGIBLE', target ? `This task is already flagged ${flagName(target)}` : 'There is no flag to clear on this task');
+  }
+
+  // A copy before any flag, and before clearing Missing (its grade: null blanks the levels it
+  // kept); the copy stays Missing's (flag 3) when clearing.
+  // A write that blanks Schoology's topic levels (Exempt, Incomplete, Absent or Late over levels
+  // Schoology still holds, or clearing Missing) reads them fresh first, so the copy holds what
+  // Schoology holds, not Prism's local mastery_scores (stale when a sync skipped mastery).
+  let freshTopics = null;
+  if (blanksLevels(db, t, was, target, score)) {
+    const a = assignmentOf(db, t);
+    const topicIds = getAlignedTopics(db, a.course_id, a.schoology_assignment_id).map((tp) => String(tp.id));
+    try {
+      // A referral's IE levels are not a grade (#175): no copy holds them, so none is missed.
+      freshTopics = withoutReferralIEs(db, t, await readPairLevels({ sectionId: t.sectionId, studentUid: uidOf(db, t), assignmentId: t.schoologyAssignmentId, topicIds }));
+    } catch (err) {
+      console.error('[grade flag] fresh level read failed:', err.message);
+      const why = clearsMissing(was, target) ? 'Clearing Missing removes them' : `${flagName(target)} removes them`;
+      throw new TriageError('SCHOOLOGY_READ_FAILED', `Prism could not read the topic levels from Schoology, so nothing was written (${err.message}). ${why}, so Prism keeps a copy first. Try again.`);
+    }
+  }
+  let copy = { saved: false, undo: () => {} };
+  if (target !== 0 || clearsMissing(was, target)) copy = keepCopy(db, t, fresh, was, target || was, freshTopics);
+  try {
+    await putFlag(t, fresh, target, was);
+  } catch (err) {
+    try { copy.undo(); } catch (e) { console.error('[grade flag] could not put the earlier copy back:', e.message); }
+    throw err;
+  }
+  let back;
+  try {
+    back = await readBack(t, target);
+  } catch (err) {
+    // The record still reads as before the write (old flag, same score): Schoology wrote nothing,
+    // so the copy goes back exactly as on a refused PUT. Any other read-back keeps the copy.
+    const b = err.back;
+    if (b && (Number(b.exception) || 0) === was && sameScore(num(b.grade), score)) {
+      try { copy.undo(); } catch (e) { console.error('[grade flag] could not put the earlier copy back:', e.message); }
+    }
+    throw err;
+  }
+  // Clearing Missing must leave no 0 counting: the read-back shows no score, or Prism records nothing
+  // (the copy is kept, the local levels stay) and says so.
+  if (clearsMissing(was, target) && num(back.grade) != null) {
+    throw new TriageError('READBACK_MISMATCH', `Schoology cleared Missing but still shows a score of ${scoreText(back.grade)}: Prism has not recorded the change. Check the task in Schoology, then sync.`);
+  }
+  // The flag is set: Schoology must not have removed a grade Prism did not keep (anti-goal).
+  if (target !== 0 && was === 0 && score != null && !sameScore(num(back.grade), score)) {
+    const kept = waitingCopy(db, t);
+    if (!kept || !sameScore(num(JSON.parse(kept.saved_json).score), score)) {
+      throw new TriageError('READBACK_MISMATCH', `The flag is set, but Schoology removed a grade (${scoreText(score)}) Prism did not keep. Re-enter it in Schoology after clearing the flag.`);
+    }
+  }
+  // The same for the topic levels read fresh: the copy must hold every one of them.
+  if (freshTopics && Object.keys(freshTopics).length > 0) {
+    const kept = waitingCopy(db, t);
+    const held = kept ? JSON.parse(kept.saved_json).topics || {} : {};
+    const lost = Object.entries(freshTopics).filter(([id, level]) => held[id] !== level);
+    if (lost.length) {
+      throw new TriageError('READBACK_MISMATCH', `Schoology removed ${lost.length} topic level${lost.length === 1 ? '' : 's'} (${lost.map(([, l]) => l).join(', ')}) Prism did not keep: Prism has not recorded the change. Re-enter ${lost.length === 1 ? 'it' : 'them'} in Schoology after clearing the flag.`);
+    }
+  }
+
+  capture(db, t, 'before');
+  try {
+    mirror(db, t, back, target, was, freshTopics != null);
+    if (clearsMissing(was, target)) spendReferralMark(db, t);
+  } catch (err) {
+    console.error('[grade flag] mirror failed (the next sync will catch up):', err.message);
+  }
+  capture(db, t, 'after');
+
+  // Exempt is a decision: the student is not doing the task, so Prism's open records on it close.
+  // Absent is only a marker and withdraws nothing.
+  let withdrawn = [];
+  if (isExempt(target)) {
+    const records = openRecords(db, t);
+    try {
+      db.transaction(() => { for (const r of records) UNDO[r.type](db, r.id); })();
+      withdrawn = records;
+    } catch (err) {
+      console.error('[grade flag] withdrawing records failed:', err.message);
+    }
+  }
+
+  // The status line: the reason replaces any stored line; without one, a line that belonged to a
+  // withdrawn record, or an earlier flag's line, comes off. A failure here leaves the flag set.
+  let line = null;
+  const stored = db.prepare('SELECT kind, source_type, source_id FROM status_lines WHERE student_id = ? AND assignment_id = ?').get(t.studentId, t.assignmentId);
+  try {
+    if (lineText) {
+      const out = await publishStatusLine(db, { studentId: t.studentId, assignmentId: t.assignmentId, line: lineText, kind: 'flag' });
+      line = { published: true, line: out.line };
+    } else if (stored && (stored.kind === 'flag' || withdrawn.some((w) => w.type === stored.source_type && w.id === Number(stored.source_id)))) {
+      const out = await removeStatusLine(db, { studentId: t.studentId, assignmentId: t.assignmentId });
+      line = { removed: out.removed };
+    }
+  } catch (err) {
+    console.error('[grade flag] status line failed after the flag write:', err.message);
+    line = { error: `The flag is set, but the line in the comment was not changed: ${err.message}`, code: err.code ?? null };
+  }
+
+  let restored = null;
+  if (target === 0 && restore) {
+    const waiting = waitingCopy(db, t);
+    if (waiting) restored = restoreDraft(db, t, waiting);
+  }
+  return { exception: Number(back.exception) || 0, saved: Boolean(waitingCopy(db, t)), withdrawn, line, restored };
 }

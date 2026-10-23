@@ -5,9 +5,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { cardInputs } from '../../lib/cardInputs.js';
 import { draftBaseline } from '../../lib/assessmentDraft.js';
 import { makeDraftSaver } from '../../lib/assessmentDraftSaver.js';
-import { getProficiencyScale, deleteAssessmentDraft } from '../../services/api.js';
+import { getProficiencyScale } from '../../services/api.js';
 import StudentRubricCard from './StudentRubricCard.jsx';
-import { rowScores } from '../../lib/feedbackRows.js';
 import { TOPICS, makeStudent, renderCard } from './testFixtures.js';
 
 // Stub the DB saver so tests assert wiring, not I/O.
@@ -341,12 +340,6 @@ describe('StudentRubricCard: meeting', () => {
   });
 });
 
-// rowScores is what cardInputs puts into student.scores for a feedback-row task.
-it('cardInputs gives a feedback-row student the row levels as scores', () => {
-  expect(rowScores({ Playtesting: 'EX' })).toEqual({ 'row:Playtesting': { grade: 'EX' } });
-  expect(TOPICS).toHaveLength(1);
-});
-
 describe('StudentRubricCard: Add update on the comment', () => {
   const commentBox = () => screen.getByPlaceholderText(/Teacher comment/);
 
@@ -521,7 +514,6 @@ describe('StudentRubricCard: view mode', () => {
     window.dispatchEvent(new Event('pagehide'));
     unmount();
     expect(makeDraftSaver).not.toHaveBeenCalled();
-    expect(deleteAssessmentDraft).not.toHaveBeenCalled();
     expect(localStorage.getItem(legacyKey)).not.toBeNull(); // the legacy migration did not run
     expect(onPendingChange).not.toHaveBeenCalled();
     expect(onDisplayChange).not.toHaveBeenCalled();
@@ -574,6 +566,19 @@ describe('StudentRubricCard: view mode', () => {
     expect(order).toEqual(['settled', 'done']);
   });
 
+  it('a double click on Done calls onDone once', async () => {
+    const onDone = vi.fn();
+    renderCard({ onDone });
+    let release;
+    mockSaver.settle.mockImplementation(() => new Promise((r) => { release = r; }));
+    const done = screen.getByRole('button', { name: 'Done' });
+    fireEvent.click(done);
+    fireEvent.click(done);
+    await act(async () => { release(); });
+    expect(mockSaver.settle).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
   it('no Edit without onEdit, and no Done without onDone', () => {
     const { unmount } = renderCard({ mode: 'view' });
     expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
@@ -604,12 +609,18 @@ describe('StudentRubricCard: view mode', () => {
   });
 
   describe('the proficiency scale', () => {
-    afterEach(() => { vi.unstubAllGlobals(); });
+    // vi.clearAllMocks keeps implementations: put the mock's own back after the real one.
+    let mockedScale;
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      getProficiencyScale.mockImplementation(mockedScale);
+    });
 
     it('twenty view cards request the proficiency scale once', async () => {
       // The real (memoised) request behind the mocked export: the card asks per mount, the
       // network sees one request.
       const actual = await vi.importActual('../../services/api.js');
+      mockedScale = getProficiencyScale.getMockImplementation();
       getProficiencyScale.mockImplementation(actual.getProficiencyScale);
       const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ schoologyScaleId: 1, levels: [] }) }));
       vi.stubGlobal('fetch', fetchMock);

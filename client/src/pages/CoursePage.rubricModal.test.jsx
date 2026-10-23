@@ -2,7 +2,7 @@
 // (#120, #142), the test attempt link, the student's Schoology uploads (#107), all in the card's
 // header; the comment sits under the rubric.
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('../services/api.js', async (orig) => ({
@@ -83,7 +83,9 @@ describe('RubricModal: student work link (#120)', () => {
     getSubmissionLinks.mockResolvedValue({ status: 'ok', links: {} });
     renderModal({ assignment: { is_lti_submission: 1 } });
     await screen.findByText('Topic 1');
-    await Promise.resolve();
+    await vi.waitFor(() => expect(getSubmissionLinks).toHaveBeenCalled());
+    await getSubmissionLinks.mock.results[0].value;
+    await act(async () => {});
     expect(screen.queryByRole('link', { name: /onedrive/i })).not.toBeInTheDocument();
   });
 
@@ -140,7 +142,10 @@ describe('RubricModal: native dropbox files (#107)', () => {
     renderModal({ grade: { submission_type: 'drop', lti_submission_state: null } });
     await screen.findByText('Topic 1');
     await vi.waitFor(() => expect(getSubmissionFiles).toHaveBeenCalled());
-    await Promise.resolve();
+    // The positive signal: the rejected read has settled (the card's own handler was attached first),
+    // and React has applied what the handler set.
+    await getSubmissionFiles.mock.results[0].value.catch(() => {});
+    await act(async () => {});
     expect(screen.queryByRole('button', { name: /Submitted files/ })).not.toBeInTheDocument();
   });
 

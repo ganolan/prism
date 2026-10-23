@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries, getSubmissionFiles, getRubricConfig } from '../services/api.js';
 import AnalyticsView from '../components/AnalyticsView.jsx';
@@ -679,7 +679,7 @@ function MiniRubricStrip({ topics, onClick }) {
 // card (#176), the same component as the assessment page and the student page, read-only, with Edit
 // and Done in place on a course Prism can write (`course.writable` from the grade-cards route: not
 // archived, excluded or a linked set). Its one card comes from GET /api/students/:id/grade-cards with
-// the task's id; `reloadKey` (bumped when the gradebook data is replaced) reads it again. The card is
+// the task's id; `reloadKey` (any value that changes when the gradebook data is replaced) reads it again. The card is
 // in meeting mode (no portrait, no AI suggestion), as on the student page. `grade` is the
 // gradebook's own grade row, `scales` its grading_scales. `onFlagChange` refreshes the gradebook
 // after a flag write, after Done and when the pop-up closes in edit mode. The pop-up widens while a
@@ -950,10 +950,6 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
   useEffect(() => {
     setRubricModal((m) => (m ? (modalFor(m.student.id, m.assignment.id) || m) : m));
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Counts each new gradebook (a refetch after a flag write, Done or a sync): the open pop-up reads
-  // its card again with it.
-  const dataSeq = useRef({ data, n: 0 });
-  if (dataSeq.current.data !== data) dataSeq.current = { data, n: dataSeq.current.n + 1 };
   // Comment shown instantly on cell hover (#36): { text, top, left }.
   const [commentOverlay, setCommentOverlay] = useState(null);
   // Floating header popover (#37): full assessment title, the formative/
@@ -1361,12 +1357,13 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
     </div>
     {rubricModal && (
       <RubricModal
+        key={`${rubricModal.student.id}|${rubricModal.assignment.id}`}
         student={rubricModal.student}
         assignment={rubricModal.assignment}
         courseId={courseId}
         grade={rubricModal.grade}
         scales={data.grading_scales}
-        reloadKey={dataSeq.current.n}
+        reloadKey={data} // each new gradebook (a refetch after a flag write, Done or a sync): the open pop-up reads its card again
         commentSummary={commentSums?.[rubricModal.assignment.schoology_assignment_id]?.[rubricModal.student.id] || null}
         onCommentSummary={commentSums ? (sum) => setCommentSums((prev) => ({
           ...prev,

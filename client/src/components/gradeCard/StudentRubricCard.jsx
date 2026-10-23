@@ -1139,9 +1139,17 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
     </span>
   );
   // Done: the queued draft save lands first, so the view the parent draws next includes it.
+  // A second click while the first settles is ignored, so onDone runs once.
+  const doneInFlightRef = useRef(false);
   async function handleDone() {
-    await draftSaver().settle();
-    onDone();
+    if (doneInFlightRef.current) return;
+    doneInFlightRef.current = true;
+    try {
+      await draftSaver().settle();
+      onDone();
+    } finally {
+      doneInFlightRef.current = false;
+    }
   }
 
   return (

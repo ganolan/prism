@@ -3,7 +3,7 @@
 // student's data only. Full rubric descriptors widen the pop-up (so does edit mode); points-only
 // cells ("50 / 100") open it too. The pop-up keeps its own header and "Open full grading page".
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 // Edit mode's draft saver: tests assert wiring, not I/O.
@@ -38,6 +38,7 @@ vi.mock('../services/api.js', async (orig) => ({
 
 import { RubricModal, GradebookView } from './CoursePage.jsx';
 import { draftBaseline } from '../lib/assessmentDraft.js';
+import { makeDraftSaver } from '../lib/assessmentDraftSaver.js';
 import {
   getGradeCards, getCourseCommentSummaries, getGradeFlags, setGradeFlag, getFeedbackForAssignment,
 } from '../services/api.js';
@@ -255,6 +256,19 @@ describe('GradebookView: points-only cells open the pop-up', () => {
     await waitFor(() => expect(getGradeCards).toHaveBeenCalledTimes(2));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
+
+  it('a rerender with the same gradebook data reads no card again', async () => {
+    serve(makeCard({ topics: [], assignment: { id: 1, schoology_assignment_id: 'sa-2' }, student: { score: 50, scores: {} } }));
+    const tree = () => <MemoryRouter><GradebookView data={data} courseId="5" mastery={null} /></MemoryRouter>;
+    const { rerender } = render(tree());
+    fireEvent.click(await screen.findByRole('button', { name: /50 \/ 100/ }));
+    await within(await screen.findByRole('dialog')).findByText('Score:');
+    expect(getGradeCards).toHaveBeenCalledTimes(1);
+    rerender(tree());
+    rerender(tree());
+    await act(async () => {});
+    expect(getGradeCards).toHaveBeenCalledTimes(1);
+  });
 });
 
 // #40: work marked Missing shows IE on every topic (the card's Missing view).
@@ -404,12 +418,21 @@ describe('RubricModal: Edit and Done (#176)', () => {
   it('closing the pop-up in edit mode refreshes the gradebook', async () => {
     serve(makeCard());
     const onFlagChange = vi.fn().mockResolvedValue(undefined);
-    const onClose = vi.fn();
-    renderModal({ onFlagChange, onClose });
+    // The page unmounts the pop-up on close (GradebookView sets rubricModal to null).
+    let view;
+    const onClose = vi.fn(() => view.unmount());
+    view = renderModal({ onFlagChange, onClose });
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
     await screen.findByRole('textbox');
+    expect(makeDraftSaver).toHaveBeenCalledTimes(1);
+    const saver = makeDraftSaver.mock.results[0].value;
+    expect(saver.flush).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalled();
+    // Closing sends the queued draft save before the card is gone.
+    expect(saver.flush).toHaveBeenCalledWith({ keepalive: true });
+    expect(saver.settle).toHaveBeenCalled();
+    expect(saver.dispose).toHaveBeenCalled();
     await waitFor(() => expect(onFlagChange).toHaveBeenCalledTimes(1));
   });
 

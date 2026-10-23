@@ -30,7 +30,8 @@ import ScoreLabel from './ScoreLabel.jsx';
 import { missingView } from '../../lib/missingView.js';
 import { gradeLabel } from '../../lib/gradeLabel.js';
 import { reasonText, reasonTone, TONE_VARS } from '../../lib/assessmentFilters.js';
-import { localIsoDate } from '../../lib/formatDate.js';
+import { localIsoDate, formatDate } from '../../lib/formatDate.js';
+import { addUpdateLine } from '../../lib/commentUpdate.js';
 import { workLinkText } from '../../lib/workLink.js';
 import { briefFlags, textSignature } from '../../lib/reviewerFlags.js';
 import { receivedLine, composeComment, lineDate } from '../../lib/statusLines.js';
@@ -459,6 +460,32 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
       setAutoFlipArmed(false);
     }
     commentHistory.set(next, { step });
+  }
+
+  // "Add update" (#176): a dated line above the comment, below any Prism status line, for a grade
+  // appeal. The cursor lands after the colon, once React has put the new text in the textarea.
+  const commentBoxRef = useRef(null);
+  const pendingCursorRef = useRef(null);
+  function placeCursor(pos) {
+    const el = commentBoxRef.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(pos, pos);
+  }
+  useEffect(() => {
+    if (pendingCursorRef.current == null) return;
+    const pos = pendingCursorRef.current;
+    pendingCursorRef.current = null;
+    placeCursor(pos);
+  }, [comment]);
+  function addUpdate() {
+    const own = student.status_line?.line || null;
+    const topLine = topLineIs(comment, insertedLine) ? insertedLine : (topLineIs(comment, own) ? own : null);
+    const result = addUpdateLine(comment, topLine, formatDate(new Date()));
+    if (!result) return;
+    if (result.text === comment) { placeCursor(result.cursor); return; }
+    pendingCursorRef.current = result.cursor;
+    applyComment(result.text, { step: true });
   }
 
   // Chip (triage resubmissions, Amendment B Task 7): insert a fresh "resubmission
@@ -1729,6 +1756,16 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
               ● Draft - not published
             </span>
           )}
+          {comment.trim() && (
+            <button
+              type="button"
+              className="ghost btn-sm"
+              onClick={addUpdate}
+              title="Add a dated update line above the comment, for example after a grade appeal"
+            >
+              Add update
+            </button>
+          )}
           {/* "Resubmission received" chip (triage resubmissions, Amendment B Task 7):
               a resubmission is sitting unanswered (arrived). Inserts the status
               line into the draft above — visible and editable, published only
@@ -1745,6 +1782,7 @@ export default function StudentRubricCard({ student, topics, courseId, assignmen
           )}
         </div>
         <textarea
+          ref={commentBoxRef}
           value={comment}
           onChange={e => applyComment(e.target.value)}
           onKeyDown={commentHistory.onKeyDown}

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen, within, fireEvent, act } from '@testing-library/react';
 import { cardInputs } from '../../lib/cardInputs.js';
 import { rowScores } from '../../lib/feedbackRows.js';
 import { TOPICS, makeStudent, renderCard } from './testFixtures.js';
@@ -328,4 +328,41 @@ describe('StudentRubricCard: meeting', () => {
 it('cardInputs gives a feedback-row student the row levels as scores', () => {
   expect(rowScores({ Playtesting: 'EX' })).toEqual({ 'row:Playtesting': { grade: 'EX' } });
   expect(TOPICS).toHaveLength(1);
+});
+
+describe('StudentRubricCard: Add update on the comment', () => {
+  const commentBox = () => screen.getByPlaceholderText(/Teacher comment/);
+
+  it('Add update inserts the line and focuses after the colon', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 23, 12, 0, 0)); // local time, so the day is stable in any zone
+    try {
+      renderCard({ student: studentWith({ grade_comment: 'Good work.' }) });
+      fireEvent.click(screen.getByRole('button', { name: 'Add update' }));
+      await act(async () => { await new Promise((r) => setTimeout(r, 30)); });
+      const box = commentBox();
+      expect(box.value).toBe('Update (23/10/2026): \n\nGood work.');
+      expect(document.activeElement).toBe(box);
+      expect(box.selectionStart).toBe(21);
+      expect(box.selectionEnd).toBe(21);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('puts the line below a Prism status line', async () => {
+    const line = 'Resubmission received 20/10 - regraded.';
+    renderCard({ student: studentWith({ grade_comment: `${line}\n\nGood work.`, status_line: { line } }) });
+    fireEvent.click(screen.getByRole('button', { name: 'Add update' }));
+    await act(async () => {});
+    const lines = commentBox().value.split('\n');
+    expect(lines[0]).toBe(line);
+    expect(lines[2]).toMatch(/^Update \(\d\d\/\d\d\/\d{4}\): $/);
+    expect(lines[4]).toBe('Good work.');
+  });
+
+  it('no Add update with an empty comment', () => {
+    renderCard({ student: studentWith({ grade_comment: '' }) });
+    expect(screen.queryByRole('button', { name: 'Add update' })).not.toBeInTheDocument();
+  });
 });

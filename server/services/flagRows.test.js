@@ -6,6 +6,7 @@ import { getDb } from '../db/index.js';
 import { addDays, isWeekday } from '../lib/schoolDays.js';
 import { storeSchoolDays, loadCalendar } from './schoolCalendar.js';
 import { getTriage } from './triage.js';
+import { readFileSync } from 'node:fs';
 import { flagTone, FLAG_ADVICE } from './flagRows.js';
 
 // #174: Triage's Flags panel (docs/superpowers/specs/2026-10-23-triage-flags-panel-design.md).
@@ -287,4 +288,11 @@ describe('flagTone', () => {
   test('advice copy', () => {
     expect(Object.keys(FLAG_ADVICE).sort()).toEqual(['2', '3', '5', '6', 'saved_grade']);
   });
+});
+
+// triage.js imports flagRows.js, so flagRows.js takes its shared helpers from triageCommon.js: no import
+// cycle (deferred from the #174 review, done 23 Oct 2026).
+test('flagRows.js does not import triage.js', () => {
+  const src = readFileSync(new URL('./flagRows.js', import.meta.url), 'utf8');
+  expect(src).not.toMatch(/from '\.\/triage\.js'/);
 });

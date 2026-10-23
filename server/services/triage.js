@@ -18,13 +18,16 @@ import { getTriageSettings } from './settings.js';
 import { gradingState } from './assessmentContext.js';
 import { teacherText } from '../lib/statusLines.js';
 import { preferredFirstName } from './studentNames.js';
-import { TriageError, toneFor, makeUpTone, currentCourses, roster, ALIGNED_SQL, fullName, MAX_EXTENSION_LESSONS, deadlineFrom, laterOf } from './triageCommon.js';
+import {
+  TriageError, toneFor, makeUpTone, currentCourses, roster, ALIGNED_SQL, fullName, MAX_EXTENSION_LESSONS, deadlineFrom, laterOf,
+  assignmentFacts, isSubmitted,
+} from './triageCommon.js';
 import { resubmissionRows } from './resubmissions.js';
 import { isExempt } from '../lib/flags.js';
 import { loadTermRanges } from '../lib/semesters.js';
 import { flagRows, compareFlagRows } from './flagRows.js';
 
-export { TriageError, toneFor, makeUpTone, MAX_EXTENSION_LESSONS };
+export { TriageError, toneFor, makeUpTone, MAX_EXTENSION_LESSONS, assignmentFacts, isSubmitted };
 
 // Published assignments whose due date has passed (due date before today).
 function pastDueAssignments(db, courseId, today) {
@@ -49,45 +52,6 @@ function pastDueTests(db, courseId, nowStamp) {
     WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL AND a.is_test = 1
       AND a.due_date IS NOT NULL AND a.due_date != '' AND a.due_date <= ?
   `).all(courseId, nowStamp);
-}
-
-export function assignmentFacts(db, a) {
-  let topicsCount = db.prepare(
-    `SELECT COUNT(*) AS n FROM mastery_alignments WHERE assignment_schoology_id = ? AND course_id = ?`,
-  ).get(a.schoology_assignment_id, a.course_id).n;
-  if (topicsCount === 0 && a.aligned) {
-    // Alignments not synced yet: fall back to the topics that have scores (mirrors getAlignedTopics).
-    topicsCount = db.prepare(
-      `SELECT COUNT(DISTINCT topic_id) AS n FROM mastery_scores WHERE assignment_schoology_id = ?`,
-    ).get(a.schoology_assignment_id).n;
-  }
-  const scoredByUid = new Map(db.prepare(`
-    SELECT student_uid, COUNT(*) AS n FROM mastery_scores WHERE assignment_schoology_id = ? GROUP BY student_uid
-  `).all(a.schoology_assignment_id).map((r) => [r.student_uid, r.n]));
-  const gradeByStudent = new Map(db.prepare(`
-    SELECT g.student_id, g.score, g.grade_comment, g.exception, g.late, g.submitted_at, g.first_submitted_at,
-           g.flag_seen_at, g.latest_revision_at,
-           g.submission_type, g.lti_submission_state, g.test_attempt, sl.line AS stored_line
-    FROM grades g
-    LEFT JOIN status_lines sl ON sl.student_id = g.student_id AND sl.assignment_id = g.assignment_id
-    WHERE g.assignment_id = ?
-  `).all(a.id).map((g) => [g.student_id, g]));
-  const assignees = a.num_assignees > 0
-    ? new Set(db.prepare(`SELECT schoology_uid FROM assignment_assignees WHERE assignment_id = ?`).all(a.id).map((r) => r.schoology_uid))
-    : null;
-  return { topicsCount, scoredByUid, gradeByStudent, assignees };
-}
-
-// Submitted = a real submission signal. submission_type (set by the native
-// dropbox revisions sync) is the only corroborating signal for non-LTI work —
-// grades.submitted_at also follows a plain teacher grade-entry event (e.g. a
-// comment like "please submit" with no file, or a Missing (3) exception), so
-// it is NOT treated as a submission here. LTI tracks its own
-// submitted/in_progress/not_started state, which is authoritative when present
-// (a stale submission_type must not override an in-progress copy).
-export function isSubmitted(a, g) {
-  if (a.is_lti_submission && g.lti_submission_state) return g.lti_submission_state === 'submitted';
-  return !!g.submission_type || g.test_attempt === 'took';
 }
 
 export function studentState(a, facts, st) {

@@ -10,9 +10,8 @@
 import { epochToLocalDate } from '../lib/schoolDays.js';
 import { semesterEndFor } from '../lib/semesters.js';
 import { isFlagCode, isExempt } from '../lib/flags.js';
-import { fullName, ALIGNED_SQL } from './triageCommon.js';
+import { fullName, ALIGNED_SQL, assignmentFacts, isSubmitted } from './triageCommon.js';
 import { preferredFirstName } from './studentNames.js';
-import { assignmentFacts, isSubmitted } from './triage.js';
 
 // The advice line per flag code, and for a saved grade not restored. Neutral by design: Absent's
 // line names both usual next steps (Graham, 21 October 2026, on #174).

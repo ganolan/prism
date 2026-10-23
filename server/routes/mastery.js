@@ -366,6 +366,19 @@ async function finalFlagStop(db, sectionId, pairs, { fresh = true } = {}) {
   return null;
 }
 
+// The /observations write REPLACES a pair's whole set of topic levels in Schoology (postObservation),
+// and the card leaves a removed level out of gradeInfo. So after a confirmed write the pair's local
+// rows for topics NOT in gradeInfo are stale: drop them, or Prism shows a level Schoology no longer
+// holds until the next sync (#176 live check). An empty gradeInfo clears the pair.
+function dropOmittedLevels(db, studentUid, assignmentId, gradeInfo) {
+  const kept = Object.keys(gradeInfo);
+  db.prepare(`
+    DELETE FROM mastery_scores
+    WHERE student_uid = ? AND assignment_schoology_id = ?
+      AND topic_id NOT IN (${kept.map(() => '?').join(',')})
+  `).run(studentUid, String(assignmentId), ...kept);
+}
+
 // POST /api/mastery/:courseId/write — write scores back to Schoology for one student+assignment
 router.post('/:courseId/write', async (req, res) => {
   const { courseId } = req.params;
@@ -421,6 +434,7 @@ router.post('/:courseId/write', async (req, res) => {
         const letter = pointsToLevel(points);
         upsert.run(studentRow.schoology_uid, String(assignmentId), topicId, points, letter, now);
       }
+      dropOmittedLevels(db, studentRow.schoology_uid, assignmentId, gradeInfo);
     }
     // Best-effort: snapshot the pair's new visible feedback (a Prism save) so a rubric
     // regrade of an arrived resubmission is seen at once (Amendment B), then settle.
@@ -1255,6 +1269,7 @@ router.post('/:courseId/send-all', async (req, res) => {
         const points = Number(info.grade);
         upsertScore.run(studentRow.schoology_uid, String(e.assignmentId), topicId, points, pointsToLevel(points), now);
       }
+      dropOmittedLevels(db, studentRow.schoology_uid, e.assignmentId, e.scores.gradeInfo);
       const scoredAssignment = db.prepare('SELECT id FROM assignments WHERE schoology_assignment_id = ?').get(String(e.assignmentId));
       if (scoredAssignment) touch(scoredAssignment.id, studentRow.id, e.uid);
     }

@@ -869,7 +869,7 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
       getDb().prepare(`INSERT INTO measurement_topics (id, course_id, external_id, title) VALUES ('t-wc2', ?, 'X.2', 'T2')`).run(courseId);
       getDb().prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('uid-wc', 'sa-wc', 't-wc2', 75, 'EX')`).run();  // pull upsert
       writeMasteryScores.mockResolvedValue({ ok: true });
-      await post(`/api/mastery/${courseId}/write`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', gradeInfo: { 't-wc': { grade: '50' } } });  // re-saves D (no change)
+      await post(`/api/mastery/${courseId}/write`, { enrollmentId: 'enr-wc', assignmentId: 'sa-wc', gradeInfo: { 't-wc': { grade: '50' }, 't-wc2': { grade: '75' } } });  // re-saves D and the pulled EX (no change); the write replaces the whole set, so a level left out would be dropped (#176)
       captureFeedbackSnapshots(getDb(), { courseId });
       expect(state()).toBe('arrived');
     });
@@ -2495,5 +2495,83 @@ describe('grading over a flag (#40)', () => {
       expect(body.code).toBe('FLAGGED');
       expect(pushGradeUpdates).not.toHaveBeenCalled();
     });
+  });
+});
+
+// A level the teacher removes on the card is omitted from gradeInfo, and the /observations write
+// REPLACES the pair's levels in Schoology, so Prism's mirror must drop the omitted topic's row too
+// (#176 live check: the student page, re-reading Prism right after a publish, still showed it).
+describe('a removed level leaves Prism\'s copy when Schoology\'s does (#176)', () => {
+  let courseId, studentId;
+  const levels = (uid = 'uid-rm') => Object.fromEntries(
+    getDb().prepare(`SELECT topic_id, points FROM mastery_scores WHERE student_uid = ? AND assignment_schoology_id = 'sa-rm'`).all(uid).map((r) => [r.topic_id, r.points])
+  );
+  const info = (points) => ({ grade: String(points), gradingScaleId: 1 });
+
+  beforeEach(() => {
+    const db = getDb();
+    db.exec(
+      'DELETE FROM feedback_snapshots; DELETE FROM status_lines; DELETE FROM resubmissions; DELETE FROM grades; DELETE FROM mastery_alignments; ' +
+      'DELETE FROM mastery_scores; DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
+      'DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
+    );
+    courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-rm', 'Course')`).run().lastInsertRowid;
+    studentId = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-rm', 'Ada', 'Lovelace')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-other', 'Bob', 'Babbage')`).run();
+    db.prepare(`INSERT INTO enrolments (student_id, course_id, schoology_enrolment_id) VALUES (?, ?, 'enr-rm')`).run(studentId, courseId);
+    db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'sa-rm', 'Project')`).run(courseId);
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('cat-rm', ?, 'RM.1', 'Cat')`).run(courseId);
+    for (const t of ['t-keep', 't-drop']) {
+      db.prepare(`INSERT INTO measurement_topics (id, course_id, category_id, external_id, title) VALUES (?, ?, 'cat-rm', ?, ?)`).run(t, courseId, t, t);
+      db.prepare(`INSERT INTO mastery_alignments (assignment_schoology_id, topic_id, course_id) VALUES ('sa-rm', ?, ?)`).run(t, courseId);
+      db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('uid-rm', 'sa-rm', ?, 75, 'EX')`).run(t);
+    }
+    // Another student's level on the dropped topic must stay.
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, points, grade) VALUES ('uid-other', 'sa-rm', 't-drop', 50, 'D')`).run();
+    getSectionGrades.mockReset().mockResolvedValue([]);
+    pushGradeUpdates.mockReset().mockResolvedValue({ status: 207 });
+    writeMasteryScores.mockReset().mockResolvedValue({ ok: true });
+    writeMasteryScoresBatch.mockReset().mockResolvedValue(undefined);
+  });
+
+  test('POST /write: the topic left out of gradeInfo loses its local row; the page shows only the kept one', async () => {
+    const { status } = await post(`/api/mastery/${courseId}/write`, {
+      enrollmentId: 'enr-rm', assignmentId: 'sa-rm', gradeInfo: { 't-keep': info(100) },
+    });
+    expect(status).toBe(200);
+    expect(levels()).toEqual({ 't-keep': 100 });
+    expect(levels('uid-other')).toEqual({ 't-drop': 50 });
+
+    const { body } = await get(`/api/mastery/${courseId}/assignment/sa-rm`);
+    const ada = body.students.find((s) => s.schoology_uid === 'uid-rm');
+    expect(Object.keys(ada.scores)).toEqual(['t-keep']);
+  });
+
+  test('POST /write: an empty gradeInfo (every level removed) clears the pair', async () => {
+    expect((await post(`/api/mastery/${courseId}/write`, { enrollmentId: 'enr-rm', assignmentId: 'sa-rm', gradeInfo: {} })).status).toBe(200);
+    expect(levels()).toEqual({});
+    expect(levels('uid-other')).toEqual({ 't-drop': 50 });
+  });
+
+  test('POST /write: a Schoology failure leaves the local rows alone', async () => {
+    writeMasteryScores.mockRejectedValue(new Error('down'));
+    const { status } = await post(`/api/mastery/${courseId}/write`, { enrollmentId: 'enr-rm', assignmentId: 'sa-rm', gradeInfo: { 't-keep': info(100) } });
+    expect(status).not.toBe(200);
+    expect(levels()).toEqual({ 't-keep': 75, 't-drop': 75 });
+  });
+
+  test('POST /send-all: the same rule for a scores entry', async () => {
+    getSectionGrades.mockResolvedValue([{ assignment_id: 'sa-rm', enrollment_id: 'enr-rm', grade: 95, exception: 0, timestamp: 1779418446 }]);
+    const { status, body } = await post(`/api/mastery/${courseId}/send-all`, {
+      entries: [{
+        uid: 'uid-rm', enrollmentId: 'enr-rm', assignmentId: 'sa-rm',
+        scores: { gradeInfo: { 't-keep': info(100) }, gradingPeriodId: 1, gradingCategoryId: 2 },
+        comment: { comment: 'note', commentStatus: true },
+      }],
+    });
+    expect(body.error).toBeUndefined();
+    expect(status).toBe(200);
+    expect(levels()).toEqual({ 't-keep': 100 });
+    expect(levels('uid-other')).toEqual({ 't-drop': 50 });
   });
 });

@@ -1,4 +1,4 @@
-// Triage: late-work referral watch + feedback owed + make-up tests
+// Triage: late-work referral watch + feedback owed + make-up tests + flags (#174, flagRows.js)
 // (docs/superpowers/specs/2026-10-01-triage-late-work-and-feedback-owed-design.md).
 // The single source of truth for the web API (server/routes/triage.js) and
 // PrisMCP (mcp/handlers.js), so the agent sees exactly the dashboard's numbers.
@@ -21,6 +21,8 @@ import { preferredFirstName } from './studentNames.js';
 import { TriageError, toneFor, makeUpTone, currentCourses, roster, ALIGNED_SQL, fullName, MAX_EXTENSION_LESSONS, deadlineFrom, laterOf } from './triageCommon.js';
 import { resubmissionRows } from './resubmissions.js';
 import { isExempt } from '../lib/flags.js';
+import { loadTermRanges } from '../lib/semesters.js';
+import { flagRows, compareFlagRows } from './flagRows.js';
 
 export { TriageError, toneFor, makeUpTone, MAX_EXTENSION_LESSONS };
 
@@ -64,6 +66,7 @@ export function assignmentFacts(db, a) {
   `).all(a.schoology_assignment_id).map((r) => [r.student_uid, r.n]));
   const gradeByStudent = new Map(db.prepare(`
     SELECT g.student_id, g.score, g.grade_comment, g.exception, g.late, g.submitted_at, g.first_submitted_at,
+           g.flag_seen_at, g.latest_revision_at,
            g.submission_type, g.lti_submission_state, g.test_attempt, sl.line AS stored_line
     FROM grades g
     LEFT JOIN status_lines sl ON sl.student_id = g.student_id AND sl.assignment_id = g.assignment_id
@@ -163,6 +166,8 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
   const feedbackOwed = [];
   const makeUps = [];
   const resubmissions = [];
+  const flags = [];
+  const ranges = loadTermRanges(db);
   let makeUpsUnchecked = 0;
   let makeUpsIgnored = 0;
   const courses = currentCourses(db, courseId);
@@ -170,6 +175,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     const students = roster(db, c.id);
     const courseFields = { courseId: c.id, courseName: c.course_name, blockNumber: c.block_number ?? null };
     resubmissions.push(...resubmissionRows(db, { course: c, students, cal, today, settings, studentId }));
+    flags.push(...flagRows(db, { course: c, students, cal, today, formative, studentId, ranges }));
 
     // Make-up tests: a Schoology test/quiz is over and a targeted, active,
     // non-excused student's cell explicitly says "no attempt" (test_attempt
@@ -292,6 +298,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
   // Arrived (to regrade) before waiting; then the longest clock; then name.
   resubmissions.sort((x, y) => (x.state === y.state ? 0 : x.state === 'arrived' ? -1 : 1)
     || y.day - x.day || x.studentName.localeCompare(y.studentName));
+  flags.sort(compareFlagRows);
 
   // Referrals + extensions recorded in scope (the panel's history link).
   const courseIds = courses.map((c) => c.id);
@@ -323,12 +330,15 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
       feedbackOverdue: feedbackOwed.filter((r) => r.tone === 'red').length,
       makeUpsOverdue: makeUps.filter((r) => r.tone === 'red').length,
       resubmissionsOverdue: resubmissions.filter((r) => r.tone === 'red').length,
+      flagsOverdue: flags.filter((r) => r.tone === 'red').length,
     },
-    approx: [lateWork, feedbackOwed, makeUps, resubmissions].some((rows) => rows.some((r) => r.approx)),
+    approx: [lateWork, feedbackOwed, makeUps, resubmissions, flags].some((rows) => rows.some((r) => r.approx)),
     lateWork,
     feedbackOwed,
     makeUps,
     resubmissions,
+    // Schoology flags waiting on the teacher (#174, flagRows.js).
+    flags,
     // Past-due tests whose attempts couldn't be read ("re-sync").
     makeUpsUnchecked,
     // Past-due tests the teacher ignores for make-ups.

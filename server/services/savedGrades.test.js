@@ -1,4 +1,6 @@
-import { describe, test, expect, beforeEach } from 'vitest';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
+
+vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
 import { gradeSummary, waitingCopies } from './savedGrades.js';

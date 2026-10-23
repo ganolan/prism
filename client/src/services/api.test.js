@@ -119,3 +119,16 @@ describe('getProficiencyScale', () => {
     expect(f.mock.calls.map((c) => c[0])).toEqual(['/api/proficiency-scale', '/api/proficiency-scale']);
   });
 });
+
+describe('assessment drafts', () => {
+  it('getDraftsForAssignment reads the class, or with studentId that one student\'s draft', async () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    vi.stubGlobal('fetch', f);
+    await api.getDraftsForAssignment('8');
+    await api.getDraftsForAssignment('8', { studentId: 7 });
+    expect(f.mock.calls.map((c) => c[0])).toEqual([
+      '/api/assessment-drafts?assignment_id=8',
+      '/api/assessment-drafts?assignment_id=8&student_id=7',
+    ]);
+  });
+});

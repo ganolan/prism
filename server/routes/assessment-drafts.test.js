@@ -68,6 +68,19 @@ describe('assessment-drafts route', () => {
     expect(get.body).toEqual({});
   });
 
+  test('GET with student_id returns that one student\'s draft only', async () => {
+    const db = getDb();
+    const bob = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-2', 'Bob', 'B')`).run().lastInsertRowid;
+    await call('POST', '/api/assessment-drafts', { assignment_id: 'sa-1', student_id: studentId, draft: { pending: {}, comment: 'ada' } });
+    await call('POST', '/api/assessment-drafts', { assignment_id: 'sa-1', student_id: bob, draft: { pending: {}, comment: 'bob' } });
+    const one = await call('GET', `/api/assessment-drafts?assignment_id=sa-1&student_id=${studentId}`);
+    expect(one.status).toBe(200);
+    expect(one.body).toEqual({ [studentId]: { pending: {}, comment: 'ada' } });
+    // By Schoology uid too; an unknown student has no draft.
+    expect(Object.keys((await call('GET', '/api/assessment-drafts?assignment_id=sa-1&student_id=uid-2')).body)).toEqual([String(bob)]);
+    expect((await call('GET', '/api/assessment-drafts?assignment_id=sa-1&student_id=no-such')).body).toEqual({});
+  });
+
   test('GET returns {} for an unknown assignment', async () => {
     const get = await call('GET', '/api/assessment-drafts?assignment_id=no-such');
     expect(get.body).toEqual({});

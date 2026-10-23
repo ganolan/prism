@@ -145,7 +145,9 @@ export const getAssessmentAnalysis = (assignmentId) => request(`/feedback/analys
 // Assessment drafts (DB-backed unpublished grading work). DRAFTS_PATH is the
 // absolute path used by navigator.sendBeacon on unload (request() prepends /api).
 export const DRAFTS_PATH = '/api/assessment-drafts';
-export const getDraftsForAssignment = (assignmentId) => request(`/assessment-drafts?assignment_id=${assignmentId}`);
+// → { [studentId]: draft }: the class's drafts, or with studentId that one student's (#176).
+export const getDraftsForAssignment = (assignmentId, { studentId = null } = {}) =>
+  request(`/assessment-drafts?assignment_id=${assignmentId}${studentId != null ? `&student_id=${encodeURIComponent(studentId)}` : ''}`);
 export const saveAssessmentDraft = (data, opts = {}) =>
   request('/assessment-drafts', { method: 'POST', body: JSON.stringify(data), ...opts });
 export const deleteAssessmentDraft = ({ assignmentId, studentId }) =>

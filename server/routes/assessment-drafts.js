@@ -4,15 +4,24 @@ import { resolveAssignmentId, resolveStudentId } from '../services/idResolvers.j
 
 const router = Router();
 
-// GET /api/assessment-drafts?assignment_id=<schoology|local>
+// GET /api/assessment-drafts?assignment_id=<schoology|local>[&student_id=<local|schoology uid>]
 // → { [student_id]: { pending, comment, display, displayTouched, base } }
+// With student_id, that one student's draft only (the student page and the gradebook pop-up show
+// one student, #176); an unknown student has none.
 router.get('/', (req, res) => {
   const db = getDb();
-  const { assignment_id } = req.query;
+  const { assignment_id, student_id } = req.query;
   if (!assignment_id) return res.status(400).json({ error: 'assignment_id is required' });
   const localAssignmentId = resolveAssignmentId(db, assignment_id);
   if (!localAssignmentId) return res.json({});
-  const rows = db.prepare('SELECT student_id, draft_json FROM assessment_drafts WHERE assignment_id = ?').all(localAssignmentId);
+  let localStudentId = null;
+  if (student_id != null && student_id !== '') {
+    localStudentId = resolveStudentId(db, student_id);
+    if (!localStudentId) return res.json({});
+  }
+  const rows = localStudentId == null
+    ? db.prepare('SELECT student_id, draft_json FROM assessment_drafts WHERE assignment_id = ?').all(localAssignmentId)
+    : db.prepare('SELECT student_id, draft_json FROM assessment_drafts WHERE assignment_id = ? AND student_id = ?').all(localAssignmentId, localStudentId);
   const byStudent = {};
   for (const r of rows) {
     try { byStudent[r.student_id] = JSON.parse(r.draft_json); } catch { /* skip corrupt row */ }

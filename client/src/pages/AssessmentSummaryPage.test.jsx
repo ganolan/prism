@@ -1894,7 +1894,7 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
   }
   function makeData(studentExtra = {}, courseExtra = {}) {
     return {
-      course: { id: 4, course_name: 'Course', block_number: null, archived: 0, excluded: 0, ...courseExtra },
+      course: { id: 4, course_name: 'Course', block_number: null, archived: 0, excluded: 0, writable: true, ...courseExtra },
       assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
       topics: TOPICS,
       students: [{ ...makeStudent(), submission_type: 'drop', resubmitted: true, resubmission: { state: 'arrived', request: null }, ...studentExtra }],
@@ -2005,7 +2005,7 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
   });
 });
 
-describe('AssessmentSummaryPage — no resubmission control on an archived/excluded course (final review)', () => {
+describe('AssessmentSummaryPage — no write controls where Prism cannot write the course (final review; course.writable, #176)', () => {
   function renderPage() {
     return render(
       <MemoryRouter initialEntries={['/course/4/assessment/8']}>
@@ -2023,17 +2023,24 @@ describe('AssessmentSummaryPage — no resubmission control on an archived/exclu
   });
 
   it('shows Ask to resubmit on a current course', async () => {
-    getMasteryForAssignment.mockResolvedValue(data({ archived: 0, excluded: 0 }));
+    getMasteryForAssignment.mockResolvedValue(data({ archived: 0, excluded: 0, writable: true }));
     renderPage();
     await waitFor(() => expect(document.querySelector('.resubmit-control')).toHaveTextContent(/Ask to resubmit/));
+    expect(screen.getByRole('button', { name: /Flags/ })).toBeInTheDocument();
   });
 
-  it.each([['archived', { archived: 1, excluded: 0 }], ['excluded', { archived: 0, excluded: 1 }]])(
-    'hides it on an %s course', async (_label, course) => {
+  it.each([
+    ['archived', { archived: 1, excluded: 0, writable: false }],
+    ['excluded', { archived: 0, excluded: 1, writable: false }],
+    // A set of linked sections (#178): current and not excluded, but the server refuses its writes.
+    ['linked', { archived: 0, excluded: 0, writable: false }],
+  ])(
+    'hides Ask to resubmit and the Flags pill on a course that is %s', async (_label, course) => {
       getMasteryForAssignment.mockResolvedValue(data(course));
       renderPage();
       await screen.findByPlaceholderText(/Teacher comment/i);
       expect(document.querySelector('.resubmit-control')).toBeNull();
+      expect(screen.queryByRole('button', { name: /Flags/ })).not.toBeInTheDocument();
     },
   );
 });
@@ -2874,7 +2881,8 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
     }));
     await waitFor(() => expect(screen.getByText('1 pending change')).toBeInTheDocument());
     expect(onRefreshPair).toHaveBeenCalledWith('uid-1');
-    expect(getDraftsForAssignment).toHaveBeenCalledWith('8');
+    // The restored draft is read for this card's student only.
+    expect(getDraftsForAssignment).toHaveBeenCalledWith('8', { studentId: 1 });
   });
 
   it('publishing a level over a waiting copy drops the restore offer without a reload (22 Oct 2026)', async () => {
@@ -2988,7 +2996,7 @@ describe('AssessmentSummaryPage: Publish all over a final flag (#40)', () => {
   it('Publish all drops the restore offer of a card whose grade it wrote (22 Oct 2026)', async () => {
     const saved = { score: 75, max_points: 100, topics: { t1: 'EX' }, rows: {}, scale_level: null, flag: 6, savedAt: '2026-10-21 02:00:00', summary: '75 / 100 and 1 topic level', restoreSummary: '1 topic level', notRestored: [] };
     const withCopy = { ...ada, saved_grade: saved };
-    getMasteryForAssignment.mockResolvedValue({ assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 }, topics, students: [withCopy] });
+    getMasteryForAssignment.mockResolvedValue({ course: { id: 4, course_name: 'C', writable: true }, assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 }, topics, students: [withCopy] });
     getDraftsForAssignment.mockResolvedValueOnce({ 1: draft(withCopy) });
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'u1', ok: true }] });
     render(
@@ -3005,7 +3013,7 @@ describe('AssessmentSummaryPage: Publish all over a final flag (#40)', () => {
   it('a grade published with its feedback rows not saved still drops the restore offer (#177)', async () => {
     const saved = { score: 75, max_points: 100, topics: { t1: 'EX' }, rows: {}, scale_level: null, flag: 6, savedAt: '2026-10-21 02:00:00', summary: '75 / 100 and 1 topic level', restoreSummary: '1 topic level', notRestored: [] };
     const withCopy = { ...ada, saved_grade: saved };
-    getMasteryForAssignment.mockResolvedValue({ assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 }, topics, students: [withCopy] });
+    getMasteryForAssignment.mockResolvedValue({ course: { id: 4, course_name: 'C', writable: true }, assignment: { id: 50, title: 'Notebook 4', is_lti_submission: 1, due_date: '2026-06-01', lti_fetch_status: 'ok', mastery_grading_period_id: 1, mastery_grading_category_id: 2 }, topics, students: [withCopy] });
     getDraftsForAssignment.mockResolvedValueOnce({ 1: draft(withCopy) });
     const error = 'Published to Schoology, but the feedback rows were not saved in Prism: save again';
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'u1', ok: false, published: true, error }] });

@@ -877,7 +877,9 @@ export default function AssessmentSummaryPage() {
               onFileSummary={handleFileSummary}
               scoreScale={scoreScale}
               resubmitLessonsDefault={resubmitLessonsDefault}
-              resubmitEnabled={!data.course?.archived && !data.course?.excluded}
+              // Writes only where Prism may write the course (not archived, excluded or a linked
+              // set, #178): the server's own rule, so no control is shown that it would refuse.
+              resubmitEnabled={data.course?.writable === true}
               highlight={highlightId === student.id}
               onSaved={handleCardSaved}
               onRefreshPair={handleRefreshPair}

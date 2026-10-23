@@ -477,6 +477,20 @@ describe('StudentRubricCard: view mode', () => {
     expect(screen.getByText('Published words.')).toBeInTheDocument();
   });
 
+  it('leaving edit mode sends the queued draft save (keepalive) and a queued delete, then disposes', () => {
+    const props = { student: studentWith({}), topics: TOPICS, courseId: '4', assignmentId: '8', assignmentRow: { id: 50 }, onSaved: () => {} };
+    const tree = (mode) => createElement(MemoryRouter, null, createElement(StudentRubricCard, { ...props, mode }));
+    const { rerender } = render(tree('edit'));
+    const saver = mockSaver;
+    rerender(tree('view')); // the edit card unmounts (Done, a collapse, or the pop-up closing)
+    expect(saver.flush).toHaveBeenCalledWith({ keepalive: true });
+    expect(saver.settle).toHaveBeenCalledTimes(1);
+    expect(saver.dispose).toHaveBeenCalledTimes(1);
+    const order = (fn) => fn.mock.invocationCallOrder.at(-1);
+    expect(order(saver.flush)).toBeLessThan(order(saver.settle));
+    expect(order(saver.settle)).toBeLessThan(order(saver.dispose));
+  });
+
   it('view mode with no comment draws no comment block', () => {
     renderCard({ mode: 'view' });
     expect(document.querySelector('.grade-card__comment-view')).toBeNull();

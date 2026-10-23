@@ -376,15 +376,16 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
       );
     } else if (didDraftRef.current) {
       // Honor flushNextRef so a discrete clear (discard / toggle-off) deletes the
-      // server row immediately; a debounced remove could be lost on fast navigate
-      // (the unmount flush intentionally does not flush queued deletes).
+      // server row immediately; a debounced remove is sent on unmount (settle), but
+      // not on page-hide (the beacon carries saves only).
       saver.remove({ immediate: flushNextRef.current });
     }
     flushNextRef.current = false;
   }, [hasPendingChanges, pending, comment, display, displayTouched, currentBaseline]);
 
-  // Flush a pending save on tab-hide (sendBeacon) and on SPA unmount (keepalive);
-  // delete a stale server draft once on mount.
+  // Flush a pending save on tab-hide (sendBeacon) and on SPA unmount (keepalive); on unmount a
+  // queued delete is sent too (settle), so a change undone just before Done, a collapse or closing
+  // the pop-up leaves no stray draft. Delete a stale server draft once on mount.
   useEffect(() => {
     if (isView) return undefined;
     const saver = draftSaver();
@@ -397,6 +398,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
       window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', onVisibility);
       saver.flush({ keepalive: true });
+      saver.settle();
       saver.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -582,7 +584,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
     }
     // A view card shows what is published; the restored draft waits for edit mode.
     if (!isView && result?.restored?.draft) {
-      const drafts = await getDraftsForAssignment(assignmentId).catch(() => null);
+      const drafts = await getDraftsForAssignment(assignmentId, { studentId: student.id }).catch(() => null);
       const d = drafts?.[student.id];
       if (d) {
         flushNextRef.current = true;

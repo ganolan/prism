@@ -330,6 +330,8 @@ export function getTriageTool(db, { course, student, include_formative } = {}) {
     t.counts.makeUpsOverdue = t.makeUps.filter((r) => r.tone === 'red').length;
     t.resubmissions = t.resubmissions.filter((r) => matchesStudent(r, student));
     t.counts.resubmissionsOverdue = t.resubmissions.filter((r) => r.tone === 'red').length;
+    t.flags = t.flags.filter((r) => matchesStudent(r, student));
+    t.counts.flagsOverdue = t.flags.filter((r) => r.tone === 'red').length;
     // Unfinished grading: keep that student's entries, recounted.
     t.unfinishedGrading = t.unfinishedGrading.map((r) => {
       const students = r.students.filter((s) => matchesStudent(s, student));

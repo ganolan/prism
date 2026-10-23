@@ -751,6 +751,23 @@ describe('triage tools', () => {
     expect(listReferralsTool(db, { course: 'apcsp' }).extensions).toHaveLength(1);
   });
 
+  test('get_triage returns flags, filtered and recounted for a student (#174)', () => {
+    const db = getDb();
+    const { courseId, studentId, assignmentId } = seedLate(db);
+    db.prepare(`UPDATE courses SET term_start = '2019-08-20', term_end = '2020-01-10' WHERE id = ?`).run(courseId);
+    const zed = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u2', 'Zed', 'Young')`).run().lastInsertRowid;
+    db.prepare(`INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)`).run(zed, courseId);
+    for (const sid of [studentId, zed]) {
+      db.prepare(`INSERT INTO grades (student_id, assignment_id, exception, submitted_at) VALUES (?, ?, 6, 1578300000)`).run(sid, assignmentId);
+    }
+    const all = getTriageTool(db, {});
+    expect(all.flags).toHaveLength(2);
+    expect(all.counts.flagsOverdue).toBe(2);
+    const one = getTriageTool(db, { student: 'maya' });
+    expect(one.flags).toEqual([expect.objectContaining({ studentName: 'Maya Chen', flag: 6, tone: 'red', semesterEnd: '2020-01-10' })]);
+    expect(one.counts.flagsOverdue).toBe(1);
+  });
+
   test('getTriageTool filters by student name fragment', () => {
     const db = getDb();
     seedLate(db);

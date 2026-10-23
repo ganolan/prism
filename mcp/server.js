@@ -397,7 +397,7 @@ export function createServer({ devCopy = false } = {}) {
     'get_triage',
     {
       description:
-        "Late-work referral watch, feedback owed and make-up tests, exactly as Prism's dashboard shows them. " +
+        "Late-work referral watch, feedback owed, make-up tests and Schoology flags waiting on the teacher, exactly as Prism's dashboard shows them. " +
         'Every row has `day`, a clock position in SCHOOL days counting the due date = day 1 (test date / extended date = day 1 likewise). ' +
         'The dashboard no longer shows day numbers (they read as timetable cycle days): it shows the distance, day − 1, e.g. day 9 = "8 school days late", ' +
         'and its limits as "refer at 8 school days late" / "feedback overdue at 10 school days waiting". Say it that way to the teacher, never "day N". ' +
@@ -414,11 +414,16 @@ export function createServer({ devCopy = false } = {}) {
         'Rows carry courseName + blockNumber (sections of one course share a name) and extension ({ id, lessons (= school days), until, note } or null; dueDate stays the original). Includes the limits (settings), calendar source (approx = weekday fallback) and lastSyncAt: ' +
         'say when data may be stale. Use for "who is close to referral?", "what should I grade first?" or "who still has to sit the test?". ' +
         'resubmissions: per student × assessment, state "waiting" (asked to resubmit; day 1 = the ask day; limit = lessons (school days) + 1, red after `until`; source schoology_unsubmit = the teacher unsubmitted OneDrive work) or "arrived" (a resubmission newer than the last feedback; day 1 = the resubmission date, overdue after day {feedbackLimitDays}; afterDeadline = came in after the ask deadline). Shown for any alignment (include_formative does not apply). ' +
+        'flags: Schoology flags waiting on the teacher, one row per student and task, because on this account a flag leaves the task out of the grade until the teacher acts (#174). ' +
+        'kind "flag": Late (6), Incomplete (2) and Absent (5) always, Missing (3) only when the student submitted after the flag (submittedAfter); Exempt (1) never appears. ' +
+        'kind "saved_grade": the flag was cleared and the grade Prism saved is not restored yet. `day` counts school days from the flag date (flagSeenOn = day 1; for saved_grade the day the grade was saved); ' +
+        'tone follows semesterEnd, the end of the semester that contains the task\'s due date: amber over its last 10 school days, red over the last 5 and after it (an ended semester stays red; null = no term known, green). ' +
+        '`advice` is the one line to give the teacher. Flagged work also keeps its lateWork, makeUps and feedbackOwed rows. counts.flagsOverdue = red flags rows. ' +
         "lateWork, makeUps and resubmissions rows also carry studentEmail (the student's school email, null when Prism has none), e.g. for building an email list. " +
         'unfinishedGrading: unfinished grading work with no clock, per assessment (any alignment): drafts = students with grades or a comment entered in Prism but not yet published to Schoology (a live draft; one Schoology changed under is left out), feedbackHidden = students with a teacher comment in Schoology they cannot see (Display to student off), unreadComments = students who typed or attached something in the submission comment thread since the teacher last opened it in Prism; students[] names each with its reasons (draft, feedback_hidden, unread_comment). Tasks with a draft come first, oldest draft (oldestDraftOn) first. Use for "what have I left unfinished?".',
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id (list_courses) or a name/code fragment; omit for all current courses'),
-        student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment to filter lateWork, makeUps, resubmissions and unfinishedGrading'),
+        student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment to filter lateWork, makeUps, resubmissions, flags and unfinishedGrading'),
         include_formative: z.boolean().optional().describe('Include formative work in feedbackOwed (default: the teacher setting)'),
       },
     },

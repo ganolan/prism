@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { formatDate, formatDateTime } from '../lib/formatDate.js';
+import { formatDate } from '../lib/formatDate.js';
 import {
   getStudent, updateStudent, updateParent,
-  createNote, updateNote, deleteNote, startSync,
+  createNote, updateNote, deleteNote, startSync, getRubricConfig, getSettings,
 } from '../services/api.js';
 import MasteryPerformanceSummary from '../components/MasteryPerformanceSummary.jsx';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
@@ -11,18 +11,13 @@ import SyncStatus from '../components/SyncStatus.jsx';
 import SyncHelp from '../components/SyncHelp.jsx';
 import { useSyncFacts } from '../hooks/useSyncFacts.js';
 import SyncDialog from '../components/SyncDialog.jsx';
-import AssignmentFeedback from '../components/AssignmentFeedback.jsx';
+import StudentRubricCard from '../components/gradeCard/StudentRubricCard.jsx';
+import { cardInputs, cardReasons } from '../lib/cardInputs.js';
+import { useGradeCards } from '../hooks/useGradeCards.js';
 import PsAlertReveal from '../components/PsAlertReveal.jsx';
-import AttemptLink from '../components/quiz/AttemptLink.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
-import { useAttachedRubrics } from '../hooks/useAttachedRubrics.js';
 import { useStudentWorkLinks, useStudentCommentSummaries, useStudentFileSummaries } from '../hooks/useStudentFeedbackLinks.js';
-import SchoologyLink from '../components/SchoologyLink.jsx';
-import SubmissionComments from '../components/SubmissionComments.jsx';
-import SubmissionFiles, { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
-import HelpDot from '../components/HelpDot.jsx';
-import { CLOCK_HELP, lateText } from '../lib/submissionTimeline.js';
-import { gradeLabel, submissionStatus } from '../lib/gradeLabel.js';
+import { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import { useDataVersion, useBumpDataVersion } from '../hooks/useDataVersion.jsx';
 import { formatGradeBadge } from '../lib/gradeLevel.js';
 import { preferredFirstName } from '../lib/studentNames.js';
@@ -60,31 +55,102 @@ function CopyButton({ text, label }) {
   );
 }
 
-const NO_RUBRICS = { attachments: {}, palette: {} };
-
 // The thread is worth a chip once the student handed something in, it is graded,
 // or a read found comments: a chip on every untouched task would be noise.
 const commentsWorthAChip = (g, summary) => !!summary || !!g.submission_type || Number(g.submitted_at) > 0
   || g.lti_submission_state === 'submitted' || g.score != null;
 
-// `rubrics`: the attached rubrics for the page's assignments, fetched in one batch
-// by StudentPage ({ attachments: { [aid]: attachment }, palette }). `workLinks`
-// ({ [aid]: OneDrive link }), `commentSummaries` and `fileSummaries` ({ [aid]: summary },
-// null when the feature is off) arrive after the page renders, this student's only.
+// A card's student with what a write on it changed (the card's onSaved patch, as the assessment page
+// applies it), until the task's own refetch brings a newer card: the patch holds only over the card
+// object it was made on, so any newer card replaces it.
+function useSavedPatches(cards) {
+  const [patches, setPatches] = useState({}); // { [aid]: { over: card, patch } }
+  const patched = (aid) => {
+    const card = cards[aid];
+    const p = patches[aid];
+    return card && p && p.over === card ? { ...card, student: { ...card.student, ...p.patch } } : card;
+  };
+  const addPatch = (aid, patch) => setPatches((prev) => {
+    const p = prev[aid];
+    const base = p && p.over === cards[aid] ? p.patch : {};
+    return { ...prev, [aid]: { over: cards[aid], patch: { ...base, ...patch } } };
+  });
+  return { patched, addPatch };
+}
+
+// One course of the student page: the mastery summary, then each task as the grade card (#176) in
+// view mode, editable in place (Edit, Done) on a course Prism can write (`course.writable` from the
+// grade-cards route: not archived, excluded or a linked set). The cards come from
+// GET /api/students/:id/grade-cards, this student's data only, loaded while the course is expanded.
+// The card is in meeting mode: the page may be on a shared screen, so no portrait and no AI
+// suggestion. `grades` (GET /api/students/:id) lists the tasks. `workLinks` ({ [aid]: OneDrive
+// link }), `commentSummaries` and `fileSummaries` ({ [aid]: summary }, null when the feature is off)
+// arrive after the page renders, this student's only. `onGradesChange` reloads the page (the student
+// and every course's summary and cards) after a flag write or when a card leaves edit mode.
 export function CourseSection({
-  course, grades, flagsByAssignment, studentUid, scales, studentName = 'the student', studentFirstName = null, attemptLinks = {}, rubrics = NO_RUBRICS,
+  course, grades, studentUid, scales, attemptLinks = {}, rubricPalette = {},
   studentId = null, workLinks = {}, commentSummaries = null, onCommentSummary = () => {},
   fileSummaries = null, onFileSummary = () => {},
   refreshKey = 0,
-  onFlagChange = null, // each task's Flags menu writes, then the page refetches (#40); off on an archived or excluded course
+  onGradesChange = null,
 }) {
   const [expanded, setExpanded] = useState(true);
   // The page syncs its courses in the background and bumps `refreshKey` when a sync ends: the summary
-  // reloads with it.
+  // and the cards reload with it.
+  const { cards, course: cardCourse, loading, error, refetchOne } = useGradeCards({
+    studentId, courseId: course.id, enabled: expanded, reloadKey: refreshKey,
+  });
+  const { patched, addPatch } = useSavedPatches(cards);
+  const writable = cardCourse?.writable === true;
+  // The tasks open for editing (several at once is fine: each card is independent).
+  const [editing, setEditing] = useState(() => new Set());
+  const [editError, setEditError] = useState({}); // { [aid]: message } when Edit could not load the task
+  // The teacher's default lesson count for Ask to resubmit, read when a card first opens for editing.
+  const [resubmitLessons, setResubmitLessons] = useState(undefined);
+
+  // Edit: the task's card is read again first. The card builds its edit state from its props when it
+  // switches mode, so a draft saved elsewhere since the page loaded must be in them.
+  async function startEdit(aid) {
+    setEditError((e) => ({ ...e, [aid]: null }));
+    if (resubmitLessons === undefined) {
+      Promise.resolve().then(() => getSettings())
+        .then((s) => setResubmitLessons(s?.triage?.resubmitLessonsDefault ?? 3))
+        .catch(() => setResubmitLessons(3));
+    }
+    let fresh = null;
+    try { fresh = await refetchOne(aid); } catch { fresh = null; }
+    if (!fresh) {
+      setEditError((e) => ({ ...e, [aid]: 'Could not load this task. Reload the page.' }));
+      return;
+    }
+    setEditing((prev) => new Set(prev).add(aid));
+  }
+  // Done (after the card's draft save settles): back to the view, and the page reloads.
+  function finishEdit(aid) {
+    setEditing((prev) => { const next = new Set(prev); next.delete(aid); return next; });
+    if (onGradesChange) Promise.resolve().then(() => onGradesChange()).catch(() => {});
+  }
+  // After a flag write: the page reloads, and the card gets this task's fresh student (its comment
+  // editor follows the line the flag wrote). A failed read throws: the Flags pill says so.
+  async function refreshTask(aid) {
+    const [fresh] = await Promise.all([refetchOne(aid), onGradesChange ? onGradesChange() : null]);
+    return fresh?.student ?? null;
+  }
+  // After a publish, Ask, Extend or Refer on the card: its patch at once, then the task read again.
+  function handleSaved(aid, patch) {
+    if (patch) addPatch(aid, patch);
+    refetchOne(aid).catch(() => {});
+  }
+  // Collapsing leaves edit mode (the card's unmount sends its queued draft save): opened again, the
+  // course shows its cards as read again, never an editor built from the cards held before.
+  function toggleExpanded() {
+    if (expanded) setEditing(new Set());
+    setExpanded(!expanded);
+  }
 
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-      <button className="student-course__head" onClick={() => setExpanded(e => !e)}>
+      <button className="student-course__head" onClick={toggleExpanded}>
         <Link
           to={`/course/${course.id}`}
           className="link"
@@ -119,99 +185,89 @@ export function CourseSection({
             />
           </div>
 
-          {/* One row per assignment: the name, then the shared feedback view, the
-              same layout as the gradebook modal (#135). */}
+          {error && (
+            <div className="alert alert-warning" role="alert">Could not load the grades for this course. Reload the page.</div>
+          )}
+
+          {/* One row per task: the grade card, the same component as the assessment page and the
+              gradebook pop-up (#176). */}
           <table>
             <thead>
               <tr>
-                <th>Assignment <HelpDot text={CLOCK_HELP(grades.find((g) => g.timeline)?.timeline.limit)} /></th>
+                <th>Assignment</th>
               </tr>
             </thead>
             <tbody>
               {grades.map(g => {
-                const topics = g.mastery?.topics || [];
-                const assessmentHref = `/course/${g.course_id}/assessment/${g.schoology_assignment_id}`;
-                const statusBadges = submissionStatus({
-                  score: g.score,
-                  exception: g.exception,
-                  late: g.timeline?.submission?.late ?? g.late,
-                  draft: g.draft,
-                  submitted_at: g.submitted_at,
-                  submission_type: g.submission_type,
-                  is_lti_submission: g.is_lti_submission,
-                  lti_submission_state: g.lti_submission_state,
-                  due_date: g.due_date,
-                  accepts_submissions: g.accepts_submissions,
-                  is_test: g.is_test,
-                });
                 const aid = g.schoology_assignment_id;
-                const attempt = attemptLinks[aid] || null;
-                const workLink = workLinks[aid] || null;
+                const assessmentHref = `/course/${g.course_id}/assessment/${aid}`;
+                // Name → the assignment's /assessment/ page, for every assignment (as in the
+                // gradebook + Assessments tab): unaligned work is graded there too (#41).
+                const title = (
+                  <Link to={assessmentHref} className="link" style={{ fontWeight: 600 }}>
+                    {g.assignment_title}
+                  </Link>
+                );
+                const card = patched(aid);
                 const summary = commentSummaries?.[aid] || null;
                 const showComments = commentSummaries !== null && studentId != null && commentsWorthAChip(g, summary);
                 // The student's own Schoology uploads, every revision (#107, #162).
                 const showFiles = fileSummaries !== null && studentId != null && hasNativeSubmission(g, g);
-                const links = (workLink || attempt || showComments || showFiles) ? (
-                  <>
-                    {workLink && (
-                      <SchoologyLink
-                        url={workLink.url}
-                        label="Open"
-                        ariaLabel={`Open ${studentName}'s work in OneDrive`}
-                        title={`Open ${studentName}'s work in OneDrive: last edited ${formatDateTime(workLink.modifiedAt)}`}
-                        style={{ fontSize: '0.78rem', fontWeight: 600 }}
+                let body;
+                if (card) {
+                  const { topics, rubric, student } = cardInputs({
+                    topics: card.topics, scoreScale: card.scoreScale, rubricData: card.rubric, student: card.student,
+                  });
+                  const isEditing = writable && editing.has(aid);
+                  body = (
+                    <>
+                      <StudentRubricCard
+                        mode={isEditing ? 'edit' : 'view'}
+                        meeting
+                        heading={title}
+                        showDue
+                        hasDraft={card.hasDraft}
+                        draftRow={card.draft}
+                        feedbackRow={null}
+                        reasons={cardReasons(card, summary)}
+                        student={student}
+                        topics={topics}
+                        rubric={rubric}
+                        rubricPalette={rubricPalette}
+                        scoreScale={card.scoreScale}
+                        scales={scales}
+                        courseId={course.id}
+                        assignmentId={aid}
+                        assignmentRow={card.assignment}
+                        submissionLink={workLinks[aid] || null}
+                        attemptLink={attemptLinks[aid] || null}
+                        commentsEnabled={showComments}
+                        commentSummary={summary}
+                        onCommentSummary={(_, s) => onCommentSummary(aid, s)}
+                        filesEnabled={showFiles}
+                        fileSummary={fileSummaries?.[aid] || null}
+                        onFileSummary={(_, s) => onFileSummary(aid, s)}
+                        resubmitEnabled={writable}
+                        resubmitLessonsDefault={resubmitLessons ?? 3}
+                        onEdit={writable ? () => startEdit(aid) : null}
+                        onDone={() => finishEdit(aid)}
+                        onSaved={(_, patch) => handleSaved(aid, patch)}
+                        onRefreshPair={() => refreshTask(aid)}
                       />
-                    )}
-                    {showFiles && (
-                      <SubmissionFiles assignmentId={aid} studentId={studentId} studentName={studentName}
-                        title={g.assignment_title} summary={fileSummaries[aid] || null} onSummary={(s) => onFileSummary(aid, s)} />
-                    )}
-                    <AttemptLink link={attempt} name={studentName} />
-                    {showComments && (
-                      <SubmissionComments assignmentId={aid} studentId={studentId} studentName={studentName}
-                        title={g.assignment_title} summary={summary} onSummary={(s) => onCommentSummary(aid, s)} />
-                    )}
-                  </>
-                ) : null;
+                      {editError[aid] && <div className="alert alert-warning" role="alert">{editError[aid]}</div>}
+                    </>
+                  );
+                } else {
+                  body = (
+                    <>
+                      <div style={{ marginBottom: '0.35rem' }}>{title}</div>
+                      {loading && <p className="text-sm text-muted">Loading…</p>}
+                    </>
+                  );
+                }
                 return (
                   <tr key={`${g.course_id}-${g.assignment_id}`} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td className="text-sm" style={{ verticalAlign: 'top' }}>
-                      {/* Name → the assignment's /assessment/ page, for every
-                          assignment (as in the gradebook + Assessments tab):
-                          unaligned work is graded there too (#41). */}
-                      <div style={{ marginBottom: '0.35rem' }}>
-                        <Link to={assessmentHref} className="link" style={{ fontWeight: 600 }}>
-                          {g.assignment_title}
-                        </Link>
-                      </div>
-                      <AssignmentFeedback
-                        status={statusBadges}
-                        flags={flagsByAssignment?.[g.assignment_id] || []}
-                        resubmitted={g.resubmitted}
-                        lateTitle={lateText(g.timeline)}
-                        links={links}
-                        timeline={g.timeline}
-                        timelineHelp={false}
-                        due={g.due_date || '-'}
-                        topics={topics}
-                        attachment={rubrics.attachments[g.schoology_assignment_id] || null}
-                        palette={rubrics.palette}
-                        exception={g.exception}
-                        firstName={studentFirstName}
-                        savedLevel={g.saved_level ?? null}
-                        reasonLine={g.flag_line ?? null}
-                        flagsMenu={onFlagChange && !course.archived && !course.excluded && studentId != null ? {
-                          student: { id: studentId, firstName: studentFirstName }, assignmentId: g.assignment_id,
-                          exception: g.exception, score: g.score ?? null, comment: g.grade_comment || '',
-                          aligned: topics.length > 0, onChange: onFlagChange,
-                        } : null}
-                        score={topics.length > 0 ? null : gradeLabel({
-                          score: g.score, max_points: g.assignment_max_points,
-                          exception: g.exception, grading_scale_id: g.grading_scale_id, scales,
-                        })}
-                        comment={g.grade_comment}
-                      />
-                    </td>
+                    <td className="text-sm" style={{ verticalAlign: 'top' }}>{body}</td>
                   </tr>
                 );
               })}
@@ -422,9 +478,10 @@ export default function StudentPage() {
   // queues those courses now; the chip opens the progress of the run.
   const liveCourseIds = (student?.courses ?? []).filter((c) => !c.archived).map((c) => c.id);
   const [syncVersion, setSyncVersion] = useState(0);
-  // After a flag write on one of the tasks (#40): the page and each course's summary reload. A
-  // failed read throws, so the Flags pill says the page could not refresh.
-  async function handleFlagChange() {
+  // After a flag write on one of the tasks (#40), or when a task's card leaves edit mode (#176): the
+  // page, each course's summary and its grade cards reload. A failed read throws, so the Flags pill
+  // says the page could not refresh.
+  async function handleGradesChange() {
     const s = await getStudent(id);
     setStudent(s);
     setSyncVersion((v) => v + 1);
@@ -447,14 +504,15 @@ export default function StudentPage() {
 
   // The student's attempts on linked or combined Schoology tests, by Schoology assignment id.
   const attemptLinks = useAttemptLinks({ studentId: id, reloadKey: dataVersion });
-  // Attached rubrics (full descriptors) for every aligned assignment, one request (#135).
-  // Every assignment is asked about, so an unaligned task's feedback rows come back
-  // too (with this student's row levels only).
-  const rubrics = useAttachedRubrics(
-    (student?.grades || []).map((g) => g.schoology_assignment_id),
-    dataVersion,
-    { studentUid: student?.schoology_uid || null },
-  );
+  // The reporting-category colours of an attached rubric's rows, for every card on the page.
+  const [rubricPalette, setRubricPalette] = useState({});
+  useEffect(() => {
+    let active = true;
+    Promise.resolve().then(() => getRubricConfig())
+      .then((c) => { if (active) setRubricPalette(c?.reportingCategoryColors || {}); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
   // After the page renders: this student's OneDrive copies, a few assignments at a
   // time, and their submission comment summaries (a background read refreshes them).
   const workLinks = useStudentWorkLinks(
@@ -496,12 +554,6 @@ export default function StudentPage() {
   const legalFullName = `${student.first_name} ${student.last_name}`;
   const displayedFullName = `${displayName} ${student.last_name}`;
   const showLegalName = legalFullName !== displayedFullName;
-  const assignmentFlagMap = {};
-  for (const f of student.flags) {
-    if (!f.assignment_id || f.resolved) continue;
-    if (!assignmentFlagMap[f.assignment_id]) assignmentFlagMap[f.assignment_id] = [];
-    assignmentFlagMap[f.assignment_id].push(f);
-  }
 
   const titleName = displayedFullName;
   const alertsShown = alertsShownFor === student.id;
@@ -733,13 +785,10 @@ export default function StudentPage() {
             key={course.id}
             course={course}
             grades={grades}
-            flagsByAssignment={assignmentFlagMap}
             studentUid={student.schoology_uid}
             scales={student.grading_scales}
-            studentName={`${displayName} ${student.last_name}`}
-            studentFirstName={displayName}
             attemptLinks={attemptLinks}
-            rubrics={rubrics}
+            rubricPalette={rubricPalette}
             studentId={student.id}
             workLinks={workLinks}
             commentSummaries={commentSummaries}
@@ -747,7 +796,7 @@ export default function StudentPage() {
             fileSummaries={fileSummaries}
             onFileSummary={setFileSummary}
             refreshKey={dataVersion + syncVersion}
-            onFlagChange={handleFlagChange}
+            onGradesChange={handleGradesChange}
           />
         );
       })}

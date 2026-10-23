@@ -147,6 +147,16 @@ describe('StudentRubricCard: a points-only task', () => {
     renderCard({ student: studentWith({ score: 50 }) });
     expect(screen.queryByText('Score:')).not.toBeInTheDocument();
   });
+
+  it('on a named grading scale, `scales` names the level (the student page passes grading_scales)', () => {
+    const scales = { 77: { levels: [{ name: 'Meets', average: 50 }, { name: 'Exceeds', average: 100 }] } };
+    renderCard({
+      topics: [], assignmentRow: { id: 50, max_points: 100, grading_scale_id: 77 },
+      student: studentWith({ score: 50 }), scales,
+    });
+    expect(screen.getByText('Meets')).toBeInTheDocument();
+    expect(screen.queryByText('50 / 100')).not.toBeInTheDocument();
+  });
 });
 
 describe('StudentRubricCard: Missing shows IE on every topic (#40)', () => {
@@ -395,6 +405,21 @@ describe('StudentRubricCard: view mode', () => {
     fireEvent.click(screen.getByText('Polished and intuitive.'));
     expect(screen.getByText('Polished and intuitive.').closest('td')).not.toHaveAttribute('data-awarded');
     expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
+  });
+
+  it('showDue puts the due date in the timeline; by default (the assessment page) it is left out', () => {
+    const timeline = {
+      due: { date: '2026-10-06', time: '15:00' }, extension: null, deadline: '2026-10-06',
+      submission: { state: 'submitted', firstAt: Math.floor(new Date('2026-10-12T09:00:00').getTime() / 1000), latestAt: null, late: true, day: 4, lateMinutes: null, schoologyLate: true },
+      overdue: null, resubmission: null, referral: null, limit: 8,
+    };
+    const { unmount } = renderCard({ mode: 'view', student: studentWith({ timeline }) });
+    expect(screen.getByTestId('submission-timeline')).not.toHaveTextContent('Due 06/10');
+    unmount();
+    renderCard({ mode: 'view', showDue: true, student: studentWith({ timeline }) });
+    const row = screen.getByTestId('submission-timeline');
+    expect(row).toHaveTextContent('Due 06/10 15:00');
+    expect(row).toHaveTextContent('Submitted 12/10 09:00 (3 school days late)');
   });
 
   it('view mode draws the compact grid read-only too', () => {

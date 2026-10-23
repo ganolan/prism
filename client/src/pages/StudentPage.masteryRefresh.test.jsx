@@ -12,6 +12,7 @@ vi.mock('../services/api.js', () => ({
   updateStudent: vi.fn(), updateParent: vi.fn(), createNote: vi.fn(), updateNote: vi.fn(), deleteNote: vi.fn(),
   getAttemptLinks: vi.fn().mockResolvedValue({ links: {} }),
   getRubricConfig: vi.fn().mockResolvedValue({ reportingCategoryColors: {} }),
+  getGradeCards: vi.fn().mockResolvedValue({ course: { id: 1, archived: 0, excluded: 0, writable: true }, cards: {} }),
   getSyncStatus: vi.fn(),
   ensureSync: vi.fn(),
   getCurrentSync: vi.fn(),
@@ -19,7 +20,7 @@ vi.mock('../services/api.js', () => ({
   startSync: vi.fn(),
 }));
 
-import { getStudent, getSyncStatus, ensureSync, getCurrentSync, getSyncRun, startSync } from '../services/api.js';
+import { getStudent, getSyncStatus, ensureSync, getCurrentSync, getSyncRun, startSync, getGradeCards } from '../services/api.js';
 import StudentPage, { CourseSection } from './StudentPage.jsx';
 
 const RECENT = new Date().toISOString();
@@ -94,21 +95,22 @@ describe('StudentPage background sync', () => {
 });
 
 describe('CourseSection', () => {
-  it('the summary reloads with the page\'s refreshKey; no sync of its own', async () => {
+  it('the summary and the grade cards reload with the page\'s refreshKey; no sync of its own', async () => {
     const { rerender } = render(
       <MemoryRouter>
-        <CourseSection course={{ id: 1, course_name: 'Art', archived: 0 }} grades={[grade(1)]} flagsByAssignment={{}} studentUid="u1" scales={{}}
-          rubrics={{ attachments: {}, palette: {} }} studentId={7} refreshKey={0} />
+        <CourseSection course={{ id: 1, course_name: 'Art', archived: 0 }} grades={[grade(1)]} studentUid="u1" scales={{}}
+          studentId={7} refreshKey={0} />
       </MemoryRouter>,
     );
     await waitFor(() => expect(summary).toHaveBeenLastCalledWith(expect.objectContaining({ reloadKey: 0 })));
     rerender(
       <MemoryRouter>
-        <CourseSection course={{ id: 1, course_name: 'Art', archived: 0 }} grades={[grade(1)]} flagsByAssignment={{}} studentUid="u1" scales={{}}
-          rubrics={{ attachments: {}, palette: {} }} studentId={7} refreshKey={1} />
+        <CourseSection course={{ id: 1, course_name: 'Art', archived: 0 }} grades={[grade(1)]} studentUid="u1" scales={{}}
+          studentId={7} refreshKey={1} />
       </MemoryRouter>,
     );
     await waitFor(() => expect(summary).toHaveBeenLastCalledWith(expect.objectContaining({ reloadKey: 1 })));
+    await waitFor(() => expect(getGradeCards).toHaveBeenCalledTimes(2));
   });
 });
 

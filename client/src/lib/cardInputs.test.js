@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cardInputs } from './cardInputs.js';
+import { cardInputs, cardReasons } from './cardInputs.js';
 import { feedbackRowTopics, rowScores, rowTopicMapping } from './feedbackRows.js';
 
 const GAS = { name: 'General Academic Scale (Unaligned)', levels: [
@@ -41,5 +41,22 @@ describe('cardInputs', () => {
     expect(out.rubric).toBeNull();
     expect(out.topics).toBe(topics);
     expect(out.student).toBe(student);
+  });
+});
+
+describe('cardReasons', () => {
+  const assignment = { id: 50, accepts_submissions: 1 };
+  const topics = [{ id: 't1' }];
+  const student = { id: 1, exception: 0, scores: {}, attention: { handedIn: true, reasons: [{ id: 'late', daysLate: 2 }] } };
+
+  it('gives the assessment page\'s reasons for the card\'s one student', () => {
+    const ids = cardReasons({ assignment, topics, student, hasDraft: false }).map((r) => r.id);
+    expect(ids).toEqual(['to_grade', 'late']);
+  });
+
+  it('a current draft replaces To grade, and the comment summary\'s unread count is a reason', () => {
+    const out = cardReasons({ assignment, topics, student, hasDraft: true }, { unread: 2 });
+    expect(out.map((r) => r.id)).toEqual(['draft', 'unread_comment', 'late']);
+    expect(out.find((r) => r.id === 'unread_comment').count).toBe(2);
   });
 });

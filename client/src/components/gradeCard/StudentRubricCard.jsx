@@ -87,6 +87,9 @@ function topLineIs(text, line) {
 // saver, no autosave or listeners, nothing reported to a page. `onEdit` gives it an Edit button; in
 // edit mode `onDone` gives a Done button that settles the draft save first. `hasDraft` marks a view
 // card whose task holds an unpublished draft. `heading` replaces the student's name link (false: none).
+// `scales` (the student page's grading_scales, { [id]: { levels } }) names a points-only task's score
+// on a named Schoology scale that `scoreScale` does not cover; without it the score reads in points.
+// `showDue` puts the due date at the head of the submission timeline, where no page header shows it.
 // The card remounts when its mode changes, so edit mode starts from the props it is given then (the
 // fresh grade, the draft) and its saver and listeners start and stop with it.
 export default function StudentRubricCard(props) {
@@ -96,7 +99,7 @@ export default function StudentRubricCard(props) {
 
 // `meeting` (a student conference, #176): the card is shown to the student, so it hides the photo and
 // every AI suggestion (reviewer notes, suggested cells and levels, the suggested narrative).
-function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow: feedbackRowGiven, mode, heading, hasDraft = false, onEdit = null, onDone = null, meeting = false, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, filesEnabled = false, fileSummary = null, onFileSummary = null, scoreScale = null, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onRefreshPair = null, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow: feedbackRowGiven, mode, heading, hasDraft = false, onEdit = null, onDone = null, meeting = false, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, filesEnabled = false, fileSummary = null, onFileSummary = null, scoreScale = null, scales = null, showDue = false, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onRefreshPair = null, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
   const scale = useProficiencyScale();
   const isView = mode === 'view';
   // A meeting shows no AI suggestion: with no feedback row there is nothing to suggest from.
@@ -1304,7 +1307,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
           (or the clock day it is missing on), resubmission, referral. */}
       {student.timeline && (
         <div style={{ padding: '0.45rem 1rem 0', paddingLeft: meeting ? '1rem' : 'calc(1rem + 70px + 0.75rem)' }}>
-          <SubmissionTimeline timeline={student.timeline} showDue={false} />
+          <SubmissionTimeline timeline={student.timeline} showDue={showDue} />
         </div>
       )}
 
@@ -1359,7 +1362,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
             <ScoreLabel
               label={gradeLabel({
                 score: student.score, max_points: assignmentRow?.max_points, exception: student.exception,
-                grading_scale_id: assignmentRow?.grading_scale_id, scales: null,
+                grading_scale_id: assignmentRow?.grading_scale_id, scales,
               })}
               savedLevel={savedGrade?.summary ?? null} firstName={preferredFirstName(student)} reasonLine={student.flag_line ?? null}
             />

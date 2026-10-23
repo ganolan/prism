@@ -533,3 +533,49 @@ describe('FlagsMenu: pending and failures', () => {
     expect(api.setGradeFlag).not.toHaveBeenCalled();
   });
 });
+
+// Found live on 23 October 2026 (#174): in a Triage row near the bottom of the window the menu (fixed,
+// so it cannot be scrolled to) opened under the pill and ran off the screen. It opens above when
+// the room below is too small, and scrolls inside itself when neither side has room.
+describe('FlagsMenu: the menu stays inside the window', () => {
+  const MENU_H = 396;
+  let heightSpy;
+  let innerHeight;
+  beforeEach(() => {
+    innerHeight = window.innerHeight;
+    heightSpy = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+      .mockImplementation(function height() { return this.classList?.contains('flags-menu') ? MENU_H : 0; });
+  });
+  afterEach(() => { heightSpy.mockRestore(); window.innerHeight = innerHeight; });
+  const pillAt = (top) => {
+    pill().getBoundingClientRect = () => ({ top, left: 50, bottom: top + 24, right: 130, width: 80, height: 24 });
+  };
+
+  it('opens above the pill when the room below is too small', () => {
+    window.innerHeight = 800;
+    renderMenu();
+    pillAt(700);
+    openMenu();
+    expect(screen.getByRole('menu').style.top).toBe(`${700 - 4 - MENU_H}px`);
+    expect(screen.getByRole('menu').style.maxHeight).toBe('');
+  });
+
+  it('opens below when it fits there', () => {
+    window.innerHeight = 800;
+    renderMenu();
+    pillAt(100);
+    openMenu();
+    expect(screen.getByRole('menu').style.top).toBe('128px');
+  });
+
+  it('neither side has room: the larger side, scrolling inside the menu', () => {
+    window.innerHeight = 500;
+    renderMenu();
+    pillAt(200);
+    openMenu();
+    const menu = screen.getByRole('menu');
+    expect(menu.style.top).toBe('228px');
+    expect(menu.style.maxHeight).toBe(`${500 - 16 - 228}px`);
+    expect(menu.style.overflowY).toBe('auto');
+  });
+});

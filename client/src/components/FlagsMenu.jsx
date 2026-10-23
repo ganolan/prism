@@ -70,7 +70,17 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
     const left = size === 'sm'
       ? Math.max(GUTTER, Math.min(r.left, vw - GUTTER - width))
       : Math.max(GUTTER, r.right - width);
-    setPos({ left, top: r.bottom + 4, width });
+    // Below the pill when it fits, else above it (a Triage row near the bottom of the window, #174:
+    // a fixed menu cannot be scrolled to); with no room either side, the larger side, scrolling
+    // inside the menu.
+    const vh = window.innerHeight || 0;
+    const height = menuRef.current?.offsetHeight || 0;
+    const below = vh - GUTTER - (r.bottom + 4);
+    const above = r.top - 4 - GUTTER;
+    if (!vh || !height || height <= below) setPos({ left, top: r.bottom + 4, width });
+    else if (height <= above) setPos({ left, top: r.top - 4 - height, width });
+    else if (above > below) setPos({ left, top: GUTTER, width, maxHeight: above });
+    else setPos({ left, top: r.bottom + 4, width, maxHeight: below });
   };
   useLayoutEffect(() => {
     if (open) placeRef.current();
@@ -207,7 +217,7 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
 
       {open && (
         <div ref={menuRef} className="flags-menu" role="menu" aria-label="Flags"
-          style={pos ? { left: pos.left, top: pos.top, width: pos.width } : undefined}>
+          style={pos ? { left: pos.left, top: pos.top, width: pos.width, ...(pos.maxHeight ? { maxHeight: pos.maxHeight, overflowY: 'auto' } : {}) } : undefined}>
           <div className="flags-menu__heading" role="presentation">{FLAGS_MENU_HEADING}</div>
           {FLAG_ORDER.map((code, i) => {
             const f = FLAGS[code];

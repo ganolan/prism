@@ -178,6 +178,10 @@ CREATE TABLE IF NOT EXISTS grades (
   -- 'took' | 'none' (assigned, no attempt) | 'not_assigned' (on the other copy);
   -- NULL = no cell seen (unknown — never listed as missed).
   test_attempt TEXT,
+  -- #174: when Prism first saw the pair's current flag (epoch secs; NULL = no flag). Kept by the
+  -- grades_flag_seen_* triggers (server/db/index.js MIGRATIONS, after submitted_at exists): a new or
+  -- changed flag takes the record's Schoology timestamp when the same write moved it, else now.
+  flag_seen_at INTEGER,
   synced_at TEXT,
   UNIQUE(student_id, assignment_id)
 );

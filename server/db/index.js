@@ -223,6 +223,27 @@ const MIGRATIONS = [
     course_id INTEGER NOT NULL REFERENCES courses(id),
     section_name TEXT
   )`,
+  // #174: the flag date (schema.sql has the column, with its note). Every write to a Schoology
+  // record restamps its timestamp (verified 2026-10-21/22), so the read that first shows a flag
+  // carries the flag's write time in submitted_at; a write that leaves submitted_at alone (Prism's
+  // own flag write, the status-line and mastery mirrors) is stamped now. Triggers, so every writer
+  // of grades.exception agrees.
+  `ALTER TABLE grades ADD COLUMN flag_seen_at INTEGER`,
+  `CREATE TRIGGER IF NOT EXISTS grades_flag_seen_insert AFTER INSERT ON grades
+    WHEN COALESCE(NEW.exception, 0) != 0
+    BEGIN
+      UPDATE grades SET flag_seen_at = COALESCE(NULLIF(NEW.submitted_at, 0), CAST(strftime('%s', 'now') AS INTEGER))
+      WHERE id = NEW.id;
+    END`,
+  `CREATE TRIGGER IF NOT EXISTS grades_flag_seen_update AFTER UPDATE OF exception ON grades
+    WHEN COALESCE(NEW.exception, 0) != COALESCE(OLD.exception, 0)
+    BEGIN
+      UPDATE grades SET flag_seen_at = CASE
+        WHEN COALESCE(NEW.exception, 0) = 0 THEN NULL
+        WHEN NEW.submitted_at IS NOT OLD.submitted_at AND COALESCE(NEW.submitted_at, 0) > 0 THEN NEW.submitted_at
+        ELSE CAST(strftime('%s', 'now') AS INTEGER) END
+      WHERE id = NEW.id;
+    END`,
 ];
 
 // Remove mastery score rows with no level. The full mastery sync stored an
@@ -265,6 +286,15 @@ export function backfillArchivedSyncedAt(database) {
       AND mastery_synced_at >= finalized_at
       AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.course_id = courses.id AND a.removed_at IS NULL
         AND (a.accepts_submissions = 1 OR a.is_test = 1) AND a.submissions_read_at IS NULL)
+  `);
+}
+
+// #174: flags already stored when the flag date arrived take the record's timestamp (submitted_at
+// holds Schoology's, and the flag's write restamped it), else now. Idempotent: only empty dates.
+export function backfillFlagSeenAt(database) {
+  database.exec(`
+    UPDATE grades SET flag_seen_at = COALESCE(NULLIF(submitted_at, 0), CAST(strftime('%s', 'now') AS INTEGER))
+    WHERE COALESCE(exception, 0) != 0 AND flag_seen_at IS NULL
   `);
 }
 
@@ -347,6 +377,7 @@ export function migrate(database) {
     console.error('[db] could not backfill archived courses\' Synced times:', err.message);
   }
   backfillFirstSubmittedAt(database);
+  backfillFlagSeenAt(database);
 }
 
 export function getDb() {

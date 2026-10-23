@@ -164,3 +164,15 @@ Prism stores no term end dates. Schoology's grading period for current sections 
 (the spike's results, dated), `docs/design-language.md`, `docs/improvements-log.md` (Schoology's flags
 look handled when they are not; Prism lists every one that favors the student), the `get_triage`
 description, and #174.
+
+## Calls made in the build (23 October 2026)
+
+- **No new probe for semester dates.** The PowerSchool reference (verified 2026-10-06) already showed that a
+  section's calendar spans its term, so each course's first and last school day is its term. No Settings
+  fallback: a course whose term is not stored yet gives rows a null semester end, shown green.
+- **`flag_seen_at` is INTEGER epoch seconds,** like the other `grades` timestamps, and the backfill is not
+  marked `approx`: Schoology restamps a record on every write, so its stored timestamp is the flag's write
+  time unless a later write moved it.
+- **The panel is hidden on a fresh load with no rows,** as Resubmissions is.
+- **The Flags menu opens above its button** when the room below is too small, found in the live check.
+

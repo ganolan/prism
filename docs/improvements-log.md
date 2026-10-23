@@ -14,6 +14,33 @@ systems as they are; never overstate.
 
 ---
 
+## Flags that leave a task out of the grade, listed until handled (#174, October 2026)
+
+**Status quo.** In Schoology's gradebook a teacher can flag a student's work Late, Incomplete, Absent,
+Missing or Exempt. On the HKIS account every flag except Missing removes the grade, and the task stays out of
+the student's grade while the flag is set (verified 21 October 2026, `.claude/schoology-api-reference.md`,
+"Grade exceptions (flags)"). Schoology lists no flags that still need action.
+
+**The problem.** A flag looks like a decision, so a teacher can believe the work is handled. Graham left a
+flag in place for that reason and learned otherwise only when the student replied: the task had not counted,
+and the student's grade was higher for it (23 October 2026).
+
+**What Prism does.**
+- **A Flags list in Triage** of every Late, Incomplete and Absent flag, and every Missing flag the student
+  has since submitted work for, with one line of advice each. Exempt, a deliberate decision, is left out.
+- **A clock in school days** from the day the flag was set, colored by the end of the semester whose grade
+  the task affects, so open flags grow urgent before grades are reported.
+- **Action in the row:** a link to the student's work for grading, and the same flag menu as the
+  assessment page to mark the work Missing or Exempt, or clear the flag.
+- **The same list for the AI assistant** (PrisMCP `get_triage`).
+
+**Evidence.**
+- Semester dates come from PowerSchool's section calendars, read on 23 October 2026: semester 1 ends
+  11 December 2026 (`.claude/powerschool-api-reference.md`).
+- Live check, 23 October 2026, on an unpublished test task: a Late flag set from Prism appeared in the list
+  on day 1 and was cleared from the row; Schoology read back an empty record.
+- Design and record: `docs/superpowers/specs/2026-10-23-triage-flags-panel-design.md`; issue #174.
+
 ## Every past class, linked sections included (#178, October 2026)
 
 **Status quo.** Schoology's page of a teacher's past courses lists one section of each set of linked

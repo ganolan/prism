@@ -268,6 +268,15 @@ Tue 06, Thu 08, Mon 12, Wed 14, Fri 16 Oct 2026 and Blocks 2/6 on Mon 05, Wed 07
 irregular pattern. Implemented as `extractMeetingDates` (`server/lib/psCalendar.js`), stored per course in
 `class_meetings` on every block sync; used only for "N lessons from today" hints (all clocks count school days).
 
+**A section's term = its calendar's first and last school day (2026-10-23, #174).** Because `calenderDays` span the
+section's whole term, the first and last date that is a school day (`inSession` and a `cycleDay`) are the term's
+start and end. Read live for all 9 active courses on a dev copy, 23 Oct 2026: semester sections 2026-08-13 to
+2026-12-11 (Mobile Games, Robotics Block 2, Teaching Assistant (SEM)) and 2027-01-04 to 2027-06-08 (Mobile App,
+Robotics Block 5); full-year sections 2026-08-13 to 2027-06-08 (AI & ML, AP CSP Blocks 6 and 7, PCG). Stored per
+course as `courses.term_start` / `term_end` on every block sync (`termRange`, `server/lib/psCalendar.js`); Triage's
+Flags panel takes a date's semester end from the shortest stored term containing it (`server/lib/semesters.js`).
+`section_info.term` was not used.
+
 ### Step 3 — Fetch the roster with grade level
 
 *(2026-10-18, #164: now the **fallback** grade-level read. Prism reads grade level from the section student list,

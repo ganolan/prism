@@ -4,12 +4,21 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
+// getTriage is counted (one whole-course triage per request, not two per task), not replaced.
+vi.mock('../services/triage.js', async (importOriginal) => {
+  const real = await importOriginal();
+  return { ...real, getTriage: vi.fn(real.getTriage) };
+});
 
 import router from './students.js';
 import { getDb } from '../db/index.js';
 import { saveRubric } from '../services/rubricStore.js';
 import { attachRubric } from '../services/rubricAttach.js';
 import { draftBaseline } from '../../client/src/lib/assessmentDraft.js';
+import { getTriage } from '../services/triage.js';
+import { buildAssessmentView } from '../services/assessmentView.js';
+import { addDays, isWeekday, todayLocal } from '../lib/schoolDays.js';
+import { storeSchoolDays } from '../services/schoolCalendar.js';
 
 async function get(path) {
   const app = express();
@@ -25,7 +34,7 @@ let db, courseId, ada, bob, cy, localId;
 beforeEach(() => {
   db = getDb();
   db.exec(
-    'DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
+    'DELETE FROM school_days; DELETE FROM referrals; DELETE FROM extensions; DELETE FROM rubric_row_levels; DELETE FROM rubric_attachments; DELETE FROM rubric_criteria; DELETE FROM rubrics; ' +
     'DELETE FROM assessment_drafts; DELETE FROM mastery_scores; DELETE FROM mastery_alignments; ' +
     'DELETE FROM measurement_topics; DELETE FROM reporting_categories; DELETE FROM assignment_assignees; ' +
     'DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
@@ -148,5 +157,36 @@ describe('GET /api/students/:id/grade-cards', () => {
     expect((await get(`/api/students/999999/grade-cards?courseId=${courseId}`)).status).toBe(404);
     expect((await get(`/api/students/${ada}/grade-cards?courseId=999999`)).status).toBe(404);
     expect((await get(`/api/students/${ada}/grade-cards`)).status).toBe(400);
+  });
+
+  describe('one triage per request', () => {
+    // Past due dates on a school calendar, so the cards carry late work, a timeline and attention.
+    beforeEach(() => {
+      const today = todayLocal();
+      const days = [];
+      for (let d = addDays(today, -60); d <= addDays(today, 20); d = addDays(d, 1)) {
+        days.push({ date: d, inSession: isWeekday(d), cycleLetter: null, raw: '{}' });
+      }
+      storeSchoolDays(db, days, '2026-10-01T00:00:00Z');
+      const due = `${addDays(today, -30)} 15:30:00`;
+      db.prepare('UPDATE assignments SET due_date = ?, accepts_submissions = 1 WHERE course_id = ?').run(due, courseId);
+      getTriage.mockClear();
+    });
+
+    test('a whole course of cards runs getTriage once, not twice per task', async () => {
+      const { body } = await get(`/api/students/${bob}/grade-cards?courseId=${courseId}`);
+      expect(Object.keys(body.cards).sort()).toEqual(['sa-1', 'sa-2']);
+      expect(getTriage).toHaveBeenCalledTimes(1);
+    });
+
+    test('each card is what buildAssessmentView builds for that task alone', async () => {
+      const { body } = await get(`/api/students/${bob}/grade-cards?courseId=${courseId}`);
+      // Bob has no submission on the aligned task: outstanding late work, on the card.
+      expect(body.cards['sa-1'].student.late_work).toMatchObject({ kind: 'outstanding' });
+      for (const aid of ['sa-1', 'sa-2']) {
+        const alone = buildAssessmentView(db, { courseId, assignmentId: aid, studentId: bob });
+        expect(body.cards[aid].student).toEqual(JSON.parse(JSON.stringify(alone.students[0])));
+      }
+    });
   });
 });

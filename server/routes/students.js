@@ -11,7 +11,7 @@ import { psAlertsForStudent } from '../services/psAlertStore.js';
 import { contactsForStudents } from '../services/guardianContactStore.js';
 import { readSupportSummary, SupportSummaryError } from '../services/psSupportSummary.js';
 import { waitingCopies, flagLines } from '../services/savedGrades.js';
-import { buildAssessmentView, courseFlags } from '../services/assessmentView.js';
+import { buildAssessmentView, courseFlags, courseViewContext } from '../services/assessmentView.js';
 import { getAttachmentForAssignment } from '../services/rubricAttach.js';
 import { getUnfinishedGrading } from '../services/unfinishedGrading.js';
 
@@ -299,10 +299,12 @@ router.get('/:id/grade-cards', (req, res) => {
     .filter((t) => t.students.some((s) => s.studentId === student.id && s.reasons.includes('draft')))
     .map((t) => String(t.schoologyAssignmentId)));
 
+  // One triage and one timeline context for the whole course, not one per task.
+  const context = tasks.length ? courseViewContext(db, courseId) : {};
   const cards = {};
   for (const t of tasks) {
     const aid = String(t.schoology_assignment_id);
-    const view = buildAssessmentView(db, { courseId, assignmentId: aid, studentId: student.id });
+    const view = buildAssessmentView(db, { courseId, assignmentId: aid, studentId: student.id }, context);
     let draft = null;
     try { draft = drafts.has(t.id) ? JSON.parse(drafts.get(t.id)) : null; } catch { draft = null; }
     cards[aid] = {

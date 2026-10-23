@@ -21,7 +21,9 @@ import { getTriageSettings } from './settings.js';
 import { getTriage, isSubmitted, extensionUntil, assignmentFacts, studentState } from './triage.js';
 import { isExempt } from '../lib/flags.js';
 
-export function attentionByStudent(db, { assignment, students, today = todayLocal() }) {
+// triage: the course's getTriage result (includeFormative true, for today) when the caller already
+// has one, so a page of cards reads triage once.
+export function attentionByStudent(db, { assignment, students, today = todayLocal(), triage: given = null }) {
   const out = new Map(students.map((s) => [s.id, { handedIn: false, reasons: [] }]));
   if (!assignment?.id) return out;
 
@@ -46,7 +48,7 @@ export function attentionByStudent(db, { assignment, students, today = todayLoca
 
   const add = (studentId, reason) => out.get(studentId)?.reasons.push(reason);
   const mine = (r) => r.assignmentId === assignment.id;
-  const triage = getTriage(db, { courseId: assignment.course_id, includeFormative: true, today });
+  const triage = given ?? getTriage(db, { courseId: assignment.course_id, includeFormative: true, today });
 
   // Late work (summative work that takes submissions; referred / waived pairs are gone).
   const lateRow = new Map();

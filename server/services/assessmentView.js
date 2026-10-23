@@ -15,11 +15,12 @@ import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { arrivedKeys, resubmissionByStudent } from './resubmissions.js';
 import { savedGradeView } from './gradeFlags.js';
 import { getFeedbackRows, getRowLevels } from './feedbackRows.js';
-import { epochToLocalDate } from '../lib/schoolDays.js';
+import { epochToLocalDate, todayLocal } from '../lib/schoolDays.js';
 import { canUnsubmit } from './ltiUnsubmit.js';
 import { timelineContext, lateWorkByStudent } from './submissionTimeline.js';
 import { attentionByStudent } from './cardAttention.js';
 import { isLinkedSet } from './courseSections.js';
+import { getTriage } from './triage.js';
 
 // When this course's / assignment's mastery was last read from Schoology (#52).
 const courseSyncedAt = (db, courseId) => db.prepare('SELECT mastery_synced_at FROM courses WHERE id = ?').get(Number(courseId))?.mastery_synced_at ?? null;
@@ -53,11 +54,18 @@ function rosterFor(db, courseId, assignmentRow, studentId) {
   `).all(courseId, Number(studentId));
 }
 
-export function buildAssessmentView(db, { courseId, assignmentId, studentId = null }) {
+// What every task of one course shares: the course's triage (late work + attention reasons) and its
+// timeline context. Built once per request by a caller that builds many views of one course (the
+// grade-cards route); without it each view builds its own, two whole-course triages per task.
+export function courseViewContext(db, courseId) {
+  return {
+    triage: getTriage(db, { courseId: Number(courseId), includeFormative: true, today: todayLocal() }),
+    timelines: timelineContext(db, { courseId }),
+  };
+}
 
-  // Aligned topics, roster (honoring #54 targeting), scores, and grade-meta are
-  // shared with PrisMCP via server/services/assessmentContext.js. The topics
-  // query falls back to scored topics when alignments haven't synced yet.
+// context: courseViewContext(db, courseId) for this course, or {} to build it here.
+export function buildAssessmentView(db, { courseId, assignmentId, studentId = null }, context = {}) {
   const topics = getAlignedTopics(db, courseId, assignmentId);
 
   const assignmentRow = db.prepare(`
@@ -126,20 +134,22 @@ export function buildAssessmentView(db, { courseId, assignmentId, studentId = nu
   const savedCopies = new Map(assignmentRow
     ? db.prepare('SELECT * FROM excused_grades WHERE assignment_id = ? AND restored_at IS NULL').all(assignmentRow.id).map((r) => [r.student_id, r])
     : []);
-  const savedGradeFor = (studentId) => {
-    if (!savedCopies.has(studentId)) return null;
-    try { return savedGradeView(db, assignmentRow.id, savedCopies.get(studentId)); } catch { return null; }
+  const savedGradeFor = (sid) => {
+    if (!savedCopies.has(sid)) return null;
+    try { return savedGradeView(db, assignmentRow.id, savedCopies.get(sid)); } catch { return null; }
   };
 
   // Triage resubmissions: open request (the card's pill) + derived state.
   const resubmissionMap = assignmentRow ? resubmissionByStudent(db, assignmentRow.id) : new Map();
   // The full submission picture per student (due, extension, submitted when / how
   // late, clock day if missing, resubmission, referral): the card's timeline row.
-  const timelines = assignmentRow ? timelineContext(db, { courseId: assignmentRow.course_id }) : null;
+  const timelines = assignmentRow ? (context.timelines ?? timelineContext(db, { courseId: assignmentRow.course_id })) : null;
   // The Late work row per student (Refer / Waive on the card), as the dashboard shows it.
-  const lateWork = assignmentRow ? lateWorkByStudent(db, { courseId: assignmentRow.course_id, assignmentId: assignmentRow.id }) : new Map();
+  const lateWork = assignmentRow
+    ? lateWorkByStudent(db, { courseId: assignmentRow.course_id, assignmentId: assignmentRow.id, triage: context.triage })
+    : new Map();
   // The page's calendar-based "Needs action" / "Watch" reasons + whether each student handed it in.
-  const attention = attentionByStudent(db, { assignment: assignmentRow, students });
+  const attention = attentionByStudent(db, { assignment: assignmentRow, students, triage: context.triage });
 
   // An unaligned assignment on a Schoology scale Prism can grade (#41) is one
   // plain gradebook grade: ship the scale (levels best → worst) and each

@@ -192,9 +192,12 @@ export function timelineForPair(db, { studentId, assignmentId }) {
 // The card's triage state per student for one assignment: the Late work row the
 // dashboard shows ({ kind, tone, day, daysLate }), keyed by student id. Same rules
 // as the rail, so the card's Refer / Waive can never disagree with it.
-export function lateWorkByStudent(db, { courseId, assignmentId, studentId = null }) {
-  const rows = getTriage(db, { courseId: Number(courseId), studentId, includeFormative: false }).lateWork;
-  return new Map(rows.filter((r) => r.assignmentId === Number(assignmentId))
+// triage: the course's getTriage result when the caller already has one (the grade-cards route
+// builds one per request, not one per task). Late work is summative only, so a triage built with
+// includeFormative true holds the same rows.
+export function lateWorkByStudent(db, { courseId, assignmentId, studentId = null, triage = null }) {
+  const rows = (triage ?? getTriage(db, { courseId: Number(courseId), studentId, includeFormative: false })).lateWork;
+  return new Map(rows.filter((r) => r.assignmentId === Number(assignmentId) && (studentId == null || r.studentId === Number(studentId)))
     .map((r) => [r.studentId, { kind: r.kind, tone: r.tone, day: r.day, daysLate: r.daysLate }]));
 }
 

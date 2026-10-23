@@ -1617,3 +1617,9 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **The row's control is the card's Flags menu, compact** (`FlagsMenu compact`, `.flags-pill--compact`): the set flag's disc (or ⚑) and the caret only, with the full title as its accessible name, per Graham's request for "an icon instead of the full text". Its panels open in the row's own host under the text (`.triage-row__flag-panel`, hidden while empty). Grading stays on the card.
 - **Color by semester, not by age:** green, then amber over the last 10 school days of the semester that contains the task's due date, red over the last 5 and after it. A row from an ended semester stays red; it never turns green when the next semester starts.
 
+## The Refer panel (#175, 23 Oct 2026)
+
+- **Refer on missing work confirms first,** because it now writes to Schoology. `ReferPanel` opens in the card's panel row (and below the row in Triage's Late work): the title "Refer to the academic office?", one box, ticked by default, "Also record IE on every topic and mark Missing in Schoology", a muted line under it while ticked, then Cancel and a red Refer (`primary danger`, as the Triage row's Refer). A refusal shows in the panel, which stays open.
+- **Handed-in work keeps the one-click Refer:** nothing is written to Schoology there.
+- **Undo mirrors it:** on a referral that wrote Missing (and Missing still set), Undo opens the same panel, "Undo the referral?", with "Also clear Missing and the IE levels in Schoology", ticked. Otherwise Undo acts at once, as before.
+- **Reuses the Flags panels' parts** (`.flag-panel__check`, `.flag-panel__line`) rather than a new modal: the action is one decision with one option.

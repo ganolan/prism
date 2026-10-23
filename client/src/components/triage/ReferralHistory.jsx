@@ -84,7 +84,8 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
     onChanged?.();
   }
 
-  // Prism-only undo (referrals; resubmission records whose action wrote no line).
+  // Prism-only undo (referrals that wrote nothing to Schoology, or wrote Missing that has since been
+  // cleared; resubmission records whose action wrote no line).
   async function undo(r) {
     try {
       await undoCall(r);

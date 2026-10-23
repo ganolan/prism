@@ -75,9 +75,6 @@ export async function referPair(db, { studentId, assignmentId, action = 'referre
     if (topicIds.length === 0) {
       throw new TriageError('NO_TOPICS', 'Prism has no measurement topics for this task, so it cannot write IE: sync the task, or refer without the Schoology step');
     }
-    if (!a.mastery_grading_period_id || !a.mastery_grading_category_id) {
-      throw new TriageError('NO_TOPICS', 'Prism has not read this task\'s grading period from Schoology yet: sync the task, or refer without the Schoology step');
-    }
 
     // Schoology must hold no grade for the work: no score (Missing's own 0 aside) and no levels.
     const fresh = await freshGrade(db, t);
@@ -99,6 +96,8 @@ export async function referPair(db, { studentId, assignmentId, action = 'referre
     }
     const missingNote = was === 3 ? ' Missing was cleared first, so set it again from the Flags menu.' : '';
 
+    // The grading period and category as the card's rubric save sends them (often none stored:
+    // Prism reads them only from tasks that hold levels); the read-back below checks the result.
     const gradeInfo = Object.fromEntries(topicIds.map((id) => [id, { grade: String(levelToPoints('IE')), gradingScaleId: schoologyScaleId() }]));
     try {
       await writeMasteryScores({

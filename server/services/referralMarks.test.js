@@ -144,11 +144,11 @@ describe('referPair with the Schoology step', () => {
     expect(referralRow()).toBeNull();
   });
 
-  test("the task's grading period not read yet: NO_TOPICS, nothing read or written", async () => {
-    db.prepare('UPDATE assignments SET mastery_grading_period_id = NULL WHERE id = ?').run(a);
-    await expect(refer()).rejects.toMatchObject({ code: 'NO_TOPICS' });
-    expect(getSectionGrades).not.toHaveBeenCalled();
-    expect(referralRow()).toBeNull();
+  test('no grading period stored for the task: written as the card writes it (none), checked by the read-back', async () => {
+    db.prepare('UPDATE assignments SET mastery_grading_period_id = NULL, mastery_grading_category_id = NULL WHERE id = ?').run(a);
+    await refer();
+    expect(writeMasteryScores).toHaveBeenCalledWith(expect.objectContaining({ gradingPeriodId: null, gradingCategoryId: null }));
+    expect(markOf().missing).toBe(true);
   });
 
   test('a refused IE write records nothing', async () => {

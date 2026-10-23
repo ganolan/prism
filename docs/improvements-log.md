@@ -14,6 +14,25 @@ systems as they are; never overstate.
 
 ---
 
+## A referral that counts in the standards (#175, October 2026)
+
+**Status quo.** When summative work is referred to the academic office, the teacher can flag it Missing in
+Schoology. Missing sets the task's score to 0 and writes no measurement topic levels (verified 21 to 22
+October 2026, `.claude/schoology-api-reference.md`, "Grade exceptions (flags)").
+
+**The problem.** The task then holds no topic levels, so the missing work leaves the student's topic
+averages unchanged. Recording Insufficient Evidence by hand on each topic, then the flag, is
+several steps per student, and it is easy to do in the wrong order.
+
+**What Prism does.** Refer on missing work offers one box, ticked by default: Prism records Insufficient
+Evidence on every topic of the task, checks Schoology shows it, then sets Missing, which keeps those levels.
+Undo clears both in one step, but only while Schoology still holds exactly what the referral wrote. The
+levels are never offered back later as a saved grade.
+
+**Evidence.** The probe of 22 October 2026 showed each topic average fall from 100 to 50 with IE on the task,
+and stay at 50 after Missing. Prism's own write was checked live on 23 October 2026 on an unpublished test
+task: Schoology read back Missing, a score of 0 and IE on both topics; Undo read back an empty record.
+
 ## Flags that leave a task out of the grade, listed until handled (#174, October 2026)
 
 **Status quo.** In Schoology's gradebook a teacher can flag a student's work Late, Incomplete, Absent,

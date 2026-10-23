@@ -424,7 +424,7 @@ export function createServer({ devCopy = false } = {}) {
       inputSchema: {
         course: z.union([z.number(), z.string()]).optional().describe('Course id (list_courses) or a name/code fragment; omit for all current courses'),
         student: z.union([z.number(), z.string()]).optional().describe('Student id or name fragment to filter lateWork, makeUps, resubmissions, flags and unfinishedGrading'),
-        include_formative: z.boolean().optional().describe('Include formative work in feedbackOwed (default: the teacher setting)'),
+        include_formative: z.boolean().optional().describe('Include formative work in feedbackOwed and flags (default: the teacher setting)'),
       },
     },
     async (args) => text(() => getTriageTool(getDb(), args))

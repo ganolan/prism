@@ -126,6 +126,21 @@ describe('Flags panel rows', () => {
     expect(rows[0]).toMatchObject({ studentId: bo, flag: 3, submittedAfter: true, advice: 'Clear the flag and grade the work.' });
   });
 
+  test('Missing on a test the student has since taken gives a row (no attempt time is stored: approx)', () => {
+    const ada = student('u1', 'Ada', 'Lovelace');
+    const quiz = testItem('t1', 'Unit test', '2026-10-12');
+    grade(ada, quiz, { exception: 3, submitted_at: epoch('2026-10-13'), test_attempt: 'took', submission_type: 'assessment' });
+    expect(flags()[0]).toMatchObject({ flag: 3, submittedAfter: true, approx: true, advice: 'Clear the flag and grade the work.' });
+  });
+
+  test('an LTI submission in the same minute as the flag counts as after it (LTI times have no seconds)', () => {
+    const ada = student('u1', 'Ada', 'Lovelace');
+    const a = assignment('a1', 'Essay', '2026-10-05', { lti: 1 });
+    const flagAt = epoch('2026-10-12') + 30;
+    grade(ada, a, { exception: 3, submitted_at: flagAt, lti_submission_state: 'submitted', latest_revision_at: flagAt - 30 });
+    expect(flags()[0]).toMatchObject({ flag: 3, submittedAfter: true });
+  });
+
   test('Late with a later submission is marked submittedAfter', () => {
     const ada = student('u1', 'Ada', 'Lovelace');
     flagged(ada, assignment('a1', 'Essay', '2026-10-05'), 6, '2026-10-12', { submission_type: 'drop', latest_revision_at: epoch('2026-10-14') });
@@ -163,6 +178,13 @@ describe('Flags panel rows', () => {
     expect(row).toMatchObject({ semesterEnd: '2026-12-18', tone: 'red' });
   });
 
+  test('a stray short term on another course does not set this course\'s semester end', () => {
+    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, term_start, term_end) VALUES ('sec-q', 'Quarter', '2026-09-01', '2026-10-20')`).run();
+    const ada = student('u1', 'Ada', 'Lovelace');
+    flagged(ada, assignment('a1', 'Essay', '2026-10-05'), 6, '2026-10-12');
+    expect(flags()[0]).toMatchObject({ semesterEnd: '2026-12-18' });
+  });
+
   test('a task with no due date takes the semester of the flag date', () => {
     const ada = student('u1', 'Ada', 'Lovelace');
     const a = assignment('a1', 'Essay', '2026-10-05');
@@ -179,7 +201,7 @@ describe('Flags panel rows', () => {
   });
 
   test('the ring limit is the semester end as a day number from the flag date', () => {
-    term('2026-08-20', '2026-10-30');
+    term('2026-07-01', '2026-10-30');
     const ada = student('u1', 'Ada', 'Lovelace');
     flagged(ada, assignment('a1', 'Essay', '2026-10-05'), 6, '2026-10-12');
     // 13/10 to 30/10: 14 school days after the flag date → day 15.
@@ -215,12 +237,12 @@ describe('Flags panel rows', () => {
   });
 
   test('rows sort red first, then the longest wait, then name; counts.flagsOverdue counts red', () => {
-    term('2026-08-20', '2026-10-20');
-    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, term_start, term_end) VALUES ('sec-x', 'X', '2026-10-21', '2026-12-18')`).run();
+    term('2026-06-20', '2026-10-20');
+    db.prepare(`INSERT INTO courses (schoology_section_id, course_name, term_start, term_end) VALUES ('sec-x', 'X', '2026-10-21', '2027-02-20')`).run();
     const ada = student('u1', 'Ada', 'Lovelace');
     const bo = student('u2', 'Bo', 'Kim');
     const early = assignment('a1', 'Essay', '2026-10-05');   // semester ends 20/10: red
-    const later = assignment('a2', 'Lab', '2026-10-26');     // due later: semester ends 18/12, green
+    const later = assignment('a2', 'Lab', '2026-10-26');     // due after this course's term: no semester end, green
     flagged(ada, early, 6, '2026-10-14');
     flagged(bo, early, 6, '2026-10-12');
     flagged(ada, later, 2, '2026-09-01');

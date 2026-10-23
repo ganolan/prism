@@ -175,4 +175,12 @@ description, and #174.
   time unless a later write moved it.
 - **The panel is hidden on a fresh load with no rows,** as Resubmissions is.
 - **The Flags menu opens above its button** when the room below is too small, found in the live check.
+- **Row shape:** "Submitted after a flag" is the `submittedAfter` field and a tag on the row, not a kind of
+  its own, and the flag date is `flagSeenOn` (a local date). A Late, Incomplete or Absent row keeps its own
+  advice with that tag: publishing a grade clears those flags, so the advice still holds.
+- **After the final review:** a Missing flag on a test the student has since taken shows (Schoology stores
+  no attempt time, so the row is marked approx); an LTI submission in the same minute as the flag counts as
+  after it (LTI times have no seconds); a semester end comes only from terms of at least 100 days inside
+  the task's own course term, and never from an excluded course; the Flags menu measures its full height
+  when it opens again.
 

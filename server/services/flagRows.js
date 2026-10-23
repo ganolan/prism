@@ -38,6 +38,21 @@ export function flagTone(cal, today, end) {
   return 'green';
 }
 
+// LTI submission times carry no seconds (Schoology's display string, .claude/schoology-api-reference.md),
+// so one in the same minute as the flag may read up to 59 s early: count it as after the flag.
+const LTI_MINUTE_SECS = 59;
+
+// Did the student submit after the flag? A Schoology test stores no attempt time, so a test taken
+// (test_attempt 'took') with no revision time counts as after, marked approx: the usual case is a
+// Missing flag on a missed test and a make-up sat since (review, 23 Oct 2026).
+function submittedAfterFlag(a, g) {
+  if (!isSubmitted(a, g)) return { after: false, approx: false };
+  const at = Number(g.latest_revision_at) || 0;
+  if (!at) return { after: g.test_attempt === 'took', approx: g.test_attempt === 'took' };
+  const slack = a.is_lti_submission ? LTI_MINUTE_SECS : 0;
+  return { after: at + slack > (Number(g.flag_seen_at) || 0), approx: false };
+}
+
 // excused_grades.saved_at is SQLite datetime('now'): UTC 'YYYY-MM-DD HH:MM:SS' → a local date.
 const savedOn = (savedAt) => epochToLocalDate(Date.parse(`${String(savedAt).replace(' ', 'T')}Z`) / 1000);
 
@@ -54,6 +69,8 @@ function courseTasks(db, courseId) {
 // One course's rows. `ranges` from loadTermRanges; `studentId` limits to one student.
 export function flagRows(db, { course, students, cal, today, formative, studentId = null, ranges }) {
   const courseFields = { courseId: course.id, courseName: course.course_name, blockNumber: course.block_number ?? null };
+  const own = db.prepare('SELECT term_start AS start, term_end AS end FROM courses WHERE id = ?').get(course.id);
+  const courseTerm = own?.start && own?.end ? own : null;
   const waitingCopy = db.prepare(`SELECT student_id, saved_at FROM excused_grades WHERE assignment_id = ? AND restored_at IS NULL`);
   const rows = [];
   for (const a of courseTasks(db, course.id)) {
@@ -70,24 +87,25 @@ export function flagRows(db, { course, students, cal, today, formative, studentI
       let row = null;
       if (isFlagCode(code) && !isExempt(code)) {
         const flagSeenOn = epochToLocalDate(g.flag_seen_at);
-        const submittedAfter = isSubmitted(a, g) && (Number(g.latest_revision_at) || 0) > (Number(g.flag_seen_at) || 0);
-        if (flagSeenOn && (code !== 3 || submittedAfter)) {
-          row = { kind: 'flag', flag: code, flagSeenOn, submittedAfter, advice: FLAG_ADVICE[code] };
+        const after = submittedAfterFlag(a, g);
+        if (flagSeenOn && (code !== 3 || after.after)) {
+          row = { kind: 'flag', flag: code, flagSeenOn, submittedAfter: after.after, afterApprox: after.approx, advice: FLAG_ADVICE[code] };
         }
       } else if (code === 0 && copies.has(st.id)) {
         row = { kind: 'saved_grade', flag: 0, flagSeenOn: savedOn(copies.get(st.id)), submittedAfter: false, advice: FLAG_ADVICE.saved_grade };
       }
       if (!row || !row.flagSeenOn) continue;
-      const semesterEnd = semesterEndFor(due ?? row.flagSeenOn, ranges);
+      const { afterApprox = false, ...fields } = row;
+      const semesterEnd = semesterEndFor(due ?? row.flagSeenOn, ranges, courseTerm);
       const { days, approx } = cal.between(row.flagSeenOn, today);
       const limit = semesterEnd ? Math.max(cal.between(row.flagSeenOn, semesterEnd).days + 1, 1) : days + 1;
       rows.push({
-        ...row,
+        ...fields,
         studentId: st.id, studentUid: st.schoology_uid, studentName: fullName(st), firstName: preferredFirstName(st),
         studentEmail: st.email ?? null, ...courseFields,
         assignmentId: a.id, schoologyAssignmentId: a.schoology_assignment_id, title: a.title, dueDate: due,
         aligned: !!a.aligned, score: g.score ?? null, exception: code,
-        semesterEnd, day: days + 1, limit, tone: flagTone(cal, today, semesterEnd), approx,
+        semesterEnd, day: days + 1, limit, tone: flagTone(cal, today, semesterEnd), approx: approx || afterApprox,
       });
     }
   }

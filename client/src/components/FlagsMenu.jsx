@@ -74,7 +74,8 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
     // a fixed menu cannot be scrolled to); with no room either side, the larger side, scrolling
     // inside the menu.
     const vh = window.innerHeight || 0;
-    const height = menuRef.current?.offsetHeight || 0;
+    // scrollHeight: the full height even while a max-height from an earlier placement clamps it.
+    const height = menuRef.current?.scrollHeight || menuRef.current?.offsetHeight || 0;
     const below = vh - GUTTER - (r.bottom + 4);
     const above = r.top - 4 - GUTTER;
     if (!vh || !height || height <= below) setPos({ left, top: r.bottom + 4, width });
@@ -84,6 +85,7 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
   };
   useLayoutEffect(() => {
     if (open) placeRef.current();
+    else setPos(null); // a reopen starts unclamped
   }, [open, size]);
 
   // Focus the ticked flag, else the first, when the menu opens. preventScroll: focusing must not

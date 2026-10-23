@@ -568,6 +568,27 @@ describe('FlagsMenu: the menu stays inside the window', () => {
     expect(screen.getByRole('menu').style.top).toBe('128px');
   });
 
+  it('reopened in a short window, it measures its full height again (review, 23 Oct 2026)', () => {
+    // A real menu's offsetHeight is clamped by its max-height; scrollHeight is not.
+    heightSpy.mockImplementation(function height() {
+      if (!this.classList?.contains('flags-menu')) return 0;
+      const max = parseFloat(this.style.maxHeight);
+      return Number.isNaN(max) ? MENU_H : Math.min(MENU_H, max);
+    });
+    const scrollSpy = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+      .mockImplementation(function height() { return this.classList?.contains('flags-menu') ? MENU_H : 0; });
+    try {
+      window.innerHeight = 500;
+      renderMenu();
+      pillAt(200);
+      openMenu();
+      fireEvent.keyDown(screen.getAllByRole('menuitemradio')[0], { key: 'Escape' });
+      expect(screen.queryByRole('menu')).toBeNull();
+      openMenu();
+      expect(screen.getByRole('menu').style.maxHeight).toBe(`${500 - 16 - 228}px`);
+    } finally { scrollSpy.mockRestore(); }
+  });
+
   it('neither side has room: the larger side, scrolling inside the menu', () => {
     window.innerHeight = 500;
     renderMenu();

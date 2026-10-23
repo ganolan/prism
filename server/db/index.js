@@ -227,7 +227,8 @@ const MIGRATIONS = [
   // record restamps its timestamp (verified 2026-10-21/22), so the read that first shows a flag
   // carries the flag's write time in submitted_at; a write that leaves submitted_at alone (Prism's
   // own flag write, the status-line and mastery mirrors) is stamped now. Triggers, so every writer
-  // of grades.exception agrees.
+  // of grades.exception agrees. CREATE TRIGGER IF NOT EXISTS never replaces a trigger an existing
+  // database already has: to change a body, add a DROP TRIGGER IF EXISTS before it.
   `ALTER TABLE grades ADD COLUMN flag_seen_at INTEGER`,
   // #174: each course's PowerSchool term (schema.sql has the columns, with their note).
   `ALTER TABLE courses ADD COLUMN term_start TEXT`,

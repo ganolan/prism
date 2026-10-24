@@ -13,6 +13,7 @@ import {
   getAssignmentSubmissions,
   getSection,
 } from './schoology.js';
+import { isTeacherOf } from '../lib/sectionRole.js';
 import { groupRevisionsByUid, deriveNativeSubmission } from '../lib/submissionRevisions.js';
 import { droppedAtFor } from '../lib/enrolmentStatus.js';
 import { createSubmissionFetcher } from './graderSubmissions.js';
@@ -580,7 +581,8 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
     try { submissionFetcher = await createSubmissionFetcher(); } catch { submissionFetcher = null; }
 
     log('Fetching course sections...');
-    const sections = await getMySections(userId);
+    // Only sections the teacher administers: the list holds classes the teacher sat in too (sectionRole.js).
+    const sections = (await getMySections(userId)).filter(isTeacherOf);
     const listed = courseIds ? new Set(courseIds.map(Number)) : null;
     const known = new Set(db.prepare('SELECT schoology_section_id AS s FROM courses').all().map((r) => String(r.s)));
     // What was read, for the orchestrator's "Synced" stamps (complete syncs only).

@@ -2,8 +2,8 @@
  * archivedCourses.js
  *
  * The teacher's archived (past) sections, through public REST (#178):
- * GET /users/{me}/sections?include_past=1 lists every section the teacher holds, past
- * (`active: 0`) and current. It needs no saved session. Schoology's own /courses/mycourses/past
+ * GET /users/{me}/sections?include_past=1 lists every section the teacher is enrolled in, past
+ * (`active: 0`) and current; only those with `admin: 1` are the teacher's own. It needs no saved session. Schoology's own /courses/mycourses/past
  * page, which Prism scraped before (#5, #141), leaves out linked sections: in 2023-24 it listed
  * AI & ML 4(A-B) but not 6(A-B), linked to it (verified 2026-10-23).
  *
@@ -13,8 +13,10 @@
  * (`linkedSectionIds`) and is never a row of its own, unless its parent is not a past section.
  */
 import { apiGet } from './schoology.js';
+import { isTeacherOf } from '../lib/sectionRole.js';
 
 const isPast = (s) => Number(s.active) === 0;
+
 const parentOf = (s) => (s.parent_id && String(s.parent_id) !== '0' ? String(s.parent_id) : null);
 
 // GET /users/{me}/sections?include_past=1 → the raw section rows (past and current).
@@ -30,7 +32,7 @@ async function teacherSections(get) {
  * gradingPeriodId (the section's first), linkedSectionIds }. Pure.
  */
 export function groupPastSections(sections) {
-  const past = sections.filter(isPast);
+  const past = sections.filter((s) => isPast(s) && isTeacherOf(s));
   const parents = new Set(past.filter((s) => !parentOf(s)).map((s) => String(s.id)));
   const rows = new Map();
   for (const s of past) {

@@ -41,6 +41,16 @@ describe('groupPastSections', () => {
   test('no course code: courseCode is null (a template)', () => {
     expect(groupPastSections([row('1', { course_code: '' })])[0].courseCode).toBeNull();
   });
+
+  // 24 Oct 2026: the list also holds sections the teacher sat in as a member (admin 0): another
+  // teacher's class (MAD 3(A-B) 21-22, whose grades answer 403) and two faculty interim sections.
+  test('leaves out sections the teacher is not an admin of, and their linked children', () => {
+    const rows = groupPastSections([
+      row('1', { admin: 1 }), row('2', { admin: '0' }), row('3', { admin: 0 }),
+      row('5', { admin: 0 }), row('6', { admin: 0, parent_id: '5' }),
+    ]);
+    expect(rows.map((r) => r.sectionId)).toEqual(['1']);
+  });
 });
 
 describe('getArchivedSections (REST, #178)', () => {

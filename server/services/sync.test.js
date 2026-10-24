@@ -904,6 +904,19 @@ describe('fullSync — course skip matrix (#56)', () => {
     expect(visited).toEqual(['sec-visible']);
   });
 
+  // 24 Oct 2026: the list holds classes the teacher sat in as a member (admin 0); never a course.
+  test('a section the teacher is not an admin of is neither read nor stored', async () => {
+    seedCourses();
+    const { getMySections, getSectionEnrollments } = await import('./schoology.js');
+    const listed = await getMySections();
+    getMySections.mockResolvedValueOnce([...listed, { id: 'sec-member', course_title: 'Colleague Class', section_title: 'B', course_code: 'CSE200', section_school_code: 'S9', admin: 0 }]);
+
+    await fullSync(() => {});
+
+    expect(getSectionEnrollments.mock.calls.map(c => c[0])).not.toContain('sec-member');
+    expect(db.prepare("SELECT COUNT(*) AS n FROM courses WHERE schoology_section_id = 'sec-member'").get().n).toBe(0);
+  });
+
   test('includeHidden=true visits visible + hidden, not archived, not excluded', async () => {
     seedCourses();
     const { getSectionEnrollments } = await import('./schoology.js');

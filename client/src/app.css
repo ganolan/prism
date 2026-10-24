@@ -1813,8 +1813,30 @@ button.filter-btn-outline:disabled { opacity: 0.5; cursor: default; }
 /* Email: a mailto link drawn like a small secondary button. */
 a.roster-attention__email { border: 1px solid var(--border); border-radius: 8px; padding: 0.3rem 0.65rem; font-size: 0.78rem; font-weight: 500; color: var(--text); text-decoration: none; white-space: nowrap; }
 a.roster-attention__email:hover { background: var(--accent-subtle); border-color: var(--accent); color: var(--accent); }
+/* Test day: the picker and length, the no-test box, then one card per learning plan. The name column
+   has a fixed width and the extra-time controls follow it, left aligned; the plan line under both. */
+.test-day__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; }
+.test-day__field { display: inline-flex; align-items: center; gap: 8px; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); }
+.test-day__field select { width: auto; max-width: 100%; min-width: 0; padding: 0.35rem 0.6rem; color: var(--text); font-weight: 500; }
+.test-day__none { padding: 12px 14px; border-radius: 12px; border: 1px dashed var(--border); display: flex; flex-direction: column; gap: 4px; font-size: 0.84rem; color: var(--text-muted); }
+.test-day__none b { color: var(--text); }
+.test-day-card { display: grid; grid-template-columns: 48px 14rem minmax(0, 1fr); grid-template-areas: "av id tm" ". ln ln";
+  column-gap: 16px; row-gap: 6px; align-items: center; padding: 10px 12px; background: var(--card-bg);
+  border: 1px solid var(--border); border-radius: 12px; }
+.test-day-card__avatar { grid-area: av; }
+.test-day-card__id { grid-area: id; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.test-day-card__plans { font-size: 0.78rem; color: var(--text-muted); }
+.test-day-card__time { grid-area: tm; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 10px; min-width: 0; }
+.test-day-card__total { font-size: 1.1rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.test-day-card__muted { font-size: 0.8rem; color: var(--text-muted); }
+button.test-day-card__btn { padding: 0.3rem 0.75rem; font-size: 0.78rem; }
+.test-day-card__line { grid-area: ln; min-width: 0; font-size: 0.8rem; color: var(--text-muted); border-left: 3px solid var(--border); padding-left: 8px; overflow-wrap: anywhere; }
+.test-day-card__line:empty { display: none; }
+button.test-day-card__show { padding: 0; font-size: 0.78rem; color: var(--accent); }
+.test-day-card__error { color: var(--badge-amber-text); }
 /* A narrow roster (a phone, or beside the rail): the private slots move under the name. */
 @container roster (max-width: 600px) {
+  .test-day-card { grid-template-columns: 48px minmax(0, 1fr); grid-template-areas: "av id" ". tm" ". ln"; }
   .roster-card--private { grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1.4fr); grid-template-areas: "av id id" ". cm al" ". it it"; }
   .roster-card__alerts { justify-content: flex-start; }
   .roster-attention-row { grid-template-columns: 28px minmax(0, 1fr); }

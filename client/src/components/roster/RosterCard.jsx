@@ -41,7 +41,7 @@ function CopyEmail({ email }) {
   );
 }
 
-function Photo({ student }) {
+export function Photo({ student }) {
   if (student.picture_url) return <img className="roster-card__photo" src={student.picture_url} alt="" />;
   return (
     <span className="roster-card__photo roster-card__photo--initials" aria-hidden="true">

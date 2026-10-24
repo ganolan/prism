@@ -5,6 +5,7 @@ import AlertPopover from './AlertPopover.jsx';
 import CommentsPopover from './CommentsPopover.jsx';
 import CopyEmailsPopover from './CopyEmailsPopover.jsx';
 import NeedsAttention from './NeedsAttention.jsx';
+import TestDay from './TestDay.jsx';
 import { usePrivateDetails } from '../../lib/privateDetails.js';
 import { useStickyTab } from '../../hooks/useStickyTab.js';
 import { forRoster } from '../../lib/psAlerts.js';
@@ -17,10 +18,10 @@ import { getCourseCommentSummaries } from '../../services/api.js';
 // with it off is not in the page at all. Turning it off closes any pop-up and clears the filters.
 //
 // Four modes, remembered like the course tabs (`?mode=`). With Private details off, Needs attention,
-// Test day and Mastery each show their explanation box. Test day and Mastery have a slot below until
-// they are built.
+// Test day and Mastery each show their explanation box (Test day keeps its test picker and length).
+// Mastery has a slot below until it is built.
 // Props: course, students (with dropped ones, `dropped_at`), mastery, triage (CoursePage's own getTriage
-// answer, as the rail reads it), gradebook (CoursePage's getGradebook, for the flag on overdue work),
+// answer, as the rail reads it), gradebook (CoursePage's getGradebook: the flag on overdue work, Test day's tests),
 // onTriageChanged (after a Needs attention write: CoursePage re-reads triage), onFlagChanged (after one
 // that changed a Schoology flag: the gradebook too), onMasteryChanged, courseId.
 
@@ -52,10 +53,7 @@ export function LockedBox({ title }) {
   );
 }
 
-// Slots for the modes still to be built (#160 Tasks 9 and 10).
-function TestDayMode({ on }) {
-  return on ? <p className="text-sm text-muted">Test day is on its way.</p> : <LockedBox title="Extra time for learning plans is private." />;
-}
+// The slot for the mode still to be built (#160 Task 10).
 function MasteryMode({ on }) {
   return on ? <p className="text-sm text-muted">Mastery is on its way.</p> : <LockedBox title="Levels and grades are private." />;
 }
@@ -156,7 +154,9 @@ export default function RosterTab({ course = null, students, triage = null, grad
         ? <NeedsAttention triage={triage} active={active} gradebook={gradebook} archived={Boolean(course?.archived)}
           onChanged={onTriageChanged} onFlagChanged={onFlagChanged} card={card} />
         : <LockedBox title="Overdue work, referrals and comments are private." />)}
-      {current === 'testday' && <TestDayMode on={on} />}
+      {current === 'testday' && (
+        <TestDay on={on} students={active} gradebook={gradebook} locked={<LockedBox title="Extra time for learning plans is private." />} />
+      )}
       {current === 'mastery' && <MasteryMode on={on} />}
       {on && popup?.kind === 'alert' && <AlertPopover student={popup.student} alert={popup.alert} anchor={popup.anchor} onClose={closePopup} />}
       {on && popup?.kind === 'comments' && <CommentsPopover student={popup.student} courseId={courseId} anchor={popup.anchor} onClose={closePopup} />}

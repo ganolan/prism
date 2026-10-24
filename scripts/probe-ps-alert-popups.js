@@ -33,7 +33,9 @@ import { PS_SCHOOL_ID } from '../server/services/psAlertsSync.js';
 const args = process.argv.slice(2);
 const flag = (name) => args.indexOf(`--${name}`);
 const value = (name) => (flag(name) >= 0 ? args[flag(name) + 1] : undefined);
-const perAlert = Number(value('per-alert') ?? 3);
+// Never more than 3 students per alert: Graham's approval of these reads (25/10/2026) is shapes only, up to 3 per alert,
+// so a larger --per-alert is capped rather than honoured.
+const perAlert = Math.min(3, Number(value('per-alert') ?? 3));
 const courseArg = value('course');
 if (flag('list') < 0 && !courseArg) {
   console.error('usage: probe-ps-alert-popups.js --list | --course <courseId> [--per-alert 3]');

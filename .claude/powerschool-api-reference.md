@@ -429,7 +429,7 @@ GET /teachers/alerts/aet_customalert_sf.html?frn=001{dcid}&mba_frn=001{dcid}&id=
 **Update 2026-06-11 (#43 shipped → #117 spun out):**
 - **`section_attendance` is already fetched + mostly discarded.** `psAttendanceSync` pulls it every sync (over a ~15-in-session-day range) and keeps only `gradeLevel`. *(2026-10-18, #164: no longer every sync; it is now only the fallback when the section student list fails, so the Tier A fields below would need their own read.)* The same `studentAttendance[]` rows already carry **Tier A** — `onTrack`, `enrolled`, `ccDateEnrolled`/`ccDateLeft`, per-day `meetingAttendance[].code`, and range-scoped `studentAbsentCount`/`studentTardyCount`. So #65 (on-track/enrollment) and #39 (attendance read) are "store fields already in hand," no new call.
 - **`includeStudentAlerts=true` is NOT the accommodation source.** #43 sets it `false`. Flipping `true` only populates `section_attendance.studentAlerts` (the **standard** channel — empty for these students). The real per-student SEN/accommodation flags are the **MBA custom-alerts plugin** above (`stuFieldValues.json` `sf` flags + `adv` popups).
-- **Open probe for #117:** the `sf` flags are *presence* booleans (`X_SPP` = has-accommodation-plan). The **detail** — "what accommodation / how much extra time" — lives in the `adv` **SPP / Student Support Summary** popup (`mbapop_spp.html` / support-summary), which is **HTML and not yet shape-probed**. Capturing that (JSON endpoint vs HTML scrape) is the first step of #117. *(2026-10-17: the presence flags shipped in #117 over plain HTTP, see "Student alerts over plain HTTP (#117)" below; the detail popups are still not shape-probed and the extra-time amount is a follow-up. `mbapop_spp.html` is the SPP alert's `stub_url` (its popup); the alert itself is `sf` on `X_SPP`, not `adv`.)*
+- **Open probe for #117:** the `sf` flags are *presence* booleans (`X_SPP` = has-accommodation-plan). The **detail** — "what accommodation / how much extra time" — lives in the `adv` **SPP / Student Support Summary** popup (`mbapop_spp.html` / support-summary), which is **HTML and not yet shape-probed**. Capturing that (JSON endpoint vs HTML scrape) is the first step of #117. *(2026-10-17: the presence flags shipped in #117 over plain HTTP, see "Student alerts over plain HTTP (#117)" below; the detail popups are still not shape-probed and the extra-time amount is a follow-up. (shape-probed 2026-10-25, #160: see 'Alert pop-up shapes, all kept alerts'; the extra-time amount in Support Notes is still unconfirmed) `mbapop_spp.html` is the SPP alert's `stub_url` (its popup); the alert itself is `sf` on `X_SPP`, not `adv`.)*
 
 ### Student alerts over plain HTTP (#117, verified 2026-10-17)
 
@@ -548,7 +548,7 @@ siblings 69, employee_child 0; the other counts unchanged.
 
 **Still open:** the alert *detail* (what the accommodation is, the extra-time amount) lives in the SPP and Student
 Support Summary popups (`aet_customalert_custompopup.html?url=mbapop_spp.html` / `mbapop_studentsupportsummary.html`),
-HTML, not shape-probed: a follow-up to #117.
+HTML, not shape-probed: a follow-up to #117. (shape-probed 2026-10-25, #160: see 'Alert pop-up shapes, all kept alerts'; the extra-time amount in Support Notes is still unconfirmed)
 
 **Alert pop-ups, probed 2026-10-18 (#163, read only, one student each, values masked; each read approved by Graham).**
 Probe: `scripts/probe-ps-alert-popups.js` (rewritten 2026-10-25 for #160: it reads every kept alert's pop-up for up to 3 students of one course, `--list` / `--course <id>`; the `catalogue|pick|popup` steps of the 2026-10-18 version are gone).
@@ -566,7 +566,7 @@ Probe: `scripts/probe-ps-alert-popups.js` (rewritten 2026-10-25 for #160: it rea
   /integrations/attendance/index.html` and `X-Requested-With: XMLHttpRequest` (as the dialog sends) answered **200
   `text/html`**, no security violation, for both.
 - **SPP pop-up** (`url=mbapop_spp.html`, one student with `x_spp` = `1`): **77 bytes**, a single `<p style="margin-left:10px">`.
-  *(Corrected 2026-10-25: the `<p>` is not empty. It holds one short sentence, 40 to 48 characters, for 3 of 3 students; see
+  *(Corrected 2026-10-25: the `<p>` is not empty. It holds one short sentence, 40 to 50 characters, for every student read; see
   "Alert pop-up shapes, all kept alerts" below.)*
 - **Student Support Summary pop-up** (`url=mbapop_studentsupportsummary.html&frn=001{dcid}&id=11290981&studentid={studentid}`,
   the one matching student in the section): **959 bytes**, a two-column table, headers **Category | Description**, 9 rows
@@ -578,13 +578,13 @@ Probe: `scripts/probe-ps-alert-popups.js` (rewritten 2026-10-25 for #160: it rea
   `dcid`, `x_spp`. Section of 6: 1 with `x_spp` = `1`, 1 Support Summary match.
 
 **Alert pop-up shapes, all kept alerts (probed 2026-10-25, #160; read only, approved by Graham).** Probe:
-`scripts/probe-ps-alert-popups.js --course 586` (Robotics, 20 students; the read ran twice, 3 students per alert each time,
-the second time only to check a changed output mask). Shapes only: no name, student id or cell text was printed or is recorded here.
+`scripts/probe-ps-alert-popups.js --course <id>` (one current class of 20; up to 3 students per alert, capped in the script; the run was repeated once to
+check a changed output mask). Shapes only: no name, student id or cell text was printed or is recorded here.
 - **The read:** after the attendance LTI launch, `GET /teachers/alerts/aet_customalert_custompopup.html?url={stub_url}&frn=001{dcid}&id={alertId}`
   plus the plugin's extras (`makeAlert`, above): for an `sf` alert `&mba_frn=001{dcid}&student_field={ext_table_name}.{FIELD}&tableName={ext_table_name}`;
   for an `adv` alert its `querystring` (empty for all of them) and `&studentid={studentid}`. Referer
   `/integrations/attendance/index.html`, `X-Requested-With: XMLHttpRequest`, `Accept: text/html, */*; q=0.01`. Every read answered
-  **200 `text/html;charset=UTF-8`**, no redirect, **no "Security Violation Logged" page** (18 reads in the first run; the second run repeated them to check a changed output mask). Only the full link was needed (the bare link was never tried: no
+  **200 `text/html;charset=UTF-8`**, no redirect, **no "Security Violation Logged" page** (18 reads per run, 8 alerts: 3 students each for five of them, 1 each for the other three). Only the full link was needed (the bare link was never tried: no
   pop-up answered empty).
 - **`stub_url` per kept alert (live catalogue, 25/10):** accommodation_plan `mbapop_spp.html`; accommodations_only `mbapop_accomodate.html`;
   ilp `mbapop_ilp.html`; learning_support_1/2/3 `mbapop_ls1.html` / `mbapop_ls2.html` / `mbapop_ls3.html`; support_summary
@@ -595,22 +595,22 @@ the second time only to check a changed output mask). Shapes only: no name, stud
   without one (`/teachers/alerts/aet_customalert.html?mba_frn=…&id=…`), which this probe did not read.
 - **Verdicts.** `readable`: 200 with text or cells. `empty`: 200 with none. `refused`: any other status. Not one pop-up answered `empty` or `refused`.
 
-| alert key | verdict | students read | shape (structure only) |
-|---|---|---|---|
-| accommodation_plan | readable | 3 of 3 | 76 to 84 bytes. One `<p style="margin-left:…">`, no table, no link: 40 to 48 characters of text, one sentence; the text differs between students. Task 3 shows it as text. |
-| support_summary | readable | 3 of 3 | 784 to 1015 bytes. `<table class="grid">`, headers **Category, Description**, 9 body rows (18 `td`, all non-empty), a `<b>` in each category cell; one `<a>` in 2 of 3 (the Support Plan URL row). The same shape `parseSupportSummary` reads. |
-| allergies | readable | 3 of 3 | 724 to 1667 bytes. One `<table>` with 9 headers: Allergy Type, Allergen, Sensitivity Type, Hospitalized for reaction, # of Times EpiPen Used, Last date tested by Allergist, Date of last reaction, Treatment, Medication, Please describe reaction. A 10th header, **Other Allergies (Legacy)**, appears for 1 of 3. Body rows hold 9 `td` each: 2 rows (11 of 18 cells non-empty), 1 row (4 of 9 non-empty), and for the third student 1 body row with a single `td` (non-empty). Cells are often blank. `<img>` (6, 3, 0) and `<a>` (2, 1, 0) sit in cells. |
-| no_photo | readable | 1 of 1 | 379 bytes. One `<p>` with two `<br>`: three text lines of 148, 93 and 91 characters (334 in all). No table, no link. Whether the wording is the same for every student was not compared. |
-| correspondence_g1 | not probed | 0 | Nobody in 586 holds it (7 students in other courses); it shares `mbapop_emailcorr.html` with g2 and both, so expect that shape. |
-| correspondence_g2 | readable | 1 of 1 | 471 bytes. An `<h4>`, `<table class="grid">`, headers **Guardian, Email, Phone**, 1 body row of 3 non-empty cells. |
-| correspondence_both | readable | 3 of 3 | 569 to 604 bytes. The same: `<h4>`, headers **Guardian, Email, Phone**, 2 body rows of 3 non-empty cells (6 cells). |
-| divorced | readable | 1 of 1 | 256 bytes. One `<p>`: a `<b>` label (17 characters), then two `<a>` links (10 characters of text each) joined by a 1-character separator. The links go to PowerSchool's admin student page (`/admin/students/g9details.html?frn=…`), one per guardian. Whether a teacher's session can open them was not tested, so Task 3 should show the two names as text and not link them. |
-| siblings | readable | 3 of 3 | 697 to 904 bytes. Two `<p>`, two `<button>`, two `<b>`, then `<table class="grid">` with headers **ID #, Student Name, Gender, Grade, ID #, Student Name, Gender** (7 `th`; 2 `<table>` tags on the page, split across 3 or 4 `tr`); every `td` non-empty (7, 4, 3); 1 or 2 `<a>`. |
-| accommodations_only, ilp, learning_support_1/2/3, epipen, health_care_plan, elevator, employee_child | not probed | 0 | No current student in Robotics 586 holds them. In prod's database on 25/10, `accommodations_only`, `ilp`, `learning_support_1`, `learning_support_3`, `health_care_plan`, `elevator` and `employee_child` hold nobody in any current course; `epipen` (2 students) and `learning_support_2` (2 students) are held in other courses, outside the one approved class. Shape unknown: Task 3 must treat an unparsed pop-up as plain text and never assume a table. |
-| mobility | not probed | 0 | No `stub_url`; held by nobody in any current course. |
+| alert key | verdict | shape (structure only; sizes are ranges over the students read) |
+|---|---|---|
+| accommodation_plan | readable | Under 100 bytes. One `<p style="margin-left:…">`, no table, no link: one sentence of 40 to 50 characters; the text differs between students. Task 3 shows it as text. |
+| support_summary | readable | 750 to 1050 bytes. `<table class="grid">`, headers **Category, Description**, 9 body rows (all 18 `td` non-empty), a `<b>` in each category cell; an `<a>` in some (the Support Plan URL row). The same shape `parseSupportSummary` reads. |
+| allergies | readable | 700 to 1700 bytes. One `<table>` with 9 headers: Allergy Type, Allergen, Sensitivity Type, Hospitalized for reaction, # of Times EpiPen Used, Last date tested by Allergist, Date of last reaction, Treatment, Medication, Please describe reaction. A 10th header, **Other Allergies (Legacy)**, appears for some students. 1 to 2 body rows of 9 `td` each, or one body row with a single `td`. Cells are often blank. `<img>` (0 to 6) and `<a>` (0 to 2) sit in cells. |
+| no_photo | readable | Under 500 bytes. One `<p>` with two `<br>`: three text lines of 90 to 150 characters each. No table, no link. Whether the wording is the same for every student was not compared. |
+| correspondence_g1 | not probed | Nobody in the class held it (7 students hold it in other current courses). It shares `mbapop_emailcorr.html` with g2 and both, so expect that shape. |
+| correspondence_g2 | readable | Under 500 bytes. An `<h4>`, `<table class="grid">`, headers **Guardian, Email, Phone**, 1 body row of 3 non-empty cells. |
+| correspondence_both | readable | 550 to 650 bytes. The same: `<h4>`, headers **Guardian, Email, Phone**, 2 body rows of 3 non-empty cells. |
+| divorced | readable | Under 300 bytes. One `<p>`: a `<b>` label, then two `<a>` links joined by a short separator. The links go to PowerSchool's admin student page (`/admin/students/g9details.html?frn=…`), one per guardian. Whether a teacher's session can open them was not tested, so Task 3 should show the two names as text and not link them. |
+| siblings | readable | 650 to 950 bytes. Two `<p>`, two `<button>`, two `<b>`, then `<table class="grid">` with headers **ID #, Student Name, Gender, Grade, ID #, Student Name, Gender** (7 `th`; 2 `<table>` tags on the page, split across 3 to 4 `tr`); every `td` non-empty; 1 to 2 `<a>`. |
+| accommodations_only, ilp, learning_support_1/2/3, epipen, health_care_plan, elevator, employee_child | not probed | No student in the class held them. In prod's database on 25/10, `accommodations_only`, `ilp`, `learning_support_1`, `learning_support_3`, `health_care_plan`, `elevator` and `employee_child` hold nobody in any current course; `epipen` (2 students) and `learning_support_2` (2 students) are held in other courses, outside the one approved class. Shape unknown: Task 3 must treat an unparsed pop-up as plain text and never assume a table. |
+| mobility | not probed | No `stub_url`; held by nobody in any current course. |
 
 - **Reading these:** one 200 answer with text is `readable`; an `empty` answer for all 3 of 3 would be recorded "empty for 3 of 3 on 25/10" and stays a lower bound
-  (the playbook). None was empty. Holders are the students `student_ps_alerts` shows for Robotics 586 on 25/10.
+  (the playbook). None was empty. Holders are the students `student_ps_alerts` shows for the class on 25/10.
 - **What it means for the roster's alert detail (#160):** every probed kept alert can be read per student from its own pop-up with one GET; pop-ups are small
   (under 2 KB). The pop-ups carry personal detail (guardian names and emails, siblings, allergies), so they are read on demand for the teacher only, as #163 does.
 

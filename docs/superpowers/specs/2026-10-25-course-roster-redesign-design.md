@@ -78,7 +78,7 @@ Dated 24 or 25 Oct 2026 unless marked.
 ### Header and switch
 
 The course header keeps its title. **Private details** is a pill directly beside the course name, left aligned
-(amber when on). Its
+(amber when on), on the Roster tab only (as built: on the other tabs it would imply the switch hides their grades). Its
 state is stored in `localStorage` (one key for every course), read in a `try`, default off. It replaces the existing
 alerts toggle (`prism:roster:show-ps-alerts`), which goes.
 
@@ -86,7 +86,9 @@ Below the header, a row of mode tabs: Roster, Needs attention, Test day, Mastery
 the course tabs (`useStickyTab`).
 
 The triage rail is hidden on the Roster tab in every mode, with the `Triage ▸` button that the Gradebook tab uses to
-bring it back. Needs attention replaces it here; the dashboard and the other tabs keep the rail.
+bring it back. Needs attention replaces it here; the dashboard and the other tabs keep the rail. As built, the rail
+is not mounted on the Roster tab until the teacher opens it with `Triage ▸`, and the red count on that button is
+drawn only with Private details on (the count is private too).
 
 ### Roster mode: the card
 
@@ -130,8 +132,8 @@ type, from one current class; the API reference records response shapes only, ne
 lower bound, so test more than one student before concluding.
 
 **AQHI**: add the two AQHI alerts (`10593867`, `10593869`, `sf` on `X_APIABOVE100`, `in 1` / `in 3`) to `ALERT_DEFS`
-in `server/lib/psAlerts.js` and its client mirror, category health. Labels: "AQHI: inside always", "AQHI: inside
-except events" (the builder may shorten them for the chip).
+in `server/lib/psAlerts.js` and its client mirror, category health. Labels: "AQHI: stay inside", "AQHI: except
+events" (as built; the first draft read "AQHI: inside always" and "AQHI: inside except events").
 
 ### Comments pop-up
 
@@ -200,6 +202,8 @@ under a thin divider:
 - **Actions:** the rail's buttons with the rail's rules and components (`ExtendEditor`, `EmailMenu`, Refer, Waive,
   Undo): Refer and Extend for overdue work at the limit; Refer and Waive for late work at the limit; Extend and
   Email otherwise; Email for a resubmission or a flag row (with the Flags panel's own actions, if it has them). The Extend editor opens under its row.
+  As built, overdue work at the limit shows Email as well as Refer and Extend (mockup round 9: "it makes sense to
+  repeat the emails").
 - **Order within a card:** most urgent first (the rail's order: red, then amber, then the rest; within a tone, the
   larger share of the limit first).
 
@@ -217,7 +221,8 @@ Private: the test picker and length show with the switch off; the list of studen
   more". Clock times are a follow-up once Prism stores bell times (`section_info.bellScheduleItems`, already in the
   API reference).
 - **No test:** a dashed box, "No test is set in the next two weeks.", and the list still shows each plan's extra
-  minutes for the length chosen.
+  minutes for the length chosen. As built, when tests exist and **No test** is picked the box says "No test
+  chosen." instead (the other sentence would be false).
 - **The list:** students with a learning alert. Each card: photo, then the name and plan names in a fixed-width
   column, then the extra-time controls directly after it (left aligned, not pushed to the right edge), then one line
   from the plan text that mentions time (else the first description).
@@ -252,7 +257,8 @@ category's number, from its `external_id`, and its title without the "AP CS: " c
 - **Prism's category level:** the mean of every topic score the student has in that category's topics, the value
   the current roster labels "Computed" (`CoursePage.jsx`, `categoryAvg`: all the points in the category together,
   not a mean of topic means). Graham, 25 Oct 2026: this is the correct value.
-- **Schoology's category level:** the category rollup Schoology holds (`mastery_rollups`, `is_category = 1`:
+- **Schoology's category level:** (a missing Schoology level beside a Prism level counts as differing, as built)
+  the category rollup Schoology holds (`mastery_rollups`, `is_category = 1`:
   `override_value` when set, else `grade_scaled_rounded`), with an asterisk when it is an override. Schoology reaches
   its value differently, so the two can differ; Schoology's is the one students and report cards see, and an override
   is how Graham corrects it.
@@ -340,6 +346,27 @@ scale pop-up (`LetterGradePopup`) moves to the Mastery mode, opened from a "Scal
 - `.claude/build-progress.md`: a section for #160.
 - `docs/improvements-log.md`: test-day extra time (Schoology's symbol and text block, against one confirmed figure
   and the total per test) and the Prism-against-Schoology category check.
+
+## As built (25 Oct 2026)
+
+Where the build departs from the text above, or settled what it left open (each ruling is in the SDD ledger):
+
+- **AQHI labels:** "AQHI: stay inside" and "AQHI: except events" (20 characters or fewer, the alert-label limit).
+- **Private details pill:** on the Roster tab only.
+- **Triage rail:** not mounted on the Roster tab until `Triage ▸` opens it; the red count shows only with Private
+  details on. Needs attention reads triage from the course page's own fetch.
+- **Needs attention:** overdue work at the limit shows Email beside Refer and Extend.
+- **Test day:** "No test chosen." when tests exist and No test is picked.
+- **Mastery:** an aligned category with no scores shows "-" levels and no grade; a missing Schoology level beside a
+  Prism level is a difference (amber ring); the `OverridePopup` lives in the Mastery view, and the course page's
+  old unreachable override pop-up was removed.
+- **Server:** `GET /api/courses/:id` returns `linked` (a set of linked sections), so the client can disable
+  Schoology overrides there (#178). The filters' group pill is a shared component (`GroupPill.jsx`) used by the
+  assessment page and the roster.
+- **Probe:** the alert pop-up shapes are recorded in `.claude/powerschool-api-reference.md`. The two AQHI pop-ups
+  were not probed (they were kept after the probe): they read as plain text or as "Prism can read only that it is
+  set".
+- **Removed:** the old roster table and its per-category columns, the legal name, the roster's alerts toggle.
 
 ## Left to the builder
 

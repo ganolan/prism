@@ -14,6 +14,43 @@ systems as they are; never overstate.
 
 ---
 
+## Extra time for a test, worked out for every learning plan (#160, October 2026)
+
+**Status quo.** PowerSchool shows a learning plan as an alert symbol beside the student's name. What the
+plan allows is prose in the Student Support Summary, behind the alert's pop-up, student by student
+(pop-up shapes probed 25 October 2026, `.claude/powerschool-api-reference.md`, "Alert pop-up shapes").
+Neither PowerSchool nor Schoology turns that prose into minutes for a given test.
+
+**The problem.** Before a test the teacher opens each plan, finds the sentence about time, and does the
+sum for that test's length, for every student with a plan, every test.
+
+**What Prism does.** The roster's Test day mode lists the class's learning plans for a chosen test and
+length: "63 minutes, 13 more". The first time, Prism suggests a percentage from the plan's own words
+("Notes mention 25%"); the teacher confirms or corrects it once, and Prism remembers it for every course
+that student takes with them. After that, each test is the total and the extra minutes, with no reading.
+Health alerts never appear in the list, and the list is hidden unless Private details is on, so it is safe
+on a projector.
+
+**Evidence.** `server/lib/extraTime.js` (the suggestion parser, with tests), `student_extra_time` (one
+confirmed figure per student), `client/src/components/roster/TestDay.jsx`; commits `74f043f`, `69e47f0`.
+
+## Prism's own check of Schoology's category levels (#160, October 2026)
+
+**Status quo.** Schoology reports one level per reporting category for each student, and a teacher can
+override it. It does not state whether the level agrees with Prism's own reading of the scores behind it.
+
+**The problem.** Report cards and the student's own view use Schoology's level. A category level that
+disagrees with the student's topic scores is found only by comparing the topics with the level by hand.
+
+**What Prism does.** The roster's Mastery mode puts Prism's level, worked out from every topic score the
+student has in that category, beside Schoology's, with the topic averages between them and a grade from
+each. Where Schoology agrees, its chip is faint; where it differs, it is filled with an amber ring, so a
+difference stands out down a column. Tapping it sets Schoology's override to Prism's level through the
+same read-write-read-back path the student page uses. One category can be sorted by any topic.
+
+**Evidence.** `client/src/lib/masteryCompare.js` (the values, with tests),
+`client/src/components/roster/MasteryView.jsx`; commit `e3245a8`.
+
 ## A referral that counts in the standards (#175, October 2026)
 
 **Status quo.** When summative work is referred to the academic office, the teacher can flag it Missing in

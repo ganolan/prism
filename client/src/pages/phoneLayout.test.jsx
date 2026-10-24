@@ -25,7 +25,6 @@ import StudentPage from './StudentPage.jsx';
 import SearchPage from './SearchPage.jsx';
 import PeoplePage from './PeoplePage.jsx';
 import Dashboard from './Dashboard.jsx';
-import { RosterView } from './CoursePage.jsx';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -75,7 +74,7 @@ describe('Student page: adding a note by touch', () => {
   });
 });
 
-describe('Search, roster and Directory: secondary columns fold under the name', () => {
+describe('Search and Directory: secondary columns fold under the name', () => {
   it('Search: email + grade as one phone-only line, and the desktop columns marked col-desktop', async () => {
     api.searchStudents.mockResolvedValue([ana, { id: 8, first_name: 'Bo', last_name: 'Ng', email: null, grad_year: 2025 }]);
     const { container } = render(<MemoryRouter><SearchPage /></MemoryRouter>);
@@ -87,17 +86,6 @@ describe('Search, roster and Directory: secondary columns fold under the name', 
     expect(container.querySelector('table')).toHaveClass('fits-phone');
     // Bo has neither an email nor a current grade: no empty line.
     expect(container.querySelectorAll('.person-sub')).toHaveLength(1);
-  });
-
-  it('Roster: the same folded line, the Email and Grade headers marked col-desktop', () => {
-    render(
-      <MemoryRouter>
-        <RosterView students={[ana]} mastery={null} courseId={1} displayName={(s) => s.first_name} onOverrideClick={() => {}} />
-      </MemoryRouter>,
-    );
-    expect(screen.getByText('ana@hkis.edu.hk · Grade 11')).toHaveClass('phone-only');
-    expect(screen.getByRole('columnheader', { name: 'Email' })).toHaveClass('col-desktop');
-    expect(screen.getByRole('columnheader', { name: 'Grade' })).toHaveClass('col-desktop');
   });
 
   it('Directory: the school folds under the name', async () => {

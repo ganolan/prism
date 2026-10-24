@@ -11,12 +11,15 @@
 //   desktop  sidebar visible, no top bar, content clear of the sidebar
 //   phone    sidebar hidden, menu opens it, a link closes it, Escape closes it
 // Quick-lookup page checks (#134, fail → exit 1), at phone width:
-//   Dashboard, Search, Directory, a course roster and a student page don't
-//   scroll sideways; Search/Directory tables fit their card; the roster and
-//   Search fold email + grade under the name; the student header doesn't
+//   Dashboard, Search, Directory, a course page and a student page don't
+//   scroll sideways; Search/Directory tables fit their card; Search folds
+//   email + grade under the name; the student header doesn't
 //   overflow its card; "Add new note" opens a stacked form with fingertip-sized
 //   buttons (then Cancel, nothing is saved). Directory results are a canned
 //   reply (page.route), so no Schoology search runs. Desktop keeps its columns.
+// Roster tab checks (#160, fail → exit 1): a course's Roster tab, with Private details on, in all
+//   four modes (and Mastery's one-category layout) at 390px and 1100px: the page is never wider
+//   than the window. Reads only.
 // Page report (informational, never fails): which pages still scroll
 // sideways at phone width.
 import { chromium } from 'playwright';
@@ -136,8 +139,34 @@ try {
     await phone.goto(`${base}${course}`);
     await settle(phone);
     check(await fitsSideways(), `phone ${course}: no sideways scroll`);
-    if (await phone.$('.content th.col-desktop')) {
-      check(!(await visible('.content th.col-desktop')), `phone ${course}: roster email + grade columns fold away`);
+  }
+
+  // ---- The Roster tab (#160): all four modes, Private details on, at phone and a narrow desktop. ----
+  // The cards answer the roster's own width (@container roster), so a page that scrolls sideways at
+  // either width is a failed rule. A fresh context per width, with the switch set before the page loads.
+  if (course) {
+    console.log('\nRoster tab, Private details on:');
+    for (const [label, viewport, mobile] of [['390px', PHONE, true], ['1100px', { width: 1100, height: 900 }, false]]) {
+      const ctx = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile });
+      await ctx.addInitScript(() => { try { localStorage.setItem('prism:private-details', 'true'); } catch { /* ignore */ } });
+      const page = await ctx.newPage();
+      for (const mode of ['roster', 'attention', 'testday', 'mastery']) {
+        await page.goto(`${base}${course}?tab=roster&mode=${mode}`);
+        await settle(page);
+        const m = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth, tab: !!document.querySelector('.roster-tab') }));
+        check(m.tab, `${label} roster ${mode}: the Roster tab is drawn`);
+        check(m.scroll === m.inner, `${label} roster ${mode}: no sideways page scroll (${m.scroll} of ${m.inner}px)`);
+      }
+      // Mastery's one-category layout (a sticky header and the topic columns) is the widest thing on the tab.
+      const cat = await page.$('.mastery-cats button:nth-of-type(2)');
+      if (cat) {
+        await cat.click();
+        await page.waitForTimeout(300);
+        const w = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth, rows: document.querySelectorAll('.mastery-row').length }));
+        check(w.rows > 0, `${label} roster mastery, one category: rows are drawn`);
+        check(w.scroll === w.inner, `${label} roster mastery, one category: no sideways page scroll (${w.scroll} of ${w.inner}px)`);
+      }
+      await ctx.close();
     }
   }
 

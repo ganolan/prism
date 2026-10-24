@@ -1641,7 +1641,7 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
 /* ========================================================================
    QUICK-LOOKUP PAGES (#134)
    Styles moved out of inline style={{}} on the Student, Search, Directory and
-   roster pages so the PHONE LAYOUT block can adapt them. Desktop values are
+   Dashboard pages (and the old roster table, since replaced by ROSTER) so the PHONE LAYOUT block can adapt them. Desktop values are
    exactly the old inline ones.
    ======================================================================== */
 /* Shown only at phone width (PHONE LAYOUT turns it on). */
@@ -2078,7 +2078,7 @@ button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accen
   .tag-drawer { padding: 1rem; }
   .tag-drawer__head .ghost { min-height: 44px; }
 
-  /* ---- Quick-lookup pages (#134): Student, Search, Directory, roster, Dashboard. ---- */
+  /* ---- Quick-lookup pages (#134): Student, Search, Directory, Dashboard. ---- */
   /* A secondary column (email, grade, school) folds into a muted line under the
      name, so the table fits the screen instead of scrolling sideways for it. */
   .phone-only { display: block; }

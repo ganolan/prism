@@ -410,7 +410,8 @@ The per-student alert icons in the attendance grid come from PowerSchool's **MBA
 | Learning Support Level 1/2/3 | `X_LS_SUPPORT_LEVEL` | 10593862/61/63 |
 | Allergies / EpiPen / Missing Health Form | `X_ALLERGYCNF` / `X_ALLERGYEPI` / `X_MedicalConfirm` | — |
 | No Photo (publicity) | `X_PublicityNotice` | 10593856 |
-| Elevator / Library / AQHI | `X_ELEVATORALERT` / `X_LIBRARYALERT` / `X_APIABOVE100` | — |
+| Elevator / Library | `X_ELEVATORALERT` / `X_LIBRARYALERT` | — |
+| AQHI 6 or above: inside always / except events | `X_APIABOVE100` (`in` 1 / `in` 3) | 10593867 / 10593869 (kept 25/10/2026, #160) |
 
 *(2026-10-17, #117: the catalogue gives Allergies (10593855) `trigger_type: adv` (`allergies.html`), not sf, though
 its `student_field` names `X_ALLERGYCNF`; EpiPen is 10593828 and Missing Health Form 11361898 (both sf). Full
@@ -592,8 +593,9 @@ check a changed output mask). Shapes only: no name, student id or cell text was 
   `mbapop_studentsupportsummary.html`; epipen `mbapop_epipen.html`; allergies `mbapop_allergies.html`; health_care_plan
   `mbapop_ehealthcare.html`; elevator `mbapop_elev.html`; no_photo `mbapop_nophoto.html`; correspondence_g1/g2/both
   `mbapop_emailcorr.html` (one pop-up for all three); divorced `mbapop_divorced.html`; employee_child `mbapop_employee_child.html`;
-  siblings `mbapop_sibling.html`. (The two AQHI alerts are not listed: they were kept after this read.) **mobility has no `stub_url`** (a `man` alert, `trigger_url` empty): the plugin builds its link
-  without one (`/teachers/alerts/aet_customalert.html?mba_frn=…&id=…`), which this probe did not read.
+  siblings `mbapop_sibling.html`. The two AQHI alerts are not listed: they were kept after this read.
+  **mobility has no `stub_url`** (a `man` alert, `trigger_url` empty): the plugin builds its link without one
+  (`/teachers/alerts/aet_customalert.html?mba_frn=…&id=…`), which this probe did not read.
 - **Verdicts.** `readable`: 200 with text or cells. `empty`: 200 with none. `refused`: any other status. Not one pop-up answered `empty` or `refused`.
 
 | alert key | verdict | shape (structure only; sizes are ranges over the students read) |

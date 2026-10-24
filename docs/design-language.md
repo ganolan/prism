@@ -163,6 +163,10 @@ A bounded integer input that reads as a *value*, not a form field, until edited.
 - Native `type=number` spinner arrows are hidden (`appearance: textfield` +
   `::-webkit-*-spin-button`) so digits never clip; the number gains a
   `var(--bg-subtle)` wash only on `:focus` — "plain text until you click it."
+- Optional `step` (default 1) sets how far −/+ move; a typed value snaps to the
+  nearest multiple of it, then clamps (test day: 5 minutes, 5%, #160). Optional
+  `suffix` ("min", "%") is muted display text after the number inside the pill
+  (`.number-stepper__suffix`); it is never part of the value.
 
 ### Opt-in toggle phrasing
 Scope-narrowing checkboxes in the same cluster share a verb for parallelism:

@@ -54,4 +54,61 @@ describe('NumberStepper', () => {
     expect(input).toHaveValue(30);            // reverted to the committed value
     expect(onChange).not.toHaveBeenCalledWith(0); // clearing never commits a bad value
   });
+
+  describe('step and suffix', () => {
+    const stepped = (value, props = {}) => {
+      const onChange = vi.fn();
+      render(<NumberStepper value={value} onChange={onChange} min={0} max={100} step={5} aria-label="Minutes" {...props} />);
+      return { onChange };
+    };
+
+    it('step 5 moves 50 to 55 and 45', () => {
+      const { onChange } = stepped(50);
+      fireEvent.click(screen.getByRole('button', { name: /increase/i }));
+      expect(onChange).toHaveBeenLastCalledWith(55);
+      fireEvent.click(screen.getByRole('button', { name: /decrease/i }));
+      expect(onChange).toHaveBeenLastCalledWith(45);
+    });
+
+    it('a typed 52 with step 5 becomes 50', () => {
+      const { onChange } = stepped(30);
+      fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '52' } });
+      expect(onChange).toHaveBeenLastCalledWith(50);
+    });
+
+    it('a typed 53 with step 5 becomes 55, and the result is clamped', () => {
+      const { onChange } = stepped(30);
+      const input = screen.getByRole('spinbutton');
+      fireEvent.change(input, { target: { value: '53' } });
+      expect(onChange).toHaveBeenLastCalledWith(55);
+      fireEvent.change(input, { target: { value: '99' } });
+      expect(onChange).toHaveBeenLastCalledWith(100);
+    });
+
+    it('the buttons stop at the bounds', () => {
+      const { onChange } = stepped(98);
+      fireEvent.click(screen.getByRole('button', { name: /increase/i }));
+      expect(onChange).toHaveBeenLastCalledWith(100);
+    });
+
+    it('the default step 1 behaves as before', () => {
+      const { onChange } = setup(30);
+      fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '37' } });
+      expect(onChange).toHaveBeenLastCalledWith(37);
+      fireEvent.click(screen.getByRole('button', { name: /increase/i }));
+      expect(onChange).toHaveBeenLastCalledWith(31);
+    });
+
+    it('shows the suffix after the value, outside the typed value', () => {
+      stepped(50, { suffix: 'min' });
+      expect(screen.getByText('min')).toBeInTheDocument();
+      expect(screen.getByRole('spinbutton')).toHaveValue(50);
+      expect(screen.getByRole('spinbutton')).toHaveAccessibleName('Minutes');
+    });
+
+    it('shows no suffix by default', () => {
+      const { container } = render(<NumberStepper value={3} onChange={() => {}} aria-label="n" />);
+      expect(container.querySelector('.number-stepper__suffix')).toBeNull();
+    });
+  });
 });

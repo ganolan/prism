@@ -926,6 +926,15 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
   margin: 0;
 }
 .number-stepper input[type="number"]:focus { background: var(--bg-subtle); }
+/* Unit after the number ("min", "%"): quiet text, not part of the value. */
+.number-stepper__suffix {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  pointer-events: none;
+}
 
 /* ── Archived-course import (Dashboard Archived tab, #69) ────────── */
 .archived-import { margin-bottom: 2rem; }

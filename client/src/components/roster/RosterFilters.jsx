@@ -1,4 +1,5 @@
 import { ClearIcon } from '../AssessmentFilterBar.jsx';
+import GroupPill, { groupState } from '../GroupPill.jsx';
 
 // The Roster tab's filters (#160), shown only with Private details on, built from the assessment
 // page's controls (docs/design-language.md, "Assessment page filter controls"):
@@ -18,8 +19,7 @@ const MailIcon = () => (
 
 function Row({ label, watch = false, pills, students, selected, onChange }) {
   if (!pills.length) return null;
-  const on = pills.filter((p) => selected.has(p.key)).length;
-  const state = on === 0 ? 'none' : on === pills.length ? 'all' : 'some';
+  const state = groupState(pills.filter((p) => selected.has(p.key)).length, pills.length);
   const set = (keys, value) => {
     const next = new Set(selected);
     keys.forEach((k) => (value ? next.add(k) : next.delete(k)));
@@ -28,14 +28,8 @@ function Row({ label, watch = false, pills, students, selected, onChange }) {
   const toggle = (key) => set([key], !selected.has(key));
   return (
     <div role="group" aria-label={label} className="assessment-filter-row">
-      <button type="button" className={`group-pill${watch ? ' group-pill--watch' : ''}`} data-state={state}
-        aria-pressed={state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}
-        title={state === 'all' ? `Clear every ${label} filter` : `Select every ${label} filter`}
-        onClick={() => set(pills.map((p) => p.key), state !== 'all')}>
-        <span className="group-pill__box" aria-hidden="true" />
-        {label}
-        <span className="group-pill__n">{students}</span>
-      </button>
+      <GroupPill label={label} state={state} count={students} className={watch ? 'group-pill--watch' : ''}
+        onClick={() => set(pills.map((p) => p.key), state !== 'all')} />
       <span className="assessment-filter-row__sep" aria-hidden="true" />
       {pills.map((p) => (
         <button key={p.key} type="button" className={`filter-btn${selected.has(p.key) ? ' active' : ''}`}

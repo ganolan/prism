@@ -17,7 +17,7 @@ import { getCourseCommentSummaries } from '../../services/api.js';
 //
 // Four modes, remembered like the course tabs (`?mode=`). Needs attention, Test day and Mastery each
 // have a slot below; until they are built, each shows its explanation box.
-// Props: course, students (with dropped ones, `dropped_at`), mastery, triage (the rail's getTriage
+// Props: course, students (with dropped ones, `dropped_at`), mastery, triage (CoursePage's own getTriage
 // answer), onTriageChanged, onMasteryChanged, courseId.
 
 export const ROSTER_MODES = [

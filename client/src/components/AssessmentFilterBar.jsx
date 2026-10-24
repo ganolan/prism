@@ -11,6 +11,7 @@
 // This component only renders and reports; the page owns the selection.
 
 import { useState } from 'react';
+import GroupPill, { groupState } from './GroupPill.jsx';
 import {
   filterGroups, pillTone, countMatches, TONE_VARS, REASONS, reasonIdsIn, countReasons, studentReasons,
 } from '../lib/assessmentFilters.js';
@@ -48,23 +49,14 @@ export const ClearIcon = () => (
 
 // A row's group pill: state none / some / all over the row's visible pills; the count is
 // how many students have at least one reason in the row.
-function GroupPill({ label, group, ids, students, ctx, active, onSetMany }) {
-  const on = ids.filter(id => active.has(id)).length;
-  const state = on === 0 ? 'none' : on === ids.length ? 'all' : 'some';
+function ReasonGroupPill({ label, group, ids, students, ctx, active, onSetMany }) {
+  const state = groupState(ids.filter(id => active.has(id)).length, ids.length);
   const groupIds = new Set(reasonIdsIn(group));
-  const students_ = students.filter(s => studentReasons(s, ctx).some(r => groupIds.has(r.id))).length;
+  const count = students.filter(s => studentReasons(s, ctx).some(r => groupIds.has(r.id))).length;
+  // Clearing removes the whole row, including reasons no student has now.
   return (
-    <button
-      type="button" className={`group-pill group-pill--${group}`} data-state={state}
-      aria-pressed={state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}
-      title={state === 'all' ? `Clear every ${label} filter` : `Select every ${label} filter`}
-      // Clearing removes the whole row, including reasons no student has now.
-      onClick={() => onSetMany(state === 'all' ? reasonIdsIn(group) : ids, state !== 'all')}
-    >
-      <span className="group-pill__box" aria-hidden="true" />
-      {label}
-      <span className="group-pill__n">{students_}</span>
-    </button>
+    <GroupPill label={label} state={state} count={count} className={`group-pill--${group}`}
+      onClick={() => onSetMany(state === 'all' ? reasonIdsIn(group) : ids, state !== 'all')} />
   );
 }
 
@@ -74,7 +66,7 @@ function ReasonRow({ label, group, counts, students, ctx, active, onToggle, onSe
     <div role="group" aria-label={label} className="assessment-filter-row">
       {ids.length > 0 ? (
         <>
-          <GroupPill label={label} group={group} ids={ids} students={students} ctx={ctx} active={active} onSetMany={onSetMany} />
+          <ReasonGroupPill label={label} group={group} ids={ids} students={students} ctx={ctx} active={active} onSetMany={onSetMany} />
           <span className="assessment-filter-row__sep" aria-hidden="true" />
         </>
       ) : (

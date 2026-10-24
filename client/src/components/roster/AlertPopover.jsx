@@ -9,7 +9,7 @@ import { studentFullName } from '../../lib/studentNames.js';
 // Support Summary). Rows as a two-column table, empty rows left out; text as a paragraph; an alert
 // Prism cannot read says so. Nothing is kept on the page.
 function Detail({ detail }) {
-  const rows = detail.kind === 'rows' ? detail.rows.filter((r) => r.description) : [];
+  const rows = detail.kind === 'rows' ? (detail.rows || []).filter((r) => r.description) : [];
   if (rows.length) {
     return (
       <table className="roster-pop__table">

@@ -154,17 +154,29 @@ describe('CoursePage triage', () => {
     expect(await screen.findByRole('complementary', { name: 'Triage' })).toBeInTheDocument();
   });
 
-  // #160: Needs attention replaces the rail on the Roster tab, in every mode.
-  it('on the Roster tab the rail is hidden too, and "Triage ▸" brings it back', async () => {
+  // #160: Needs attention replaces the rail on the Roster tab, in every mode. A roster may be
+  // projected: the rail is not in the page until Triage ▸ opens it, and the red count needs Private details.
+  it('on the Roster tab the rail is not in the DOM until "Triage ▸" opens it; the red count shows only with Private details on', async () => {
+    localStorage.clear();
     loaded({ archived: 0 });
     vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
     renderAt('/course/5?tab=roster');
     const toggle = await screen.findByRole('button', { name: /^Triage/ });
-    expect(rail()).not.toBeInTheDocument();
-    expect(document.querySelector('.triage-rail')).toHaveAttribute('hidden');
+    await waitFor(() => expect(api.getTriage).toHaveBeenCalledWith({ courseId: '5', includeFormative: false }));
+    expect(document.querySelector('.triage-rail')).toBeNull();
+    expect(toggle.querySelector('.badge-red')).toBeNull();
+    expect(toggle).toHaveTextContent('Triage ▸');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Private details' }));
+    await waitFor(() => expect(within(toggle).getByText('2')).toHaveClass('badge-red'));
+
     fireEvent.click(toggle);
-    expect(rail()).toBeInTheDocument();
+    expect(await screen.findByRole('complementary', { name: 'Triage' })).toBeInTheDocument();
     expect(toggle).toHaveTextContent('Hide triage');
+    fireEvent.click(toggle);
+    expect(document.querySelector('.triage-rail')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Private details' }));
+    expect(toggle.querySelector('.badge-red')).toBeNull();
   });
 
   it('Private details sits beside the course name on the Roster tab only', async () => {

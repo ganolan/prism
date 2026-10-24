@@ -211,6 +211,15 @@ describe('RosterTab pop-ups', () => {
     expect(dialog).toHaveTextContent('From PowerSchool, read 25/10/2026');
   });
 
+  it('a rows answer without rows reads as an alert Prism cannot read', async () => {
+    api.getAlertDetail.mockResolvedValue({ alertKey: 'epipen', kind: 'rows', suggestedPercent: null, readAt: null });
+    renderTab();
+    toggle();
+    fireEvent.click(within(cardOf('Annie Lee')).getByRole('button', { name: 'EpiPen' }));
+    expect(await screen.findByText('Prism can read only that this alert is set.')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
   it('an alert Prism cannot read says so; a failed read shows the error', async () => {
     api.getAlertDetail.mockResolvedValueOnce({ alertKey: 'no_photo', kind: 'none', suggestedPercent: null, readAt: '2026-10-25T02:00:00Z' });
     renderTab();

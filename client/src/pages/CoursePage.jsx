@@ -30,6 +30,7 @@ import { useGradeCards } from '../hooks/useGradeCards.js';
 import { useCardEditing } from '../hooks/useCardEditing.js';
 import { buildDescriptorRows } from '../lib/rubricDescriptorRows.js';
 import RosterTab, { PrivateDetailsSwitch } from '../components/roster/RosterTab.jsx';
+import { usePrivateDetails } from '../lib/privateDetails.js';
 import { useStickyTypeFilter } from '../hooks/useStickyTypeFilter.js';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
@@ -63,11 +64,13 @@ export default function CoursePage() {
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [triageWaits, setTriageWaits] = useState({ waits: {}, feedbackLimit: 10 });
   const [triageVersion, setTriageVersion] = useState(0); // bump → the triage panels re-fetch
-  // The triage rail is hidden on the Gradebook tab (it needs the width) and the Roster tab (its
-  // Needs attention mode replaces it, #160); "Triage ▸" toggles it back in.
+  // The triage rail is hidden on the Gradebook tab (it needs the width) and is not drawn on the
+  // Roster tab (its Needs attention mode replaces it, and a roster may be projected, #160);
+  // "Triage ▸" brings it in. On the Roster tab the button's red count needs Private details.
   const [railShown, setRailShown] = useState(false);
-  const [triage, setTriage] = useState(null); // the rail's answer, for the Roster tab's Needs attention
+  const [triage, setTriage] = useState(null); // this course's triage, for the Roster tab (Needs attention)
   const [triageRed, setTriageRed] = useState(0);
+  const [privateOn] = usePrivateDetails();
   // Gradebook tab's compact Summative / Formative / Unpublished filter (lives in the tab row).
   // Remembered across visits, one setting for all courses (#144).
   const [gradebookFilter, setGradebookFilter] = useStickyTypeFilter('gradebook');
@@ -86,16 +89,24 @@ export default function CoursePage() {
   const courseLive = course ? !course.archived : null;
 
   // Assessments-tab wait column: every assignment still owed feedback (incl.
-  // formative). Async + try so an automocked/absent API is a silent no-op.
+  // formative). The same read gives the Roster tab this course's triage (Needs attention, and
+  // the Triage ▸ count while the rail is not mounted, #160) as the rail reads it, with the
+  // Settings default for formative work: one more read only when that default leaves formative
+  // out. Async + try so an automocked/absent API is a silent no-op.
   useEffect(() => {
-    if (!courseLive) return;
+    if (!courseLive) return undefined;
+    let live = true;
     (async () => {
       try {
         const t = await getTriage({ courseId: id, includeFormative: true });
-        if (t) setTriageWaits({ waits: waitsByAssignment(t), feedbackLimit: t.settings.feedbackLimitDays });
+        if (!live || !t) return;
+        setTriageWaits({ waits: waitsByAssignment(t), feedbackLimit: t.settings.feedbackLimitDays });
+        const asRail = t.settings.showFormativeDefault ? t : await getTriage({ courseId: id, includeFormative: false });
+        if (live && asRail) { setTriage(asRail); setTriageRed(redCount(asRail)); }
       } catch (err) { console.error(err); /* triage is optional on this page */ }
     })();
-  }, [id, dataVersion, courseLive]);
+    return () => { live = false; };
+  }, [id, dataVersion, courseLive, triageVersion]);
 
   // Make-up tracking for one Schoology test/quiz (all students), from either the
   // make-up panel's "Ignore this test" or the Assessments-tab chip.
@@ -154,6 +165,9 @@ export default function CoursePage() {
   if (!course) return <div className="error-msg">Course not found</div>;
 
   const railHiddenHere = view === 'gradebook' || view === 'roster';
+  // On the Roster tab the rail is not in the page until Triage ▸ opens it.
+  const railMounted = courseLive && (view !== 'roster' || railShown);
+  const showRed = triageRed > 0 && (view !== 'roster' || privateOn);
 
   // Course meta collapses to a single dot-separated muted line (section ·
   // students · school code) so the header is two tight rows, not four stacked
@@ -232,7 +246,7 @@ export default function CoursePage() {
               onClick={() => setRailShown((v) => !v)}
             >
               {railShown ? 'Hide triage' : (
-                <>Triage {triageRed > 0 && <span className="badge badge-red">{triageRed}</span>} <span aria-hidden="true">▸</span></>
+                <>Triage {showRed && <span className="badge badge-red">{triageRed}</span>} <span aria-hidden="true">▸</span></>
               )}
             </button>
           )}
@@ -283,11 +297,11 @@ export default function CoursePage() {
           )}
           {view === 'analytics' && <AnalyticsView id={id} />}
         </div>
-        {courseLive && (
+        {railMounted && (
           <TriageSection
             id="course-triage" version={triageVersion} courseId={Number(id)}
-            hidden={railHiddenHere && !railShown}
-            onLoaded={(t) => { setTriage(t); setTriageRed(redCount(t)); }}
+            hidden={view === 'gradebook' && !railShown}
+            onLoaded={(t) => setTriageRed(redCount(t))}
             onMakeUpIgnored={(aid) => patchMakeUpIgnored(aid, true)}
           />
         )}

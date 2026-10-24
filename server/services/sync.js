@@ -437,9 +437,11 @@ export async function finalizeArchivedCourse(db, { courseId, sectionId, now, run
 // (gradebook + mastery if a session exists) + mark archived; still active:1 →
 // leave (transient/ambiguous); 404 → mark archived but keep the last snapshot.
 // `activeSectionIds` is a Set of the section ids returned by getMySections. (#70)
-export async function detectArchivedTransitions(db, activeSectionIds, now) {
+// A finalise that fails (a section that no longer answers) leaves the course current, logged, for
+// the next sync; it never stops the run (24 Oct 2026, as backfillUnfinalizedArchived).
+export async function detectArchivedTransitions(db, activeSectionIds, now, { log = () => {} } = {}) {
   const dropped = db.prepare(`
-    SELECT id, schoology_section_id FROM courses
+    SELECT id, schoology_section_id, course_name FROM courses
     WHERE archived = 0 AND excluded = 0 AND synced_at IS NOT NULL
   `).all().filter((c) => !activeSectionIds.has(String(c.schoology_section_id)));
 
@@ -457,7 +459,12 @@ export async function detectArchivedTransitions(db, activeSectionIds, now) {
     if (Number(sec.active) === 0) {
       const periods = await getSectionGradingPeriods(sectionId).catch(() => []);
       const gradingPeriod = periods[0]?.title || null;
-      await finalizeArchivedCourse(db, { courseId: c.id, sectionId, now });
+      try {
+        await finalizeArchivedCourse(db, { courseId: c.id, sectionId, now });
+      } catch (err) {
+        log(`Ended course "${c.course_name ?? sectionId}": not read (${String(err?.message ?? err).split('\n')[0]}); trying again next sync`);
+        continue;
+      }
       db.prepare('UPDATE courses SET archived = 1, grading_period = COALESCE(?, grading_period) WHERE id = ?')
         .run(gradingPeriod, c.id);
     }
@@ -467,16 +474,24 @@ export async function detectArchivedTransitions(db, activeSectionIds, now) {
 // One-time backfill: finalise archived courses that were never finalised
 // (imported under the old flow). Captures mastery when a session is present;
 // converges over session-enabled syncs and never re-runs once finalized_at is
-// set. Returns the number of courses processed. (#70)
+// set. Returns the number of courses read. (#70)
 // `skip`: course ids a list sync reads itself this pass (#169), left to it.
-export async function backfillUnfinalizedArchived(db, now, { skip = new Set() } = {}) {
+// A section that no longer answers (a 403 on an imported past section stopped every sync on
+// 23-24 Oct 2026) is logged and tried again next sync; it never stops the run.
+export async function backfillUnfinalizedArchived(db, now, { skip = new Set(), log = () => {} } = {}) {
   const courses = db.prepare(
-    'SELECT id, schoology_section_id FROM courses WHERE archived = 1 AND excluded = 0 AND finalized_at IS NULL'
+    'SELECT id, schoology_section_id, course_name FROM courses WHERE archived = 1 AND excluded = 0 AND finalized_at IS NULL'
   ).all().filter((c) => !skip.has(c.id));
+  let read = 0;
   for (const c of courses) {
-    await finalizeArchivedCourse(db, { courseId: c.id, sectionId: String(c.schoology_section_id), now });
+    try {
+      await finalizeArchivedCourse(db, { courseId: c.id, sectionId: String(c.schoology_section_id), now });
+      read++;
+    } catch (err) {
+      log(`Archived "${c.course_name}": not read (${String(err?.message ?? err).split('\n')[0]}); trying again next sync`);
+    }
   }
-  return courses.length;
+  return read;
 }
 
 // One-time backfill (#72 reversed, 19/10/2026): read the submissions of every
@@ -771,7 +786,7 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
 
     // One-time: finalise archived courses imported before #70 (capture mastery). A course the list
     // reads itself is left to it (#169).
-    await backfillUnfinalizedArchived(db, now, { skip: listed ?? new Set() });
+    await backfillUnfinalizedArchived(db, now, { skip: listed ?? new Set(), log });
     // One-time: read the submissions of archived courses finalised without them (#72 reversed).
     const archivedRead = await backfillArchivedSubmissions(db, now, { log, skip: listed ?? new Set() });
     if (archivedRead) log(`Read the submissions of ${archivedRead} archived course${archivedRead === 1 ? '' : 's'} (one time)`);
@@ -798,7 +813,7 @@ export async function fullSync(onProgress, { includeHidden = false, courseIds = 
     // Auto-archive courses that dropped off the active list this turn (#70).
     // Runs AFTER backfill so a course archived this turn isn't immediately
     // re-finalised by backfill in the same pass.
-    await detectArchivedTransitions(db, new Set(sections.map((s) => String(s.id))), now);
+    await detectArchivedTransitions(db, new Set(sections.map((s) => String(s.id))), now, { log });
 
     // 3. Refresh + reconcile every retained student's profile + guardians.
     //    A full run (no list) does ALL students (including those in no active course)

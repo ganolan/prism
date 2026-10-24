@@ -1450,6 +1450,26 @@ describe('detectArchivedTransitions (#70)', () => {
     ).run(sectionId, sectionId, archived).lastInsertRowid;
   }
 
+  // A course that ends and then will not answer (24 Oct 2026, the backfill's 403) is left current
+  // and tried again next sync; it never stops the run, and the other ended course is archived.
+  test('an ended course whose read fails is logged and left for the next sync', async () => {
+    const sch = await import('./schoology.js');
+    sch.getSectionGrades.mockImplementation(async (sid) => {
+      if (sid === 'sec-403') throw new Error('Schoology API 403: GET /sections/sec-403/grades');
+      return [];
+    });
+    const bad = seed('sec-403');
+    const good = seed('sec-gone');
+    getSection.mockImplementation(async (sid) => ({ id: sid, active: 0, course_title: sid }));
+    const logs = [];
+    await detectArchivedTransitions(db, new Set(['sec-active']), '2026-05-31T00:00:00Z', { log: (m) => logs.push(m) });
+    expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(bad).archived).toBe(0);
+    expect(db.prepare('SELECT archived FROM courses WHERE id = ?').get(good).archived).toBe(1);
+    expect(logs).toEqual(['Ended course "sec-403": not read (Schoology API 403: GET /sections/sec-403/grades); trying again next sync']);
+    sch.getSectionGrades.mockReset();
+    sch.getSectionGrades.mockResolvedValue([]);
+  });
+
   test('archives a dropped course that the section read confirms is inactive', async () => {
     const id = seed('sec-gone');
     getSection.mockResolvedValue({ id: 'sec-gone', active: 0, course_title: 'Gone' });
@@ -1582,6 +1602,27 @@ describe('backfillUnfinalizedArchived (#70)', () => {
     await backfillUnfinalizedArchived(db, '2026-05-31T00:00:00Z');
 
     expect(sch.getAssignmentSubmissions).toHaveBeenCalledWith('a', 'D1');
+  });
+
+  // 24 Oct 2026: an imported past section whose grades answer 403 stopped every sync for two
+  // nights (prod runs 71 to 80). One old section must not stop the run; it is tried again next sync.
+  test('a section that no longer answers is logged and skipped; the others are finalised', async () => {
+    const sch = await import('./schoology.js');
+    sch.getSectionGrades.mockImplementation(async (sid) => {
+      if (sid === 'gone') throw new Error('Schoology API 403: GET /sections/gone/grades');
+      return [];
+    });
+    const gone = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('gone','Old',1)`).run().lastInsertRowid;
+    const ok = db.prepare(`INSERT INTO courses (schoology_section_id, course_name, archived) VALUES ('fine','New',1)`).run().lastInsertRowid;
+    const logs = [];
+
+    const n = await backfillUnfinalizedArchived(db, '2026-05-31T00:00:00Z', { log: (m) => logs.push(m) });
+
+    expect(n).toBe(1);
+    expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(ok).finalized_at).toBe('2026-05-31T00:00:00Z');
+    expect(db.prepare('SELECT finalized_at FROM courses WHERE id = ?').get(gone).finalized_at).toBeNull();
+    expect(logs).toEqual(['Archived "Old": not read (Schoology API 403: GET /sections/gone/grades); trying again next sync']);
+    sch.getSectionGrades.mockReset();
   });
 });
 

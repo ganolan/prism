@@ -116,6 +116,23 @@ describe('GET /api/tools/emails/:courseId', () => {
   });
 });
 
+describe('GET /api/tools/emails/:courseId?students= (#160)', () => {
+  test('lists just those students, ignoring the roster filters and any id not enrolled', async () => {
+    const db = getDb();
+    const zoe = addStudent({ first: 'Zoe', last: 'Adams' });
+    const alex = addStudent({ first: 'Alexander', last: 'Chen' });
+    const other = addStudent({ first: 'Olly', last: 'Other', courses: [courseB] });
+    db.prepare('UPDATE students SET email = ? WHERE id = ?').run('zoe@example.com', zoe);
+    db.prepare('UPDATE students SET email = ? WHERE id = ?').run('alex@example.com', alex);
+    db.prepare('UPDATE students SET email = ? WHERE id = ?').run('olly@example.com', other);
+
+    const { body } = await get(`/api/tools/emails/${courseA}?type=student&gender=F&students=${alex},${other},x`);
+
+    expect(body.addresses).toEqual(['alex@example.com']);
+    expect(body.students.map(s => s.id)).toEqual([alex]);
+  });
+});
+
 // #66: guardians PowerSchool does not clear are left out of the copied list.
 describe('GET /api/tools/emails/:courseId and guardian contact status', () => {
   const SYNCED = '2026-10-21T01:00:00.000Z';

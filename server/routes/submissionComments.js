@@ -8,7 +8,7 @@ import { join, basename } from 'path';
 import { getDb } from '../db/index.js';
 import { featureGate } from '../middleware/featureGate.js';
 import { CommentError, threadFor, refreshAssignment, refreshStudent, postComment, deleteComment, postCommentWithFile, commentFile, markThreadSeen } from '../services/submissionComments.js';
-import { summariesForAssignment, summariesForCourse, summariesForStudent } from '../services/submissionCommentStore.js';
+import { summariesForAssignment, summariesForCourse, summariesForStudent, unreadCommentsForStudent } from '../services/submissionCommentStore.js';
 import { resolveAssignmentId } from '../services/idResolvers.js';
 import { sendFile } from './fileResponse.js';
 
@@ -56,6 +56,11 @@ router.get('/student/:studentId', handle((req, db) => {
 
 // Badges for the gradebook: cache only, no reads.
 router.get('/course/:courseId', handle((req, db) => ({ assignments: summariesForCourse(db, Number(req.params.courseId)) })));
+
+// One student's unread comments in a course, oldest first (the roster's comments pop-up, #160):
+// cache only, nothing marked seen.
+router.get('/course/:courseId/student/:studentId/unread', handle((req, db) =>
+  ({ comments: unreadCommentsForStudent(db, Number(req.params.courseId), Number(req.params.studentId)) })));
 
 router.get('/:assignmentId/:studentId', handle((req, db) =>
   threadFor(db, { assignmentId: req.params.assignmentId, studentId: req.params.studentId, force: req.query.refresh === '1' })));

@@ -116,7 +116,9 @@ export const deleteNote = (id) => request(`/notes/${id}`, { method: 'DELETE' });
 const courseList = (courseIds) => [].concat(courseIds).join(',');
 // `filters` is a roster filter query (lib/rosterFilters.js rosterFilterQuery, #73), '' for none.
 const withFilters = (path, filters) => (filters ? `${path}${path.includes('?') ? '&' : '?'}${filters}` : path);
-export const getEmails = (courseIds, type, filters) => request(withFilters(`/tools/emails/${courseList(courseIds)}?type=${type || 'student'}`, filters));
+// `students` (an array of local student ids) lists just those students, ignoring `filters` (#160).
+export const getEmails = (courseIds, type, filters, { students } = {}) =>
+  request(withFilters(`/tools/emails/${courseList(courseIds)}?type=${type || 'student'}${students ? `&students=${students.join(',')}` : ''}`, students ? '' : filters));
 export const getRandomStudents = (courseIds, count, filters) => request(withFilters(`/tools/random/${courseList(courseIds)}?count=${count || 1}`, filters));
 export const getRoster = (courseIds, filters) => request(withFilters(`/tools/roster/${courseList(courseIds)}`, filters));
 export const getGroups = (courseIds, count, balanced, filters) => request(withFilters(`/tools/groups/${courseList(courseIds)}?count=${count || 4}&balanced=${balanced || false}`, filters));
@@ -362,6 +364,11 @@ export const getStudentWorkLinks = (studentId, assignmentIds) =>
   request(`/students/${studentId}/work-links?assignments=${assignmentIds.map(encodeURIComponent).join(',')}`);
 // Cached badges for a course: { assignments: { [schoology aid]: { [student id]: summary } } }.
 export const getCourseCommentSummaries = (courseId) => request(`/submission-comments/course/${courseId}`);
+
+// One student's unread comments in a course, oldest first, from the cache (#160):
+// { comments: [{ schoologyAssignmentId, title, created, studentText, attachments }] }. Marks nothing seen.
+export const getUnreadComments = (courseId, studentId) =>
+  request(`/submission-comments/course/${courseId}/student/${studentId}/unread`);
 
 // Native dropbox submission files (#107): every revision with its files for one
 // student, read from Schoology on demand (cached 5 minutes) unless refresh.

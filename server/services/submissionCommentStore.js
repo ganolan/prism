@@ -92,6 +92,25 @@ export function summariesForCourse(db, courseId) {
   return out;
 }
 
+// One student's unread comments in one course (the roster's comments pop-up, #160), oldest first:
+// [{ schoologyAssignmentId, title, created (ISO), studentText, attachments }]. The same rule as
+// the summaries' unread count (readThread): typed text or a file, newer than the last seen; the
+// automatic lines and the teacher's comments never count. Cached threads only, no Schoology read,
+// and nothing is marked seen.
+export function unreadCommentsForStudent(db, courseId, studentId) {
+  const rows = db.prepare(`
+    SELECT r.assignment_id, a.schoology_assignment_id, a.title FROM submission_comment_reads r
+    JOIN assignments a ON a.id = r.assignment_id WHERE a.course_id = ? AND r.student_id = ?
+  `).all(courseId, studentId);
+  const out = [];
+  for (const r of rows) {
+    for (const c of readThread(db, { assignmentId: r.assignment_id, studentId }).comments) {
+      if (c.unread) out.push({ schoologyAssignmentId: r.schoology_assignment_id, title: r.title, created: c.created, studentText: c.student_text, attachments: c.attachments });
+    }
+  }
+  return out.sort((a, b) => (a.created ?? '').localeCompare(b.created ?? ''));
+}
+
 // One student's cached summaries across every course (the student page, #135):
 // studentId → { [schoology assignment id]: summary }. Nothing about other students.
 export function summariesForStudent(db, studentId) {

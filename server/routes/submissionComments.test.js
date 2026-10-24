@@ -10,6 +10,7 @@ vi.mock('../services/schoology.js', () => ({
 import router from './submissionComments.js';
 import { getDb } from '../db/index.js';
 import { commentDeps, resetCommentCaches } from '../services/submissionComments.js';
+import { storeThread, markSeen, unreadCommentsForStudent } from '../services/submissionCommentStore.js';
 import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
 import { createHash } from 'crypto';
 
@@ -29,7 +30,7 @@ async function call(method, path, body) {
 let studentId; let courseId;
 beforeEach(() => {
   const db = getDb();
-  db.exec('DELETE FROM submission_comments; DELETE FROM submission_comment_reads; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM submission_comments; DELETE FROM submission_comment_seen; DELETE FROM submission_comment_reads; DELETE FROM grades; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
   resetCommentCaches();
   courseId = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec', 'MGD')`).run().lastInsertRowid;
   const aid = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '8590105935', 'Flappy')`).run(courseId).lastInsertRowid;
@@ -96,6 +97,55 @@ describe('/api/submission-comments', () => {
   test('unknown assignment is 404', async () => {
     const r = await call('GET', '/api/submission-comments/assignment/nope');
     expect(r.status).toBe(404);
+  });
+});
+
+describe('unread comments of one student in a course (#160)', () => {
+  const row = (id, uid, role, body, created, attachments = null) => ({
+    schoology_comment_id: id, author_uid: uid, author_role: role, author_name: null, is_mine: role === 'teacher' ? 1 : 0, body, created, attachments,
+  });
+  const file = JSON.stringify([{ fid: 7, filename: 'shot.png', filemime: 'image/png', filesize: 4 }]);
+  let flappy; let second; let otherStudent;
+
+  beforeEach(() => {
+    const db = getDb();
+    flappy = db.prepare("SELECT id FROM assignments WHERE schoology_assignment_id = '8590105935'").get().id;
+    second = db.prepare("INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, '8590105936', 'Pong')").run(courseId).lastInsertRowid;
+    otherStudent = db.prepare("INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('556', 'Bo', 'Kim')").run().lastInsertRowid;
+  });
+
+  test('lists only unread student comments, oldest first, never automatic or teacher comments', async () => {
+    const db = getDb();
+    storeThread(db, { assignmentId: flappy, studentId, rows: [
+      row('11', '555', 'student', 'Revision 1 submitted', 1792300000),                 // automatic only
+      row('12', '1', 'teacher', 'Nice work', 1792300100),                              // teacher
+      row('13', '555', 'student', 'Revision 2 submitted\nLater question', 1792400000), // typed text
+    ] });
+    storeThread(db, { assignmentId: second, studentId, rows: [
+      row('21', '555', 'student', 'Revision 1 submitted', 1792350000, file),           // file only
+      row('22', '555', 'student', 'Revision 2 submitted', 1792360000),                 // automatic
+    ] });
+    storeThread(db, { assignmentId: second, studentId: otherStudent, rows: [row('31', '556', 'student', 'Not Ana', 1792370000)] });
+
+    expect(unreadCommentsForStudent(db, courseId, studentId)).toEqual([
+      { schoologyAssignmentId: '8590105936', title: 'Pong', created: new Date(1792350000 * 1000).toISOString(), studentText: null,
+        attachments: [expect.objectContaining({ fid: '7', filename: 'shot.png' })] },
+      { schoologyAssignmentId: '8590105935', title: 'Flappy', created: new Date(1792400000 * 1000).toISOString(), studentText: 'Later question', attachments: [] },
+    ]);
+
+    const r = await call('GET', `/api/submission-comments/course/${courseId}/student/${studentId}/unread`);
+    expect(r.status).toBe(200);
+    expect(r.body.comments.map((c) => c.title)).toEqual(['Pong', 'Flappy']);
+    // Listing marks nothing seen.
+    expect((await call('GET', `/api/submission-comments/course/${courseId}/student/${studentId}/unread`)).body.comments).toHaveLength(2);
+  });
+
+  test('a comment older than the last one seen is not listed, and a course with no threads is empty', () => {
+    const db = getDb();
+    storeThread(db, { assignmentId: flappy, studentId, rows: [row('41', '555', 'student', 'Old note', 1792300000)] });
+    markSeen(db, { assignmentId: flappy, studentId });
+    expect(unreadCommentsForStudent(db, courseId, studentId)).toEqual([]);
+    expect(unreadCommentsForStudent(db, courseId + 99, studentId)).toEqual([]);
   });
 });
 

@@ -1,126 +1,194 @@
 #!/usr/bin/env node
-// Probe (#163, read only): the detail behind two PowerSchool alerts, the SPP
-// (accommodation plan) and the Student Support Summary. Each alert icon in the
-// attendance grid is a link the MBA custom-alerts plugin builds (api.makeAlert in
-// the plugin code from /ws/pagecustomizations/insertions) and PowerSchool opens as a
-// dialog from the attendance page:
+// Probe (#160, read only; first written for #163): the pop-up behind each PowerSchool
+// alert Prism keeps. Each alert icon in the attendance grid is a link the MBA
+// custom-alerts plugin builds (api.makeAlert in the plugin code from
+// /ws/pagecustomizations/insertions) and PowerSchool opens as a dialog from the
+// attendance page:
 //   /teachers/alerts/aet_customalert_custompopup.html?url={stub_url}&frn=001{dcid}&id={alertId}
-//   + sf alerts: &frn=001{dcid}&mba_frn=001{dcid}&student_field={table}.{FIELD}&tableName={table}
-//   + adv alerts: &{querystring}&studentid=…&sectionid=… (when the plugin has them)
-// This probe follows that path: the LTI launch lands on the attendance page, and the
-// popup is requested from it (Referer = the attendance page, as the dialog does).
+//   + sf alerts:  &mba_frn=001{dcid}&student_field={table}.{FIELD}&tableName={table}
+//   + adv alerts: &{querystring}&studentid={studentid}
+// Task 1 of the roster redesign: for each kept alert with a stub_url in the LIVE catalogue
+// (getAlertTypes.json, as psAlertsSync reads it), read the pop-up for up to 3 students of ONE
+// current course who hold it (student_ps_alerts), and print its SHAPE per alert: HTTP status,
+// content type, byte length, tag counts, table headers, the number of cells and of non-empty
+// cells. It never prints a name, a student id or any cell text (Graham approved the reads on
+// 25/10/2026: read only, up to 3 students per alert, one course).
 //
-// Masks every student value: prints status, the page title, label texts and the
-// length and kind of each value, never a value or a name. Stops at once on a
-// "Security Violation" page (a wrong click path is logged at school, #116).
+// Stops at the first "Security Violation Logged" page (a wrong click path is logged at school,
+// #116). Exit codes: 0 done, 2 usage, 3 security violation, 4 no usable Schoology session.
 //
-//   node --env-file=.env scripts/probe-ps-alert-popups.js <sgySectionId> catalogue
-//   node --env-file=.env scripts/probe-ps-alert-popups.js <sgySectionId> pick <pickFile>
-//        (one student per alert from the section's roster, saved to pickFile; counts only)
-//   node --env-file=.env scripts/probe-ps-alert-popups.js <sgySectionId> popup <alertId> <pickFile>
-import { readFileSync, writeFileSync } from 'fs';
+// The database is only read (opened readonly). Point DB_PATH at a read-only backup copy of
+// prod's database (`sqlite3 -readonly <prod db> ".backup <copy>"`), then delete the copy.
+//
+//   DB_PATH=<copy> node scripts/probe-ps-alert-popups.js --list
+//        (current courses and how many students hold a kept alert; counts only, no PowerSchool read)
+//   DB_PATH=<copy> node scripts/probe-ps-alert-popups.js --course <courseId> [--per-alert 3]
+import 'dotenv/config';
+import Database from 'better-sqlite3';
 import { cookieJar } from '../server/services/schoologyWeb.js';
 import { PowerSchoolWeb, PS_BASE } from '../server/services/powerschoolWeb.js';
+import { ALERT_DEFS } from '../server/lib/psAlerts.js';
+import { PS_SCHOOL_ID } from '../server/services/psAlertsSync.js';
 
-const [sectionId, step, arg3, arg4] = process.argv.slice(2);
-const ALERTS = ['10593860', '11290981']; // Accommodation Plan (SPP), Student Support Summary
-const ATTENDANCE_PAGE = `${PS_BASE}/integrations/attendance/index.html`;
-
-const ps = new PowerSchoolWeb({ sgyJar: cookieJar() });
-await ps.launch(sectionId);
-console.log('launch: PowerSchool session started');
-
-const types = await ps.read('/teachers/mba_alerts/queries/getAlertTypes.json', { disabled: 0, student_schoolid: 40 });
-const defs = (Array.isArray(types) ? types : []).filter((t) => ALERTS.includes(String(t.id)));
-
-if (step === 'catalogue') {
-  for (const t of defs) {
-    const { id, name, trigger_type, stub_url, querystring, trigger_url, student_field, ext_table_name } = t;
-    console.log(JSON.stringify({ id, name, trigger_type, stub_url, querystring, trigger_url, student_field, ext_table_name }));
-  }
-  process.exit(0);
-}
-
-const Q = '/teachers/mba_alerts/queries/';
-if (step === 'pick') {
-  const { sectionDcid } = await ps.launchIds(sectionId);
-  const roster = (await ps.read(`${Q}getStudentsInSection.json`, { sectionIds: sectionDcid })).filter((r) => r && r.studentid);
-  const ids = roster.map((r) => r.studentid).join(',');
-  const spp = await ps.read(`${Q}stuFieldValues.json`, { stuList: ids, student_id: ids, field1: 'x_spp', fieldTbl1: 'U_DEF_EXT_STUDENTS', table1: 'U_DEF_EXT_STUDENTS' });
-  const sppRows = (Array.isArray(spp) ? spp : []).filter((r) => r && String(r.x_spp ?? '').trim() === '1');
-  const ss = defs.find((t) => String(t.id) === '11290981');
-  const adv = await ps.read(`${Q}getAdvTriggerMatches.html`, { trigger_url: ss.trigger_url, studentIds: ids, frn: '', querystring: ss.querystring || '' });
-  const ssIds = Object.keys(adv || {}).filter((k) => k !== '-1');
-  const byId = new Map(roster.map((r) => [String(r.studentid), r]));
-  const sppStudent = byId.get(String(sppRows[0]?.studentid ?? sppRows[0]?.id ?? ''));
-  const ssStudent = byId.get(ssIds[0]);
-  const pick = {
-    sectionDcid,
-    10593860: sppStudent && { dcid: sppStudent.studentdcid, studentid: sppStudent.studentid },
-    11290981: ssStudent && { dcid: ssStudent.studentdcid, studentid: ssStudent.studentid },
-  };
-  writeFileSync(arg3, JSON.stringify(pick));
-  console.log(`roster ${roster.length}; with X_SPP = 1: ${sppRows.length}; Support Summary matches: ${ssIds.length}; spp row keys: ${JSON.stringify(Object.keys(spp?.[0] || {}))}`);
-  console.log(`picked: SPP ${pick[10593860] ? 'yes' : 'none'}, Support Summary ${pick[11290981] ? 'yes' : 'none'} (saved, not printed)`);
-  process.exit(0);
-}
-
-if (step !== 'popup' || !arg3 || !arg4) {
-  console.error('usage: <sgySectionId> catalogue | pick <pickFile> | popup <alertId> <pickFile>');
+const args = process.argv.slice(2);
+const flag = (name) => args.indexOf(`--${name}`);
+const value = (name) => (flag(name) >= 0 ? args[flag(name) + 1] : undefined);
+const perAlert = Number(value('per-alert') ?? 3);
+const courseArg = value('course');
+if (flag('list') < 0 && !courseArg) {
+  console.error('usage: probe-ps-alert-popups.js --list | --course <courseId> [--per-alert 3]');
   process.exit(2);
 }
-const alertId = arg3;
-const picked = JSON.parse(readFileSync(arg4, 'utf8'));
-const chosen = picked[alertId];
-if (!chosen) throw new Error(`no student picked for alert ${alertId}`);
-const dcid = String(chosen.dcid);
-const studentId = String(chosen.studentid);
-const def = defs.find((t) => String(t.id) === String(alertId));
-if (!def) throw new Error(`alert ${alertId} is not one of ${ALERTS.join(', ')}`);
 
-// The plugin's href, built the same way (api.makeAlert).
-const p = new URLSearchParams({ url: def.stub_url, frn: `001${dcid}`, id: String(def.id) });
-let href = `/teachers/alerts/aet_customalert_custompopup.html?${p}`;
-if (def.trigger_type === 'sf') {
-  const field = String(def.student_field).includes('.') ? `${def.ext_table_name}.${String(def.student_field).split('.')[1]}` : def.student_field;
-  const sf = new URLSearchParams({ frn: `001${dcid}`, mba_frn: `001${dcid}`, student_field: field });
-  if (def.ext_table_name) sf.set('tableName', def.ext_table_name);
-  href += `&${sf}`;
-}
-if (def.trigger_type === 'adv') {
-  if (def.querystring) href += `&${def.querystring}`;
-  if (studentId) href += `&${new URLSearchParams({ studentid: studentId })}`;
-}
-console.log('popup path (ids masked):', href.replace(/\d{5,}/g, (m) => (m === String(def.id) ? m : '…')));
+const dbPath = process.env.DB_PATH;
+if (!dbPath || dbPath === ':memory:') { console.error('Set DB_PATH to a read-only backup copy of the database.'); process.exit(2); }
+const db = new Database(dbPath, { readonly: true });
 
-const res = await fetch(`${PS_BASE}${href}`, {
-  headers: {
-    cookie: ps.jar.header(), Referer: ATTENDANCE_PAGE,
-    Accept: 'text/html, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest',
-  },
-  redirect: 'manual',
-});
-ps.jar.take(res);
-const html = await res.text();
-console.log('status', res.status, res.headers.get('content-type'), `${html.length} bytes`, res.headers.get('location') ? `→ ${new URL(res.headers.get('location'), PS_BASE).pathname}` : '');
-if (/Security Violation/i.test(html)) {
-  console.log('STOP: PowerSchool answered with a Security Violation page.');
-  process.exit(3);
+const ATTENDANCE_PAGE = `${PS_BASE}/integrations/attendance/index.html`;
+const Q = '/teachers/mba_alerts/queries/';
+
+// Current courses with the number of their current students holding any kept alert.
+const COURSES = `
+  SELECT c.id, c.course_name, c.schoology_section_id,
+         COUNT(DISTINCT e.student_id) AS students,
+         COUNT(DISTINCT a.student_id) AS holders
+  FROM courses c
+  JOIN enrolments e ON e.course_id = c.id AND e.dropped_at IS NULL
+  LEFT JOIN student_ps_alerts a ON a.student_id = e.student_id
+  WHERE c.archived = 0 AND c.excluded = 0 AND c.schoology_section_id IS NOT NULL
+  GROUP BY c.id ORDER BY holders DESC, c.id`;
+
+if (flag('list') >= 0) {
+  for (const c of db.prepare(COURSES).all()) console.log(`course ${c.id} (${c.course_name}): ${c.students} students, ${c.holders} hold a kept alert`);
+  process.exit(0);
 }
 
-if (html.length < 400) {
-  // A short answer: show its shape only (tags and words of 3+ letters kept, other text masked).
-  console.log('short answer shape:', html.replace(/>([^<]*)</g, (m, t) => `>${t.replace(/[A-Za-z0-9]/g, 'x')}<`).replace(/\d/g, '9'));
+const course = db.prepare(COURSES).all().find((c) => String(c.id) === String(courseArg));
+if (!course) { console.error(`No current course ${courseArg}.`); process.exit(2); }
+
+// The course's current students who hold the alert, with their PowerSchool dcid.
+const holders = db.prepare(`
+  SELECT s.school_uid FROM student_ps_alerts a
+  JOIN enrolments e ON e.student_id = a.student_id AND e.course_id = ? AND e.dropped_at IS NULL
+  JOIN students s ON s.id = a.student_id
+  WHERE a.alert_key = ? ORDER BY s.id`);
+
+const jar = cookieJar();
+if (!jar) { console.error('BLOCKED: no Schoology session file (.playwright-session/storage-state.json). Graham must run `npm run mastery:login`.'); process.exit(4); }
+const ps = new PowerSchoolWeb({ sgyJar: jar });
+let sectionDcid;
+try {
+  ({ sectionDcid } = await ps.launch(course.schoology_section_id));
+} catch (err) {
+  if (err.code === 'SESSION_EXPIRED') { console.error('BLOCKED: the Schoology session has lapsed. Graham must run `npm run mastery:login`.'); process.exit(4); }
+  throw err;
 }
-// Masked structure: labels as text, values as kind + length only.
-const strip = (s) => s.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-console.log('title:', strip((html.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || '(none)'));
-const labels = [...html.matchAll(/<(th|label|dt|h[1-4]|b|strong)\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => strip(m[2])).filter(Boolean);
-console.log('labels:', JSON.stringify([...new Set(labels)].slice(0, 60)));
-const cells = [...html.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => strip(m[1]));
-const kind = (v) => (!v ? 'empty' : /^\d+(\.\d+)?$/.test(v) ? `number(${v.length})` : /\d+\s*%|\d+\s*(min|minutes|x|time)/i.test(v) ? `measure-like(${v.length})` : `text(${v.length})`);
-console.log('cells:', cells.length, JSON.stringify(cells.slice(0, 80).map(kind)));
-const forms = [...html.matchAll(/<(input|select|textarea)\b[^>]*name="([^"]+)"/gi)].map((m) => `${m[1]}:${m[2]}`);
-console.log('form fields:', JSON.stringify([...new Set(forms)].slice(0, 40)));
-const scripts = [...html.matchAll(/(?:src|href)="([^"]+\.(?:js|json|html)[^"]*)"/gi)].map((m) => m[1].replace(/\d{5,}/g, '…'));
-console.log('linked:', JSON.stringify([...new Set(scripts)].slice(0, 30)));
+console.log(`launch: PowerSchool session started through course ${course.id}`);
+
+const catalogue = await ps.read(`${Q}getAlertTypes.json`, { disabled: 0, student_schoolid: PS_SCHOOL_ID });
+const typeById = new Map((Array.isArray(catalogue) ? catalogue : []).filter((t) => t && t.id != null).map((t) => [String(t.id), t]));
+const roster = await ps.read(`${Q}getStudentsInSection.json`, { sectionIds: sectionDcid });
+const studentidByDcid = new Map((Array.isArray(roster) ? roster : []).filter((r) => r && r.studentid != null).map((r) => [String(r.studentdcid), String(r.studentid)]));
+console.log(`roster: ${studentidByDcid.size} students`);
+
+// The plugin's link (api.makeAlert), full form; `bare` leaves the sf / adv extras off (what #163 sent).
+function href(def, dcid, studentid, bare) {
+  const p = new URLSearchParams({ url: def.stub_url, frn: `001${dcid}`, id: String(def.id) });
+  let out = `/teachers/alerts/aet_customalert_custompopup.html?${p}`;
+  if (bare) return out;
+  if (def.trigger_type === 'sf') {
+    const field = String(def.student_field).includes('.') ? `${def.ext_table_name}.${String(def.student_field).split('.')[1]}` : def.student_field;
+    const sf = new URLSearchParams({ mba_frn: `001${dcid}`, student_field: field });
+    if (def.ext_table_name) sf.set('tableName', def.ext_table_name);
+    out += `&${sf}`;
+  }
+  if (def.trigger_type === 'adv') {
+    if (def.querystring) out += `&${def.querystring}`;
+    out += `&${new URLSearchParams({ studentid })}`;
+  }
+  return out;
+}
+
+// The page's shape, never its text: tag counts, <th> headers, class names, cell counts.
+const strip = (s) => s.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+function shape(html) {
+  const tags = {};
+  for (const [, t] of html.matchAll(/<([a-z][a-z0-9]*)\b/gi)) tags[t.toLowerCase()] = (tags[t.toLowerCase()] || 0) + 1;
+  const cells = [...html.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => strip(m[1]));
+  const classes = [...new Set([...html.matchAll(/\sclass="([^"]*)"/gi)].flatMap((m) => m[1].split(/\s+/)).filter(Boolean))];
+  return {
+    tags,
+    headers: [...html.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi)].map((m) => strip(m[1])),
+    rows: (html.match(/<tr\b/gi) || []).length,
+    cells: cells.length,
+    nonEmptyCells: cells.filter(Boolean).length,
+    links: (html.match(/<a\b/gi) || []).length,
+    textLength: strip(html).length,
+    classes: classes.slice(0, 20),
+  };
+}
+
+// One pop-up GET, as the dialog sends it. Stops the whole probe on a security page.
+async function get(path) {
+  const res = await fetch(`${PS_BASE}${path}`, {
+    headers: { cookie: ps.jar.header(), Referer: ATTENDANCE_PAGE, Accept: 'text/html, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest' },
+    redirect: 'manual',
+    signal: AbortSignal.timeout(20000),
+  });
+  ps.jar.take(res);
+  const html = await res.text();
+  if (/Security Violation Logged/i.test(html)) {
+    console.log('STOP: PowerSchool answered with its "Security Violation Logged" page. Nothing more was read.');
+    process.exit(3);
+  }
+  const location = res.headers.get('location');
+  return { status: res.status, type: res.headers.get('content-type'), html, redirect: location ? new URL(location, PS_BASE).pathname : null };
+}
+const pause = () => new Promise((r) => setTimeout(r, 400));
+
+// Read one link and print its shape. → 'refused' | 'readable' | 'empty'
+async function readOne(label, path) {
+  const a = await get(path);
+  await pause();
+  const s = shape(a.html);
+  const verdict = a.status !== 200 ? 'refused' : (s.nonEmptyCells > 0 || s.textLength > 0) ? 'readable' : 'empty';
+  console.log(`  ${label}: HTTP ${a.status}${a.redirect ? ` -> ${a.redirect}` : ''}, ${a.type}, ${a.html.length} bytes, ${verdict}`);
+  console.log(`    tags ${JSON.stringify(s.tags)}; th ${JSON.stringify(s.headers)}; rows ${s.rows}; cells ${s.cells}, non-empty ${s.nonEmptyCells}; links ${s.links}; text ${s.textLength} chars; classes ${JSON.stringify(s.classes)}`);
+  // A short answer's markup, every text run (and every attribute value) replaced by its length.
+  if (a.html.length < 400) console.log(`    short answer, text masked: ${a.html.replace(/="[^"]*"/g, '="…"').replace(/>([^<]*)</g, (m, t) => (t.trim() ? `>[${t.trim().length} chars]<` : '><'))}`);
+  return verdict;
+}
+
+const summary = [];
+for (const def of ALERT_DEFS) {
+  const id = def.psAlertIds[0];
+  const type = typeById.get(id);
+  if (!type) { console.log(`\n${def.key}: not in the live catalogue`); summary.push(`${def.key}: not in the catalogue`); continue; }
+  if (!type.stub_url) {
+    console.log(`\n${def.key} (id ${id}): no stub_url (trigger_type ${type.trigger_type}, trigger_url ${JSON.stringify(type.trigger_url || '')}); not read`);
+    summary.push(`${def.key}: no stub_url`);
+    continue;
+  }
+  const picked = holders.all(course.id, def.key)
+    .map((h) => String(h.school_uid || '').match(/^1_(\d+)$/)?.[1])
+    .filter((dcid) => dcid && studentidByDcid.has(dcid))
+    .slice(0, perAlert)
+    .map((dcid) => ({ dcid, studentid: studentidByDcid.get(dcid) }));
+  console.log(`\n${def.key} (id ${id}, ${type.trigger_type}, stub_url ${type.stub_url}, querystring ${JSON.stringify(type.querystring || '')}): ${picked.length} holders read`);
+  if (!picked.length) { summary.push(`${def.key}: no holder in this course`); continue; }
+  const verdicts = [];
+  for (const [i, h] of picked.entries()) {
+    let verdict = await readOne(`student ${i + 1}, full link`, href(type, h.dcid, h.studentid, false));
+    // The bare link (what #163 sent) is tried only when the full one answered nothing, and only if it differs.
+    if (verdict === 'empty' && href(type, h.dcid, h.studentid, true) !== href(type, h.dcid, h.studentid, false)) {
+      const bare = await readOne(`student ${i + 1}, bare link`, href(type, h.dcid, h.studentid, true));
+      if (bare === 'readable') verdict = bare;
+    }
+    verdicts.push(verdict);
+  }
+  const verdict = verdicts.includes('readable') ? 'readable' : verdicts.includes('refused') ? 'refused' : 'empty';
+  summary.push(`${def.key}: ${verdict} (${verdicts.filter((v) => v === 'readable').length} of ${verdicts.length} readable, ${verdicts.filter((v) => v === 'empty').length} empty, ${verdicts.filter((v) => v === 'refused').length} refused)`);
+}
+
+console.log('\nSummary:');
+for (const line of summary) console.log(line);

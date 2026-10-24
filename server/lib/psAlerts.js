@@ -34,6 +34,8 @@ export const ALERT_DEFS = [
   { key: 'epipen', label: 'EpiPen', category: 'health', psAlertIds: ['10593828'] },
   { key: 'allergies', label: 'Allergies', category: 'health', psAlertIds: ['10593855'] },
   { key: 'health_care_plan', label: 'Health care plan', category: 'health', psAlertIds: ['39945753'] },
+  { key: 'aqhi_inside', label: 'AQHI: stay inside', category: 'health', psAlertIds: ['10593867'], title: 'AQHI 6 or above: inside at all times' },
+  { key: 'aqhi_except_events', label: 'AQHI: except events', category: 'health', psAlertIds: ['10593869'], title: 'AQHI 6 or above: inside except events' },
   { key: 'mobility', label: 'Mobility', category: 'other', psAlertIds: ['39472338'] },
   { key: 'elevator', label: 'Elevator', category: 'other', psAlertIds: ['10672527'] },
   { key: 'no_photo', label: 'No photo', category: 'other', psAlertIds: ['10593856'] },

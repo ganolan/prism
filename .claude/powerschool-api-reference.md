@@ -485,7 +485,8 @@ calls `getStudentsInSection`, then per student `getAlerts` (man), `stuFieldValue
 | 10593860 | sf | `X_SPP` | in `1` | Accomodation Plan | `accommodation_plan` |
 | 11361904 | adv | `ls_accomodating.html` (field shown `X_LS_SUPPORT_LEVEL`, operand `0`) | | Accomodations Only | `accommodations_only` |
 | 10593855 | adv | `allergies.html` (field shown `X_ALLERGYCNF`, operand `Y`) | | Allergies | `allergies` |
-| 10593867 / 10593869 | sf | `X_APIABOVE100` | in `1` / in `3` | AQHI 6 or Above Inside At All Times / Except Events | |
+| 10593867 | sf | `X_APIABOVE100` | in `1` | AQHI 6 or Above Inside At All Times | `aqhi_inside` |
+| 10593869 | sf | `X_APIABOVE100` | in `3` | AQHI 6 or Above Except Events | `aqhi_except_events` |
 | 10593864 / 10733416 | sf | `X_G1DECEASED` / `X_G2DECEASED` | in `1` | Deceased Guardian 1 / 2 | raw value stored (#66) |
 | 10593857 | sf | `X_G1G2Relationship` | in `Divorced,Separated` | Divorced | `divorced` (family) |
 | 10672509 / 10672510 | sf | `X_DNC_G1` / `X_DNC_G2` | notblank | Do Not Contact Guardian 1 / 2 | raw value stored (#66) |
@@ -591,7 +592,7 @@ check a changed output mask). Shapes only: no name, student id or cell text was 
   `mbapop_studentsupportsummary.html`; epipen `mbapop_epipen.html`; allergies `mbapop_allergies.html`; health_care_plan
   `mbapop_ehealthcare.html`; elevator `mbapop_elev.html`; no_photo `mbapop_nophoto.html`; correspondence_g1/g2/both
   `mbapop_emailcorr.html` (one pop-up for all three); divorced `mbapop_divorced.html`; employee_child `mbapop_employee_child.html`;
-  siblings `mbapop_sibling.html`. **mobility has no `stub_url`** (a `man` alert, `trigger_url` empty): the plugin builds its link
+  siblings `mbapop_sibling.html`. (The two AQHI alerts are not listed: they were kept after this read.) **mobility has no `stub_url`** (a `man` alert, `trigger_url` empty): the plugin builds its link
   without one (`/teachers/alerts/aet_customalert.html?mba_frn=…&id=…`), which this probe did not read.
 - **Verdicts.** `readable`: 200 with text or cells. `empty`: 200 with none. `refused`: any other status. Not one pop-up answered `empty` or `refused`.
 
@@ -608,6 +609,7 @@ check a changed output mask). Shapes only: no name, student id or cell text was 
 | siblings | readable | 650 to 950 bytes. Two `<p>`, two `<button>`, two `<b>`, then `<table class="grid">` with headers **ID #, Student Name, Gender, Grade, ID #, Student Name, Gender** (7 `th`; 2 `<table>` tags on the page, split across 3 to 4 `tr`); every `td` non-empty; 1 to 2 `<a>`. |
 | accommodations_only, ilp, learning_support_1/2/3, epipen, health_care_plan, elevator, employee_child | not probed | No student in the class held them. In prod's database on 25/10, `accommodations_only`, `ilp`, `learning_support_1`, `learning_support_3`, `health_care_plan`, `elevator` and `employee_child` hold nobody in any current course; `epipen` (2 students) and `learning_support_2` (2 students) are held in other courses, outside the one approved class. Shape unknown: Task 3 must treat an unparsed pop-up as plain text and never assume a table. |
 | mobility | not probed | No `stub_url`; held by nobody in any current course. |
+| aqhi_inside, aqhi_except_events | not probed | Added to the kept alerts after this probe (#160 Task 2, 25/10): `sf` on `X_APIABOVE100`, so the pop-up is not known to be readable. Their `stub_url` is not recorded here; read them in a later probe before the roster shows their detail. |
 
 - **Reading these:** one 200 answer with text is `readable`; an `empty` answer for all 3 of 3 would be recorded "empty for 3 of 3 on 25/10" and stays a lower bound
   (the playbook). None was empty. Holders are the students `student_ps_alerts` shows for the class on 25/10.

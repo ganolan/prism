@@ -17,7 +17,7 @@ const CATALOGUE = [
   sf('10593828', 'X_ALLERGYEPI', 'in', 'Y,1'),
   sf('39945753', 'X_HEALTHCAREPLANACTIVE', 'notblank', '', { ext_table_name: 'U_DEF_EXT_STUDENTS0', student_field: 'U_STUDENTS_EXTENSION3.X_HEALTHCAREPLANACTIVE' }),
   sf('10672509', 'X_DNC_G1', 'notblank'), // contact: stored raw, not a badge
-  sf('10593867', 'X_APIABOVE100', 'in', '1'), // AQHI: not kept
+  sf('10593867', 'X_APIABOVE100', 'in', '1'), // AQHI inside: kept (#160)
   { id: '10593855', trigger_type: 'adv', disabled: '0', trigger_url: 'allergies.html', querystring: '' },
   { id: '11290981', trigger_type: 'adv', disabled: '0', trigger_url: 'studentsupportsummary.html', querystring: '' },
   { id: '39472338', trigger_type: 'man', disabled: '0' },
@@ -28,7 +28,7 @@ const CATALOGUE = [
 describe('alertPlan', () => {
   test('keeps only the curated alerts, grouped by trigger type, each with its Prism def', () => {
     const plan = alertPlan(CATALOGUE);
-    expect(plan.sf.map((t) => t.def.key)).toEqual(['accommodation_plan', 'learning_support_1', 'learning_support_2', 'epipen', 'health_care_plan']);
+    expect(plan.sf.map((t) => t.def.key)).toEqual(['accommodation_plan', 'learning_support_1', 'learning_support_2', 'epipen', 'health_care_plan', 'aqhi_inside']);
     expect(plan.adv.map((t) => t.def.key)).toEqual(['allergies', 'support_summary']);
     expect(plan.man.map((t) => t.def.key)).toEqual(['mobility']);
   });
@@ -46,7 +46,7 @@ describe('fieldValuesParams', () => {
     expect(p.get('stuList')).toBe('101,102');
     expect(p.get('student_id')).toBe('101,102');
     const fields = [...p.entries()].filter(([k]) => /^field\d+$/.test(k)).map(([, v]) => v);
-    expect(fields).toEqual(['x_spp', 'x_ls_support_level', 'x_allergyepi', 'x_healthcareplanactive', 'x_dnc_g1', 'x_dnc_g2', 'x_g1deceased', 'x_g2deceased', 'x_homeemail']);
+    expect(fields).toEqual(['x_spp', 'x_ls_support_level', 'x_allergyepi', 'x_healthcareplanactive', 'x_apiabove100', 'x_dnc_g1', 'x_dnc_g2', 'x_g1deceased', 'x_g2deceased', 'x_homeemail']);
     expect(p.get('fieldTbl4')).toBe('U_DEF_EXT_STUDENTS0');
     expect(p.get('fieldTbl5')).toBe('U_DEF_EXT_STUDENTS');
     expect(p.getAll('table1')).toEqual(['U_DEF_EXT_STUDENTS']);
@@ -144,6 +144,15 @@ describe('sectionAlerts', () => {
   test('a do-not-contact value is stored but never becomes a badge', () => {
     const out = sectionAlerts({ plan, roster, values });
     expect(out.get('5001').alerts).not.toContain('dnc_g2');
+  });
+});
+
+describe('AQHI alerts (#160)', () => {
+  test('AQHI alerts are kept as health alerts and reach the roster', () => {
+    const byKey = Object.fromEntries(ALERT_DEFS.map((d) => [d.key, d]));
+    expect(byKey.aqhi_inside).toMatchObject({ label: 'AQHI: stay inside', category: 'health', psAlertIds: ['10593867'] });
+    expect(byKey.aqhi_except_events).toMatchObject({ label: 'AQHI: except events', category: 'health', psAlertIds: ['10593869'] });
+    expect(forRoster([{ key: 'aqhi_inside', category: 'health' }])).toHaveLength(1);
   });
 });
 

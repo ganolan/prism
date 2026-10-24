@@ -48,28 +48,38 @@ export async function watch({ runTick, sleep, log, iterations = Infinity }) {
 /**
  * Run one tick as its own process group, so a tick that overruns is killed
  * together with its npm and vite children — they would otherwise keep writing
- * into a release directory the next tick deletes.
+ * into a release directory the next tick deletes. `signal` (an AbortSignal)
+ * kills the group the same way; the tests use it to kill on a condition
+ * rather than race a timer against a slow runner.
  */
-export function runTickProcess(script, { cwd, timeoutMs = TICK_TIMEOUT_MS, log = () => {} } = {}) {
+export function runTickProcess(script, { cwd, timeoutMs = TICK_TIMEOUT_MS, log = () => {}, signal } = {}) {
   return new Promise((resolve, reject) => {
     const node = existsSync(NODE_BIN) ? NODE_BIN : process.execPath;
     const child = spawn(node, [script], { cwd, env: process.env, stdio: 'inherit', detached: true });
-    const timer = setTimeout(() => {
-      log(`tick exceeded ${Math.round(timeoutMs / 1000)}s — killing it`);
+    const killTree = () => {
       try {
         process.kill(-child.pid, 'SIGKILL');
       } catch {
         child.kill('SIGKILL');
       }
+    };
+    const timer = setTimeout(() => {
+      log(`tick exceeded ${Math.round(timeoutMs / 1000)}s — killing it`);
+      killTree();
     }, timeoutMs);
-    child.on('error', (err) => {
+    signal?.addEventListener('abort', killTree, { once: true });
+    const done = () => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', killTree);
+    };
+    child.on('error', (err) => {
+      done();
       reject(err);
     });
-    child.on('exit', (code, signal) => {
-      clearTimeout(timer);
+    child.on('exit', (code, signalName) => {
+      done();
       if (code === 0) resolve();
-      else reject(new Error(`tick exited with ${signal ?? `code ${code}`}`));
+      else reject(new Error(`tick exited with ${signalName ?? `code ${code}`}`));
     });
   });
 }

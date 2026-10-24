@@ -61,9 +61,19 @@ describe('watch', () => {
 });
 
 describe('runTickProcess', () => {
+  const waitFor = async (check, ms) => {
+    const until = Date.now() + ms;
+    while (!check()) {
+      if (Date.now() > until) throw new Error('timed out waiting');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  };
+
   // Killing only the tick would leave its npm/vite children writing into a
-  // release directory the next tick is deleting.
-  it('kills the whole process tree of a tick that overruns', async () => {
+  // release directory the next tick is deleting. The kill waits for the
+  // grandchild to exist (a signal, not a timer): a fixed timer raced the
+  // child's start on a loaded CI runner (800 ms failed, then 5 s, 24 Oct 2026).
+  it('kills the whole process tree of a tick', async () => {
     const pidFile = join(tmp, 'grandchild.pid');
     const script = join(tmp, 'slow-tick.mjs');
     writeFileSync(
@@ -74,14 +84,20 @@ describe('runTickProcess', () => {
         `writeFileSync(${JSON.stringify(pidFile)}, String(child.pid));\n` +
         `setTimeout(() => {}, 60_000);\n`,
     );
-    const logs = [];
-    // Long enough for the child to start and spawn its grandchild on a slow CI
-    // runner (800ms was not, on GitHub's ubuntu-latest), short enough to be a test.
-    await expect(runTickProcess(script, { cwd: tmp, timeoutMs: 5000, log: (m) => logs.push(m) })).rejects.toThrow(/SIGKILL/);
-    expect(existsSync(pidFile)).toBe(true);
+    const abort = new AbortController();
+    const run = runTickProcess(script, { cwd: tmp, timeoutMs: 60_000, signal: abort.signal });
+    await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8').trim() !== '', 20_000);
     const grandchild = Number(readFileSync(pidFile, 'utf8'));
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(() => process.kill(grandchild, 0)).toThrow();
+    abort.abort();
+    await expect(run).rejects.toThrow(/SIGKILL/);
+    await waitFor(() => { try { process.kill(grandchild, 0); return false; } catch { return true; } }, 2_000);
+  }, 30_000);
+
+  it('a tick that overruns its time is killed, and the log says so', async () => {
+    const script = join(tmp, 'stuck-tick.mjs');
+    writeFileSync(script, 'setTimeout(() => {}, 60_000);\n');
+    const logs = [];
+    await expect(runTickProcess(script, { cwd: tmp, timeoutMs: 300, log: (m) => logs.push(m) })).rejects.toThrow(/SIGKILL/);
     expect(logs.join('\n')).toMatch(/killing it/);
-  }, 20_000);
+  });
 });

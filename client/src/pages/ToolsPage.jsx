@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
-import { getCourses, getEmails, getRandomStudents, getGroups, getRoster } from '../services/api.js';
+import { getCourses, getEmails, getRandomStudents, getGroups, getRoster, getToolFilters } from '../services/api.js';
 import { studentFullName } from '../lib/studentNames.js';
 import { NAME_FORMATS, SEPARATORS, SAMPLE_STUDENT, formatName, formatClassList } from '../lib/nameFormats.js';
+import { groupByYearAndSemester } from '../lib/courseDisplay.js';
+import { FILTER_TYPES, filterValueLabel, filterValueTitle, rosterFilterQuery, keepHeldValues } from '../lib/rosterFilters.js';
 
 const GROUP_COLORS = [
   'var(--badge-blue-bg)', 'var(--badge-green-bg)', 'var(--warning-light)',
@@ -12,10 +14,13 @@ const GROUP_COLORS = [
 export default function ToolsPage() {
   const [courses, setCourses] = useState([]);
   const [selectedCourses, setSelectedCourses] = useState([]);
+  const [showPast, setShowPast] = useState(false);
+  const [filters, setFilters] = useState({});
+  const filterQuery = rosterFilterQuery(filters);
 
   useEffect(() => {
-    // Include hidden courses so they're available here (flagged below), but not archived
-    getCourses(false, true).then(setCourses).catch(console.error);
+    // Current, hidden and past (archived) courses: past ones are listed under their own toggle (#73)
+    getCourses(true, true).then(setCourses).catch(console.error);
   }, []);
 
   function toggleCourse(id) {
@@ -26,11 +31,24 @@ export default function ToolsPage() {
 
   // Drop the auto-excluded MASTER/template section and any course with no
   // enrolments, then list real classes first and hidden ones below them.
-  const visibleCourses = courses
-    .filter(c => !c.excluded && c.student_count > 0)
+  const usable = courses.filter(c => !c.excluded && c.student_count > 0);
+  const visibleCourses = usable
+    .filter(c => !c.archived)
     .sort((a, b) => (a.hidden ? 1 : 0) - (b.hidden ? 1 : 0));
+  const pastCourses = usable.filter(c => c.archived);
+  const pastYears = groupByYearAndSemester(pastCourses);
+  const pastSelected = pastCourses.filter(c => selectedCourses.includes(c.id)).length;
 
-  const allSelected = visibleCourses.length > 0 && selectedCourses.length === visibleCourses.length;
+  // Select all covers current courses only: past courses are opt-in, one at a time.
+  const allSelected = visibleCourses.length > 0 && visibleCourses.every(c => selectedCourses.includes(c.id));
+  const courseLabel = (c) => (
+    <label key={c.id} className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', opacity: c.hidden ? 0.6 : 1 }}>
+      <input type="checkbox" checked={selectedCourses.includes(c.id)} onChange={() => toggleCourse(c.id)} />
+      {c.block_number && <span style={{ color: 'var(--accent)', fontWeight: 700 }}>[BK {c.block_number}]</span>}
+      {c.course_name}
+      {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
+    </label>
+  );
 
   return (
     <div className="fade-in">
@@ -40,28 +58,108 @@ export default function ToolsPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', gap: '1rem' }}>
           <label className="text-sm" style={{ fontWeight: 600 }}>Select courses</label>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="ghost" onClick={() => setSelectedCourses(visibleCourses.map(c => c.id))} disabled={allSelected}>Select all</button>
+            <button className="ghost" onClick={() => setSelectedCourses(prev => [...new Set([...prev, ...visibleCourses.map(c => c.id)])])} disabled={allSelected}>Select all</button>
             <button className="ghost" onClick={() => setSelectedCourses([])} disabled={selectedCourses.length === 0}>Clear</button>
           </div>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1.25rem' }}>
-          {visibleCourses.map(c => (
-            <label key={c.id} className="text-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', opacity: c.hidden ? 0.6 : 1 }}>
-              <input type="checkbox" checked={selectedCourses.includes(c.id)} onChange={() => toggleCourse(c.id)} />
-              {c.block_number && <span style={{ color: 'var(--accent)', fontWeight: 700 }}>[BK {c.block_number}]</span>}
-              {c.course_name}
-              {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
-            </label>
-          ))}
+          {visibleCourses.map(courseLabel)}
         </div>
+        {pastCourses.length > 0 && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <button className="ghost" aria-expanded={showPast} onClick={() => setShowPast(v => !v)}>
+              {showPast ? '▾' : '▸'} Past courses ({pastCourses.length}){pastSelected > 0 && `, ${pastSelected} selected`}
+            </button>
+            {showPast && pastYears.map(({ year, semesters }) => (
+              <div key={year} data-testid="past-year" style={{ marginTop: '0.5rem' }}>
+                <div className="text-sm text-muted" style={{ fontWeight: 600, marginBottom: '0.3rem' }}>{year}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem 1.25rem' }}>
+                  {semesters.flatMap(s => s.courses).map(courseLabel)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {selectedCourses.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <ClassListTool courseIds={selectedCourses} />
-          <EmailTool courseIds={selectedCourses} />
-          <RandomPicker courseIds={selectedCourses} />
-          <GroupGenerator courseIds={selectedCourses} />
+          <RosterFilters courseIds={selectedCourses} filters={filters} setFilters={setFilters} />
+          <ClassListTool courseIds={selectedCourses} filters={filterQuery} />
+          <EmailTool courseIds={selectedCourses} filters={filterQuery} />
+          <RandomPicker courseIds={selectedCourses} filters={filterQuery} />
+          <GroupGenerator courseIds={selectedCourses} filters={filterQuery} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Narrows the combined roster every tool below reads (#73). Closed by default, so the page
+// looks as it did until the teacher asks for a filter; a closed bar still states an active filter.
+// Values of one type combine with OR, types with AND (server/services/classRoster.js).
+function RosterFilters({ courseIds, filters, setFilters }) {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState(null);
+  const query = rosterFilterQuery(filters);
+  const active = query !== '';
+
+  // New courses: fetch their choices, and drop chosen values no student there holds.
+  useEffect(() => {
+    let live = true;
+    getToolFilters(courseIds).then((d) => {
+      if (!live) return;
+      setFilters(prev => keepHeldValues(prev, d.facets));
+    }).catch(console.error);
+    return () => { live = false; };
+  }, [courseIds, setFilters]);
+
+  // The counts follow the chosen filters.
+  useEffect(() => {
+    let live = true;
+    getToolFilters(courseIds, query).then((d) => { if (live) setData(d); }).catch(console.error);
+    return () => { live = false; };
+  }, [courseIds, query]);
+
+  function toggle(type, value) {
+    setFilters(prev => {
+      const now = prev[type] ?? [];
+      const next = now.includes(value) ? now.filter(v => v !== value) : [...now, value];
+      const out = { ...prev };
+      if (next.length) out[type] = next; else delete out[type];
+      return out;
+    });
+  }
+
+  const summary = data && (active ? `Showing ${data.matched} of ${data.total} students` : `${data.total} students`);
+
+  return (
+    <div className="card" data-testid="roster-filters">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <button className="ghost" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+          {open ? '▾' : '▸'} Filter students
+        </button>
+        {summary && <span className={`text-sm${active ? '' : ' text-muted'}`} style={{ fontWeight: active ? 600 : 400 }}>{summary}</span>}
+        {active && <button className="ghost" onClick={() => setFilters({})}>Clear filters</button>}
+      </div>
+      {open && data && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
+          {FILTER_TYPES.map(({ id, label }) => (
+            <div key={id} role="group" aria-label={label} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <span className="text-sm" style={{ fontWeight: 600, minWidth: '9.5rem' }}>{label}</span>
+              {data.facets[id].length === 0 && <span className="text-sm text-muted">None stored</span>}
+              {data.facets[id].map(({ value, count }) => {
+                const on = (filters[id] ?? []).includes(value);
+                return (
+                  <button key={value} className={`filter-btn${on ? ' active' : ''}`} aria-pressed={on}
+                    title={filterValueTitle(id, value)} onClick={() => toggle(id, value)}>
+                    {filterValueLabel(id, value)} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          <span className="text-sm text-muted">Every tool below uses the students these filters keep.</span>
         </div>
       )}
     </div>
@@ -73,7 +171,7 @@ const SORT_OPTIONS = [
   { id: 'first', label: 'First name' },
 ];
 
-function ClassListTool({ courseIds }) {
+function ClassListTool({ courseIds, filters }) {
   const [format, setFormat] = useState('first-last');
   const [separator, setSeparator] = useState('newline');
   const [sort, setSort] = useState('last');
@@ -83,12 +181,12 @@ function ClassListTool({ courseIds }) {
 
   const text = roster ? formatClassList(roster, { format, separator, sort }) : '';
 
-  // Changing the course selection invalidates whatever was generated — clear it
+  // Changing the course selection or the filters invalidates whatever was generated — clear it
   // rather than leave a list on screen that no longer matches the tick boxes.
   useEffect(() => {
     setRoster(null);
     setCopied(false);
-  }, [courseIds]);
+  }, [courseIds, filters]);
 
   // Grow the textarea to fit the full list so it's all visible without dragging
   useEffect(() => {
@@ -99,7 +197,7 @@ function ClassListTool({ courseIds }) {
   }, [text]);
 
   async function handleGenerate() {
-    const data = await getRoster(courseIds);
+    const data = await getRoster(courseIds, filters);
     setRoster(data.students);
     setCopied(false);
   }
@@ -158,7 +256,7 @@ const EMAIL_FORMATS = [
   { id: 'bare', label: 'Emails only (, separated)' },
 ];
 
-function EmailTool({ courseIds }) {
+function EmailTool({ courseIds, filters }) {
   const [type, setType] = useState('student');
   const [format, setFormat] = useState('named');
   const [result, setResult] = useState(null);
@@ -166,6 +264,12 @@ function EmailTool({ courseIds }) {
   const textareaRef = useRef(null);
 
   const text = !result ? '' : format === 'bare' ? result.addresses.join(', ') : result.formatted;
+
+  // A list made for other courses or filters no longer matches: clear it.
+  useEffect(() => {
+    setResult(null);
+    setCopied(false);
+  }, [courseIds, filters]);
 
   // Grow the textarea to fit the full list so it's all visible without dragging
   useEffect(() => {
@@ -176,7 +280,7 @@ function EmailTool({ courseIds }) {
   }, [text]);
 
   async function handleGenerate() {
-    const data = await getEmails(courseIds, type);
+    const data = await getEmails(courseIds, type, filters);
     setResult(data);
     setCopied(false);
   }
@@ -227,7 +331,7 @@ function EmailTool({ courseIds }) {
   );
 }
 
-function RandomPicker({ courseIds }) {
+function RandomPicker({ courseIds, filters }) {
   const [count, setCount] = useState(1);
   const [picked, setPicked] = useState([]);
   const [animating, setAnimating] = useState(false);
@@ -236,12 +340,14 @@ function RandomPicker({ courseIds }) {
 
   const displayName = (s) => studentFullName(s);
 
+  useEffect(() => { setPicked([]); }, [courseIds, filters]);
+
   async function handlePick() {
     setAnimating(true);
     setPicked([]);
     setDisplay(null);
 
-    const data = await getRandomStudents(courseIds, count);
+    const data = await getRandomStudents(courseIds, count, filters);
     const finalPicked = data.picked;
 
     let tick = 0;
@@ -289,15 +395,17 @@ function RandomPicker({ courseIds }) {
   );
 }
 
-function GroupGenerator({ courseIds }) {
+function GroupGenerator({ courseIds, filters }) {
   const [groupCount, setGroupCount] = useState(4);
   const [balanced, setBalanced] = useState(false);
   const [groups, setGroups] = useState(null);
 
   const displayName = (s) => studentFullName(s);
 
+  useEffect(() => { setGroups(null); }, [courseIds, filters]);
+
   async function handleGenerate() {
-    const data = await getGroups(courseIds, groupCount, balanced);
+    const data = await getGroups(courseIds, groupCount, balanced, filters);
     setGroups(data.groups);
   }
 

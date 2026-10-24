@@ -41,7 +41,7 @@ function addStudent({ first, last, preferred = null, teacher = null, courses = [
 beforeEach(() => {
   vi.mocked(getFeatures).mockReturnValue({ powerschool_alerts: false });
   const db = getDb();
-  db.exec('DELETE FROM student_ps_guardians; DELETE FROM student_powerschool; DELETE FROM parents; DELETE FROM enrolments; DELETE FROM students; DELETE FROM courses;');
+  db.exec('DELETE FROM mastery_rollups; DELETE FROM student_ps_guardians; DELETE FROM student_powerschool; DELETE FROM parents; DELETE FROM enrolments; DELETE FROM students; DELETE FROM courses;');
   courseA = db.prepare("INSERT INTO courses (schoology_section_id, course_name) VALUES ('secA', 'Course A')").run().lastInsertRowid;
   courseB = db.prepare("INSERT INTO courses (schoology_section_id, course_name) VALUES ('secB', 'Course B')").run().lastInsertRowid;
 });
@@ -430,5 +430,66 @@ describe('GET /api/tools/emails/:courseId and guardian contact status', () => {
     getDb().prepare('UPDATE students SET parent_email = ? WHERE id = ?').run('home@example.test', c);
     const { body } = await parents();
     expect(body.excluded).toBe(2);
+  });
+});
+
+// #73: every tool narrows the combined roster by the same filters; /filters lists the choices.
+describe('roster filters', () => {
+  function seed() {
+    const db = getDb();
+    const set = (id, uid, gender, gradYear, email) => db.prepare(
+      'UPDATE students SET schoology_uid = ?, gender = ?, grad_year = ?, email = ? WHERE id = ?',
+    ).run(uid, gender, gradYear, email, id);
+    const ann = addStudent({ first: 'Ann', last: 'Adams' });
+    const ben = addStudent({ first: 'Ben', last: 'Burns', courses: [courseA, courseB] });
+    const cat = addStudent({ first: 'Cat', last: 'Cole', courses: [courseB] });
+    const year = new Date().getMonth() >= 7 ? new Date().getFullYear() + 1 : new Date().getFullYear();
+    set(ann, 'u-ann', 'F', year + 3, 'ann@example.com'); // grade 9
+    set(ben, 'u-ben', 'M', year + 3, 'ben@example.com'); // grade 9
+    set(cat, 'u-cat', null, year, 'cat@example.com'); // grade 12, no gender
+    db.prepare('INSERT INTO mastery_rollups (student_uid, course_id, objective_id, is_category, grade_percentage) VALUES (?,?,?,1,?)')
+      .run('u-ann', courseA, 'c1', 90);
+    db.prepare('INSERT INTO parents (student_id, schoology_uid, first_name, last_name, email) VALUES (?,?,?,?,?)')
+      .run(ben, 'p-ben', 'Pat', 'Burns', 'pat@example.com');
+    return { ann, ben, cat };
+  }
+
+  test('/filters counts each value across the selected courses', async () => {
+    seed();
+    const { status, body } = await get(`/api/tools/filters/${courseA},${courseB}`);
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      total: 3,
+      matched: 3,
+      facets: {
+        gender: [{ value: 'F', count: 1 }, { value: 'M', count: 1 }, { value: 'none', count: 1 }],
+        grade: [{ value: '9', count: 2 }, { value: '12', count: 1 }],
+        level: [{ value: 'ED', count: 1 }, { value: 'none', count: 2 }],
+      },
+    });
+    const narrowed = await get(`/api/tools/filters/${courseA},${courseB}?grade=9&gender=M`);
+    expect(narrowed.body).toMatchObject({ total: 3, matched: 1 });
+    expect(narrowed.body.facets.gender).toHaveLength(3); // facets still count everyone
+  });
+
+  test('roster, random and groups keep only matching students, and send no filter facts', async () => {
+    seed();
+    const both = `${courseA},${courseB}`;
+    const roster = await get(`/api/tools/roster/${both}?gender=F,none`);
+    expect(roster.body.students.map((s) => s.first_name)).toEqual(['Ann', 'Cat']);
+    expect(roster.body.students[0]).not.toHaveProperty('gender');
+    const random = await get(`/api/tools/random/${both}?count=5&grade=9`);
+    expect(random.body.total).toBe(2);
+    expect(random.body.picked.map((s) => s.first_name).sort()).toEqual(['Ann', 'Ben']);
+    const groups = await get(`/api/tools/groups/${both}?count=2&level=ED`);
+    expect(groups.body.groups.flat().map((s) => s.first_name)).toEqual(['Ann']);
+  });
+
+  test('emails: a filtered-out student\'s parents are left out too', async () => {
+    seed();
+    const kept = await get(`/api/tools/emails/${courseA},${courseB}?type=both&gender=F`);
+    expect(kept.body.addresses).toEqual(['ann@example.com']);
+    const ben = await get(`/api/tools/emails/${courseA},${courseB}?type=both&gender=M`);
+    expect(ben.body.addresses).toEqual(['ben@example.com', 'pat@example.com']);
   });
 });

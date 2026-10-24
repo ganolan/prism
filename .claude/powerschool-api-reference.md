@@ -755,7 +755,7 @@ ran inside the browser loop on the browser's session and measured about 0.6 s ov
 second launch is gone: the grade pass took 480 ms for 9 sections, all from the list; whole pass 4.9-5.0 s. See "Block
 number", "Plain HTTP, no browser".)*
 
-Gender is in the same list (`…students[].gender`); Prism stores nothing from it (#164).
+Gender is in the same list (`…students[].gender`). *(2026-10-24, #73: Prism now stores it as `students.gender` from this read only, trimmed, for Class Tools' roster filter; the `section_attendance` fallback has no gender, so a section read that way keeps its students' stored gender.)*
 
 ### Guardian contacts (#66, verified 2026-10-21)
 

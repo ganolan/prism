@@ -250,6 +250,8 @@ const MIGRATIONS = [
         ELSE CAST(strftime('%s', 'now') AS INTEGER) END
       WHERE id = NEW.id;
     END`,
+  // #73: PowerSchool gender (section student list), for Class Tools' roster filter.
+  `ALTER TABLE students ADD COLUMN gender TEXT`,
 ];
 
 // Remove mastery score rows with no level. The full mastery sync stored an

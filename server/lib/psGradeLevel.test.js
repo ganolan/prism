@@ -124,12 +124,26 @@ describe('extractStudentListGradeLevels', () => {
   ];
   test('joins each student to its dcid through the photo URL and the roster', () => {
     const json = list([
-      { id: '1234567', gradeLevel: '10', photoURL: '/teachers/stpnormal/41683ph.jpeg' },
-      { id: '7654321', gradeLevel: '09', photoURL: '/teachers/stpnormal/50001ph.jpeg' },
+      { id: '1234567', gradeLevel: '10', gender: 'F', photoURL: '/teachers/stpnormal/41683ph.jpeg' },
+      { id: '7654321', gradeLevel: '09', gender: 'M', photoURL: '/teachers/stpnormal/50001ph.jpeg' },
     ]);
     expect(extractStudentListGradeLevels(json, roster)).toEqual({
       grades: [{ dcid: '41533', gradeLevel: 10 }, { dcid: '58808', gradeLevel: 9 }],
+      genders: [{ dcid: '41533', gender: 'F' }, { dcid: '58808', gender: 'M' }],
       listed: 2, unjoined: 0, noGrade: 0,
+    });
+  });
+  // #73: gender rides the same list; a joined student with no grade still gives it.
+  test('keeps each joined student\'s gender, trimmed, even without a grade; skips a blank one', () => {
+    const json = list([
+      { id: '1', gradeLevel: '', gender: ' F ', photoURL: '/teachers/stpnormal/41683ph.jpeg' },
+      { id: '2', gradeLevel: '10', gender: '', photoURL: '/teachers/stpnormal/50001ph.jpeg' },
+      { id: '3', gradeLevel: '10', gender: 'M', photoURL: '/teachers/stpnormal/99999ph.jpeg' }, // not on the roster
+    ]);
+    expect(extractStudentListGradeLevels(json, roster)).toEqual({
+      grades: [{ dcid: '58808', gradeLevel: 10 }],
+      genders: [{ dcid: '41533', gender: 'F' }],
+      listed: 3, unjoined: 1, noGrade: 1,
     });
   });
   test('counts students it cannot join or that carry no grade, and skips them', () => {
@@ -138,11 +152,11 @@ describe('extractStudentListGradeLevels', () => {
       { id: '2', gradeLevel: '10', photoURL: '' },                                  // no id in the photo path
       { id: '3', gradeLevel: '', photoURL: '/teachers/stpnormal/41683ph.jpeg' },    // no grade
     ]);
-    expect(extractStudentListGradeLevels(json, roster)).toEqual({ grades: [], listed: 3, unjoined: 2, noGrade: 1 });
+    expect(extractStudentListGradeLevels(json, roster)).toEqual({ grades: [], genders: [], listed: 3, unjoined: 2, noGrade: 1 });
   });
   test('empty or garbage input', () => {
-    expect(extractStudentListGradeLevels(null, roster)).toEqual({ grades: [], listed: 0, unjoined: 0, noGrade: 0 });
+    expect(extractStudentListGradeLevels(null, roster)).toEqual({ grades: [], genders: [], listed: 0, unjoined: 0, noGrade: 0 });
     expect(extractStudentListGradeLevels(list([{ gradeLevel: '10', photoURL: '/teachers/stpnormal/41683ph.jpeg' }]), null))
-      .toEqual({ grades: [], listed: 1, unjoined: 1, noGrade: 0 });
+      .toEqual({ grades: [], genders: [], listed: 1, unjoined: 1, noGrade: 0 });
   });
 });

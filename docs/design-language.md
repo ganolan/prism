@@ -1644,3 +1644,11 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **Handed-in work keeps the one-click Refer:** nothing is written to Schoology there.
 - **Undo mirrors it:** on a referral that wrote Missing (and Missing still set), Undo opens the same panel, "Undo the referral?", with "Also clear Missing and the IE levels in Schoology", ticked. Otherwise Undo acts at once, as before.
 - **Reuses the Flags panels' parts** (`.flag-panel__check`, `.flag-panel__line`) rather than a new modal: the action is one decision with one option.
+
+## Class Tools: past courses and roster filters (#73, 24 Oct 2026)
+
+- **Past courses sit under their own toggle,** below the current and hidden courses: a `.ghost` button "▸ Past courses (N)", with `aria-expanded`, closed by default, adding ", N selected" while any is ticked so a ticked course never hides. Open, the list groups by school year (`groupByYearAndSemester`), newest first. Empty past courses are left out, as current ones are.
+- **Select all ticks the current courses only** and keeps any past course already ticked: past courses are opt-in, one at a time.
+- **The filter bar is a card above the tools,** closed by default ("▸ Filter students"), so the page looks as before until a filter is wanted. It always states the roster size ("52 students"); with a filter set, "Showing 18 of 52 students" in bold and a Clear filters button, even while closed.
+- **One row per filter** (Gender, Grade, Overall proficiency), each a `role="group"` of `.filter-btn` pills with `aria-pressed` and the count in brackets ("Female (12)"). Pills list only values some student holds, plus the no-value pill: "Not known", "No grade", "No levels yet". Level pills show the code (ED, EX, D, EM, IE), with the full name as the title.
+- **Every tool reads the filtered roster.** A list, pick or set of groups made before the courses or filters changed is cleared, so nothing on screen belongs to another selection.

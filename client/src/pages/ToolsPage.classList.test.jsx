@@ -10,6 +10,7 @@ vi.mock('../services/api.js', () => ({
   getRandomStudents: vi.fn(),
   getGroups: vi.fn(),
   getRoster: vi.fn(),
+  getToolFilters: vi.fn(),
 }));
 
 const ROSTER = [
@@ -19,6 +20,7 @@ const ROSTER = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.getToolFilters.mockResolvedValue({ total: 2, matched: 2, facets: { gender: [], grade: [], level: [] } });
   api.getCourses.mockResolvedValue([
     { id: 7, course_name: 'AP CSP', student_count: 2, excluded: 0, hidden: 0 },
   ]);
@@ -42,7 +44,7 @@ describe('Class List tool', () => {
 
     const output = await within(card).findByRole('textbox');
     expect(output).toHaveValue('Zoe Adams\nAlex Chen');
-    expect(api.getRoster).toHaveBeenCalledWith([7]);
+    expect(api.getRoster).toHaveBeenCalledWith([7], ''); // no filter chosen
   });
 
   it('reformats the list when the format changes, without refetching the roster', async () => {

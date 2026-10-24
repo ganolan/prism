@@ -25,6 +25,7 @@ describe('readSectionGradeLevels', () => {
     const r = await readSectionGradeLevels(ps, { sectionDcid: '9001', userDcid: '100', today: TODAY });
     expect(r.source).toBe('students_integration');
     expect(sorted(r.grades)).toEqual([{ dcid: '5001', gradeLevel: 10 }, { dcid: '5002', gradeLevel: 9 }]);
+    expect(sorted(r.genders)).toEqual([{ dcid: '5001', gender: 'F' }, { dcid: '5002', gender: 'F' }]);
     expect(paths(web)).toContain('/ws/pt/v1/section/P9001/students_integration');
     expect(paths(web)).not.toContain('/ws/attendance/section_attendance');
     // /ws/pt/v1 answers 500 without exactly this Accept (AGENTS.md).
@@ -44,6 +45,7 @@ describe('readSectionGradeLevels', () => {
     const { web, ps } = await started({ failRead: (name) => name === 'students_integration' });
     const r = await readSectionGradeLevels(ps, { sectionDcid: '9001', userDcid: '100', today: TODAY });
     expect(r.source).toBe('section_attendance');
+    expect(r.genders).toEqual([]); // section_attendance carries no gender
     expect(r.fallbackReason).toMatch(/500/);
     expect(sorted(r.grades)).toEqual([{ dcid: '5001', gradeLevel: 10 }, { dcid: '5002', gradeLevel: 9 }]);
     const sa = web.requests.find((q) => q.path === '/ws/attendance/section_attendance');
@@ -88,6 +90,7 @@ describe('readGradeLevels', () => {
     const r = await readGradeLevels({ ps, sections, today: TODAY });
     expect(web.launches()).toBe(1);
     expect([...r.gradeByDcid].sort()).toEqual([['5001', 10], ['5002', 9], ['6001', 11], ['6002', 12]]);
+    expect([...r.genderByDcid.keys()].sort()).toEqual(['5001', '5002', '6001', '6002']);
     expect(r.sources).toEqual({ students_integration: 2, section_attendance: 0, failed: 0 });
   });
 

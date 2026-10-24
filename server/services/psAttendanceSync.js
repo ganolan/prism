@@ -125,6 +125,21 @@ function attendanceReader({ jar, fetchImpl }) {
 }
 
 /**
+ * Apply a Map<dcid → gender> (the section student list, #73) to the students
+ * table, joined as applyGradeLevels joins. Students absent from the map keep
+ * their stored gender. Returns the number of rows whose gender changed.
+ */
+export function applyGenders(db, genderByDcid, now = new Date()) {
+  const ts = (typeof now === 'string' ? new Date(now) : now).toISOString();
+  const update = db.prepare('UPDATE students SET gender = ?, updated_at = ? WHERE school_uid = ? AND gender IS NOT ?');
+  let updated = 0;
+  db.transaction(() => {
+    for (const [dcid, gender] of genderByDcid) updated += update.run(gender, ts, `1_${dcid}`, gender).changes;
+  })();
+  return updated;
+}
+
+/**
  * Apply a Map<dcid → gradeLevel> to the students table: set each matched
  * student's grad_year (join: students.school_uid === '1_' + dcid). Stores the
  * INVARIANT grad_year (computed from the current grade), never the raw grade.
@@ -326,18 +341,18 @@ export async function syncPsAttendance({ onProgress, courseIds, db = getDb(), de
       ? `School calendar: ${summary.schoolDays} days stored.`
       : 'School calendar: none returned, kept the stored calendar.');
   }
-  // Grade level (#164): each section's student list (students_integration, no
-  // date), with section_attendance over a date range as the fallback, on the
+  // Grade level (#164) and gender (#73): each section's student list (students_integration, no
+  // date; gender only from it), with section_attendance over a date range as the fallback, on the
   // block loop's PowerSchool session (a session that ended is started again
   // there). Best-effort: a failed section keeps its students' stored grad_year,
   // and no failure here touches the block results above, except a "Security
   // Violation Logged" page, which stops the pass (PS_SECURITY is thrown).
   if (gradeSections.length) {
     const gradeStartedAt = Date.now();
-    const { gradeByDcid, sources } = await readGradeLevels({ ps: reader.ps, sections: gradeSections, today: todayIso, log });
+    const { gradeByDcid, genderByDcid, sources } = await readGradeLevels({ ps: reader.ps, sections: gradeSections, today: todayIso, log });
     const elapsedMs = Date.now() - gradeStartedAt;
-    summary.gradeLevels = { seen: gradeByDcid.size, updated: applyGradeLevels(db, gradeByDcid), sources, elapsedMs };
-    log(`Grade levels: ${summary.gradeLevels.updated} students updated (${gradeByDcid.size} seen; sections: ${sources.students_integration} from the student list, ${sources.section_attendance} from section_attendance, ${sources.failed} failed; ${elapsedMs} ms).`);
+    summary.gradeLevels = { seen: gradeByDcid.size, updated: applyGradeLevels(db, gradeByDcid), genders: applyGenders(db, genderByDcid), sources, elapsedMs };
+    log(`Grade levels: ${summary.gradeLevels.updated} students updated (${gradeByDcid.size} seen; sections: ${sources.students_integration} from the student list, ${sources.section_attendance} from section_attendance, ${sources.failed} failed; ${elapsedMs} ms). Gender: ${summary.gradeLevels.genders} changed (${genderByDcid.size} seen).`);
   }
   log(`Done: ${summary.updated} updated, ${summary.unchanged} unchanged, ${summary.skipped} skipped (of ${summary.processed}).`);
   return summary;

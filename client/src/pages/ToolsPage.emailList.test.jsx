@@ -10,10 +10,12 @@ vi.mock('../services/api.js', () => ({
   getRandomStudents: vi.fn(),
   getGroups: vi.fn(),
   getRoster: vi.fn(),
+  getToolFilters: vi.fn(),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  api.getToolFilters.mockResolvedValue({ total: 2, matched: 2, facets: { gender: [], grade: [], level: [] } });
   api.getCourses.mockResolvedValue([
     { id: 7, course_name: 'AP CSP', student_count: 2, excluded: 0, hidden: 0 },
   ]);

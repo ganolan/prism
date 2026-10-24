@@ -4,6 +4,7 @@ import { preferredFirstName } from '../services/studentNames.js';
 import { getFeatures } from '../middleware/featureGate.js';
 import { contactsForStudents } from '../services/guardianContactStore.js';
 import { emailKey } from '../lib/guardianContacts.js';
+import { loadClassRoster, parseRosterFilters, applyRosterFilters, rosterFacets } from '../services/classRoster.js';
 
 const router = Router();
 
@@ -14,31 +15,38 @@ function parseCourseIds(param) {
   return [ids, ids.map(() => '?').join(',')];
 }
 
+// The selected courses' students, once each, ordered by surname, narrowed by the
+// query's filters (gender, grade, level: services/classRoster.js, #73).
+function filteredRoster(db, req) {
+  const [courseIds] = parseCourseIds(req.params.courseId);
+  return applyRosterFilters(loadClassRoster(db, courseIds), parseRosterFilters(req.query));
+}
+
+const NAME_FIELDS = ['id', 'first_name', 'last_name', 'preferred_name', 'preferred_name_teacher'];
+const pick = (s, fields) => Object.fromEntries(fields.map((f) => [f, s[f]]));
+
+// GET /api/tools/filters/:courseId — what the roster filters can choose from (#73):
+// { total, matched, facets: { gender, grade, level: [{ value, count }] } }, 'none' = no
+// value. Facets count the whole roster; matched counts the students the query's filters keep.
+router.get('/filters/:courseId', (req, res) => {
+  const [courseIds] = parseCourseIds(req.params.courseId);
+  const students = loadClassRoster(getDb(), courseIds);
+  const matched = applyRosterFilters(students, parseRosterFilters(req.query)).length;
+  res.json({ total: students.length, matched, facets: rosterFacets(students) });
+});
+
 // GET /api/tools/emails/:courseId — email list for one or more courses
 // :courseId is a comma-separated list of course IDs.
-// Query params: type=student|parent|both (default: student)
+// Query params: type=student|parent|both (default: student), and the roster filters.
 // Answers `excluded`: guardians left out because PowerSchool does not clear them (#66).
 router.get('/emails/:courseId', (req, res) => {
   const db = getDb();
   const type = req.query.type || 'student';
   const [courseIds, placeholders] = parseCourseIds(req.params.courseId);
 
-  const rows = db.prepare(`
-    SELECT s.id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
-           s.email, s.parent_email
-    FROM students s
-    JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
-    ORDER BY s.last_name, s.first_name
-  `).all(...courseIds);
-
-  // Dedup students enrolled in more than one of the selected courses
-  const seenStudent = new Set();
-  const students = rows.filter(s => {
-    if (seenStudent.has(s.id)) return false;
-    seenStudent.add(s.id);
-    return true;
-  });
+  // Each student once, even when enrolled in more than one of the selected courses
+  const students = filteredRoster(db, req).map(s => pick(s, [...NAME_FIELDS, 'email', 'parent_email']));
+  const keptStudents = new Set(students.map(s => s.id));
 
   // Get parents from parents table (richer than legacy parent_email field) — names + which
   // student they belong to, so each parent can be grouped under their child. A parent with
@@ -49,7 +57,7 @@ router.get('/emails/:courseId', (req, res) => {
     JOIN enrolments e ON e.student_id = p.student_id
     WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
     ORDER BY p.last_name, p.first_name
-  `).all(...courseIds);
+  `).all(...courseIds).filter(p => keptStudents.has(p.student_id));
 
   const parentsExist = parents.length > 0;
 
@@ -170,19 +178,11 @@ router.get('/emails/:courseId', (req, res) => {
 });
 
 // GET /api/tools/random/:courseId?count=1 — random name picker
-// :courseId is a comma-separated list of course IDs.
+// :courseId is a comma-separated list of course IDs; the roster filters apply.
 router.get('/random/:courseId', (req, res) => {
   const db = getDb();
   const count = Math.max(1, parseInt(req.query.count) || 1);
-  const [courseIds, placeholders] = parseCourseIds(req.params.courseId);
-
-  // DISTINCT dedups students enrolled in more than one selected course
-  const students = db.prepare(`
-    SELECT DISTINCT s.id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
-    FROM students s
-    JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
-  `).all(...courseIds);
+  const students = filteredRoster(db, req).map(s => pick(s, NAME_FIELDS));
 
   // Fisher-Yates shuffle, take first N
   const shuffled = [...students];
@@ -198,31 +198,18 @@ router.get('/random/:courseId', (req, res) => {
 });
 
 // GET /api/tools/groups/:courseId?count=4&balanced=false — group generator
-// :courseId is a comma-separated list of course IDs.
+// :courseId is a comma-separated list of course IDs; the roster filters apply.
 router.get('/groups/:courseId', (req, res) => {
   const db = getDb();
   const groupCount = Math.max(2, parseInt(req.query.count) || 4);
   const balanced = req.query.balanced === 'true';
-  const [courseIds, placeholders] = parseCourseIds(req.params.courseId);
 
-  // DISTINCT dedups students enrolled in more than one selected course.
   // Balance uses standards-based mastery proficiency, NOT raw assignment scores:
-  // the simple (unweighted) average of a student's category-level rollups
-  // (is_category = 1) across the selected course(s). Overrides are ignored — we
-  // use the synced grade_percentage. avg_pct is NULL when a student has no
-  // proficiency data yet, and those students are placed randomly below.
-  let students = db.prepare(`
-    SELECT DISTINCT s.id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
-           (SELECT ROUND(AVG(mr.grade_percentage), 1)
-            FROM mastery_rollups mr
-            WHERE mr.student_uid = s.schoology_uid
-              AND mr.course_id IN (${placeholders})
-              AND mr.is_category = 1
-              AND mr.grade_percentage IS NOT NULL) AS avg_pct
-    FROM students s
-    JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
-  `).all(...courseIds, ...courseIds);
+  // avg_pct, the simple (unweighted) average of a student's category-level
+  // rollups across the selected course(s) (services/classRoster.js). Overrides
+  // are ignored — we use the synced grade_percentage. avg_pct is null when a
+  // student has no proficiency data yet, and those students are placed randomly below.
+  const students = filteredRoster(db, req).map(s => pick(s, [...NAME_FIELDS, 'avg_pct']));
 
   if (balanced && students.some(s => s.avg_pct != null)) {
     const groups = Array.from({ length: groupCount }, () => []);
@@ -268,19 +255,10 @@ router.get('/groups/:courseId', (req, res) => {
 // GET /api/tools/roster/:courseId — plain student roster for the class-list tool
 // :courseId is a comma-separated list of course IDs. Returns the raw name fields
 // rather than a rendered name: the client owns the formatting (see
-// client/src/lib/nameFormats.js) so switching format needs no round trip.
+// client/src/lib/nameFormats.js) so switching format needs no round trip. The
+// roster filters apply.
 router.get('/roster/:courseId', (req, res) => {
-  const db = getDb();
-  const [courseIds, placeholders] = parseCourseIds(req.params.courseId);
-
-  // DISTINCT dedups students enrolled in more than one selected course.
-  const students = db.prepare(`
-    SELECT DISTINCT s.id, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher
-    FROM students s
-    JOIN enrolments e ON e.student_id = s.id
-    WHERE e.course_id IN (${placeholders}) AND e.dropped_at IS NULL
-    ORDER BY s.last_name, s.first_name
-  `).all(...courseIds);
+  const students = filteredRoster(getDb(), req).map(s => pick(s, NAME_FIELDS));
 
   res.json({ students, count: students.length });
 });

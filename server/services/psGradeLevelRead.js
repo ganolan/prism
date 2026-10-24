@@ -16,7 +16,8 @@
  *   GET /ws/attendance/section_attendance over ~15 in-session days (a section is
  *   listed only on days it meets), deduped per dcid.
  *
- * Read only. The same list carries gender; Prism stores nothing from it.
+ * Read only. The same list carries gender, kept for Class Tools' filter (#73);
+ * the section_attendance fallback has none.
  * See .claude/powerschool-api-reference.md "Grade level from the section student
  * list (#164)".
  */
@@ -56,8 +57,8 @@ export async function readAttendanceGrades(ps, { sectionDcid, userDcid, sectionI
 
 /**
  * One section's grade levels. → { source: 'students_integration' |
- * 'section_attendance', grades: [{ dcid, gradeLevel }], sectionInfo,
- * fallbackReason? }. Throws when both reads fail (the caller keeps the
+ * 'section_attendance', grades: [{ dcid, gradeLevel }], genders: [{ dcid,
+ * gender }] (empty from the fallback), sectionInfo, fallbackReason? }. Throws when both reads fail (the caller keeps the
  * section's stored grades).
  */
 export async function readSectionGradeLevels(ps, { sectionDcid, userDcid, sectionInfo, today }) {
@@ -66,14 +67,14 @@ export async function readSectionGradeLevels(ps, { sectionDcid, userDcid, sectio
   try {
     if (!info?.psmSectionId) throw new Error('no psmSectionId');
     const read = await readStudentListGrades(ps, { sectionDcid, psmSectionId: info.psmSectionId });
-    if (read.grades.length) return { source: 'students_integration', grades: read.grades, sectionInfo: info };
+    if (read.grades.length) return { source: 'students_integration', grades: read.grades, genders: read.genders, sectionInfo: info };
     throw new Error(`the student list joined no student (${read.listed} listed)`);
   } catch (err) {
     if (err.code === 'PS_SECURITY') throw err; // never fall back past a security page
     fallbackReason = err.message;
   }
   const grades = await readAttendanceGrades(ps, { sectionDcid, userDcid, sectionInfo: info, today });
-  return { source: 'section_attendance', grades, sectionInfo: info, fallbackReason };
+  return { source: 'section_attendance', grades, genders: [], sectionInfo: info, fallbackReason };
 }
 
 /**
@@ -84,11 +85,11 @@ export async function readSectionGradeLevels(ps, { sectionDcid, userDcid, sectio
  * for that section.
  *
  * sections: [{ name, schoologySectionId, sectionDcid, userDcid, sectionInfo? }]
- * → { gradeByDcid: Map<dcid, gradeLevel>, sources: { students_integration,
+ * → { gradeByDcid: Map<dcid, gradeLevel>, genderByDcid: Map<dcid, gender>, sources: { students_integration,
  *     section_attendance, failed }, error? }
  */
 export async function readGradeLevels({ ps, sections, today, log = () => {}, timeBudgetMs = TIME_BUDGET_MS }) {
-  const out = { gradeByDcid: new Map(), sources: { students_integration: 0, section_attendance: 0, failed: 0 } };
+  const out = { gradeByDcid: new Map(), genderByDcid: new Map(), sources: { students_integration: 0, section_attendance: 0, failed: 0 } };
   const startedAt = Date.now();
   for (const sec of sections) {
     if (!sec.sectionDcid) continue;
@@ -117,6 +118,7 @@ export async function readGradeLevels({ ps, sections, today, log = () => {}, tim
         r = await readSectionGradeLevels(ps, args);
       }
       for (const { dcid, gradeLevel } of r.grades) out.gradeByDcid.set(dcid, gradeLevel);
+      for (const { dcid, gender } of r.genders) out.genderByDcid.set(dcid, gender);
       out.sources[r.source]++;
       if (r.source !== 'students_integration') log(`${sec.name}: grade levels from section_attendance (${r.fallbackReason})`);
     } catch (err) {

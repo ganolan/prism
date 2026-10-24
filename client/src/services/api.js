@@ -111,10 +111,13 @@ export const deleteNote = (id) => request(`/notes/${id}`, { method: 'DELETE' });
 
 // Class tools — courseIds may be a single id or an array of ids (sent comma-separated)
 const courseList = (courseIds) => [].concat(courseIds).join(',');
-export const getEmails = (courseIds, type) => request(`/tools/emails/${courseList(courseIds)}?type=${type || 'student'}`);
-export const getRandomStudents = (courseIds, count) => request(`/tools/random/${courseList(courseIds)}?count=${count || 1}`);
-export const getRoster = (courseIds) => request(`/tools/roster/${courseList(courseIds)}`);
-export const getGroups = (courseIds, count, balanced) => request(`/tools/groups/${courseList(courseIds)}?count=${count || 4}&balanced=${balanced || false}`);
+// `filters` is a roster filter query (lib/rosterFilters.js rosterFilterQuery, #73), '' for none.
+const withFilters = (path, filters) => (filters ? `${path}${path.includes('?') ? '&' : '?'}${filters}` : path);
+export const getEmails = (courseIds, type, filters) => request(withFilters(`/tools/emails/${courseList(courseIds)}?type=${type || 'student'}`, filters));
+export const getRandomStudents = (courseIds, count, filters) => request(withFilters(`/tools/random/${courseList(courseIds)}?count=${count || 1}`, filters));
+export const getRoster = (courseIds, filters) => request(withFilters(`/tools/roster/${courseList(courseIds)}`, filters));
+export const getGroups = (courseIds, count, balanced, filters) => request(withFilters(`/tools/groups/${courseList(courseIds)}?count=${count || 4}&balanced=${balanced || false}`, filters));
+export const getToolFilters = (courseIds, filters) => request(withFilters(`/tools/filters/${courseList(courseIds)}`, filters));
 
 // Grading scales — global lookup map
 export const getGradingScales = () => request('/grading-scales');

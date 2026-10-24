@@ -119,13 +119,14 @@ export function studentIdFromPhotoUrl(url) {
 }
 
 /**
- * Grade levels from a students_integration answer
- * ({ "student-list": { students: [{ id, gradeLevel, photoURL, … }] } }), joined
- * to the dcid through the section roster (getStudentsInSection.json:
- * [{ studentid, studentdcid }]). → { grades: [{ dcid, gradeLevel }], listed,
- * unjoined, noGrade }: listed = students in the list, unjoined = students with a
- * grade but no roster match, noGrade = students without an integer grade.
- * Gender is in the same list; Prism stores nothing from it (#164).
+ * Grade levels and genders from a students_integration answer
+ * ({ "student-list": { students: [{ id, gender, gradeLevel, photoURL, … }] } }),
+ * joined to the dcid through the section roster (getStudentsInSection.json:
+ * [{ studentid, studentdcid }]). → { grades: [{ dcid, gradeLevel }], genders:
+ * [{ dcid, gender }], listed, unjoined, noGrade }: listed = students in the list,
+ * unjoined = students with a grade but no roster match, noGrade = students
+ * without an integer grade. A joined student's non-blank gender is kept even
+ * without a grade (#73, Class Tools' filter).
  */
 export function extractStudentListGradeLevels(json, roster) {
   const students = json?.['student-list']?.students;
@@ -134,11 +135,13 @@ export function extractStudentListGradeLevels(json, roster) {
   for (const r of Array.isArray(roster) ? roster : []) {
     if (r && r.studentid != null && r.studentdcid != null) dcidByStudentId.set(String(r.studentid), String(r.studentdcid));
   }
-  const out = { grades: [], listed: list.length, unjoined: 0, noGrade: 0 };
+  const out = { grades: [], genders: [], listed: list.length, unjoined: 0, noGrade: 0 };
   for (const s of list) {
     const gradeLevel = parseGradeLevel(s?.gradeLevel);
-    if (gradeLevel == null) { out.noGrade++; continue; }
     const dcid = dcidByStudentId.get(studentIdFromPhotoUrl(s?.photoURL));
+    const gender = typeof s?.gender === 'string' ? s.gender.trim() : '';
+    if (dcid && gender) out.genders.push({ dcid, gender });
+    if (gradeLevel == null) { out.noGrade++; continue; }
     if (!dcid) { out.unjoined++; continue; }
     out.grades.push({ dcid, gradeLevel });
   }

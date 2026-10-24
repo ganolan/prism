@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS students (
   parent_phone TEXT,
   picture_url TEXT,
   grad_year INTEGER,
+  gender TEXT,                          -- PowerSchool's section student list (one letter), for Class Tools' filter (#73)
   school_uid TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))

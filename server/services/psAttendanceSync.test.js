@@ -8,7 +8,7 @@ vi.mock('../db/index.js', async (importOriginal) => {
 });
 
 import { migrate } from '../db/index.js';
-import { syncPsAttendance, applyGradeLevels } from './psAttendanceSync.js';
+import { syncPsAttendance, applyGradeLevels, applyGenders } from './psAttendanceSync.js';
 import { fakePowerSchoolWeb } from '../testing/fakePowerSchoolWeb.js';
 
 function seed(db, name, { archived = 0, excluded = 0 } = {}) {
@@ -74,6 +74,8 @@ describe('syncPsAttendance over plain HTTP (no browser, #141)', () => {
     const s = await run();
     expect(s).toMatchObject({ processed: 2, updated: 2, skipped: 0, schoolDays: 3, gradeLevels: { seen: 1, updated: 1 } });
     expect(s.gradeLevels.sources).toMatchObject({ students_integration: 1, failed: 0 });
+    expect(s.gradeLevels.genders).toBe(1); // #73: the same list gives gender
+    expect(h.db.prepare('SELECT gender FROM students WHERE id = ?').get(stu).gender).toBe('F');
     expect(course(a).block_number).toBe('3');
     expect(course(b).block_number).toBe('6');
     expect(web.launches()).toBe(1); // the grade pass shares the block loop's session
@@ -269,5 +271,25 @@ describe('applyGradeLevels', () => {
     const updated = applyGradeLevels(h.db, new Map([['42302', 10]]), '2026-01-15T00:00:00.000Z');
     expect(updated).toBe(1);
     expect(h.db.prepare('SELECT grad_year FROM students WHERE id = ?').get(matched).grad_year).toBe(2028);
+  });
+});
+
+// #73: gender from the section student list, for Class Tools' filter.
+describe('applyGenders', () => {
+  beforeEach(() => { h.db = new Database(':memory:'); migrate(h.db); });
+  const seed = (schoolUid, gender = null) => h.db.prepare(
+    'INSERT INTO students (first_name, last_name, school_uid, gender) VALUES (?, ?, ?, ?)',
+  ).run('First', 'Last', schoolUid, gender).lastInsertRowid;
+  const genderOf = (id) => h.db.prepare('SELECT gender FROM students WHERE id = ?').get(id).gender;
+
+  test('sets gender for matched students, counts only changes, leaves others untouched', () => {
+    const a = seed('1_42302');
+    const b = seed('1_42303', 'M');
+    const other = seed('1_77777', 'F');
+    const updated = applyGenders(h.db, new Map([['42302', 'F'], ['42303', 'M'], ['00000', 'M']]), '2026-01-15T00:00:00.000Z');
+    expect(updated).toBe(1);
+    expect(genderOf(a)).toBe('F');
+    expect(genderOf(b)).toBe('M');
+    expect(genderOf(other)).toBe('F');
   });
 });

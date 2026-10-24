@@ -20,6 +20,22 @@ describe('PublishToggle (#184)', () => {
     expect(screen.queryByText('Students see it at once.')).not.toBeInTheDocument();
   });
 
+  it('the confirm is a popover at the switch: Publish has focus; Escape or a click outside closes it (24 Oct 2026)', () => {
+    render(<><PublishToggle courseId={4} assignment={TASK} /><p>Elsewhere</p></>);
+    const toggle = screen.getByRole('switch');
+    fireEvent.click(toggle);
+    const pop = screen.getByRole('group', { name: 'Publish "Paper Test (F)" on Schoology' });
+    expect(pop).toHaveClass('publish-pop');
+    expect(screen.getByRole('button', { name: 'Publish' })).toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('group')).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+    fireEvent.click(toggle);
+    fireEvent.mouseDown(screen.getByText('Elsewhere'));
+    expect(screen.queryByRole('group')).not.toBeInTheDocument();
+    expect(setAssessmentPublished).not.toHaveBeenCalled();
+  });
+
   it('publishes, and reports the state Schoology read back', async () => {
     const onChange = vi.fn();
     vi.mocked(setAssessmentPublished).mockResolvedValue({ assignmentId: 50, published: 1, changed: true });

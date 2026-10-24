@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries, getSubmissionFiles, getRubricConfig } from '../services/api.js';
 import { PublishConfirm, PublishDone } from '../components/PublishTask.jsx';
@@ -1534,6 +1534,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
   const [makeUpError, setMakeUpError] = useState(null);
   // The row whose publish confirm is open ({ id, published }), and the last result.
   const [publishAsk, setPublishAsk] = useState(null);
+  const closePublishAsk = useCallback(() => setPublishAsk(null), []);
   const [publishBusy, setPublishBusy] = useState(false);
   const [publishDone, setPublishDone] = useState(null);
   const [publishError, setPublishError] = useState(null);
@@ -1666,7 +1667,7 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                         type="button"
                         className={`publish-btn${unpublished ? '' : ' publish-btn--quiet'}`}
                         aria-expanded={publishAsk?.id === a.id}
-                        onClick={() => setPublishAsk(publishAsk?.id === a.id ? null : { id: a.id, published: unpublished ? 1 : 0 })}
+                        onClick={(e) => setPublishAsk(publishAsk?.id === a.id ? null : { id: a.id, published: unpublished ? 1 : 0, anchor: e.currentTarget })}
                       >
                         {unpublished ? 'Publish' : 'Unpublish'}
                       </button>
@@ -1700,8 +1701,8 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                     </span>
                   )}
                   {publishAsk?.id === a.id && (
-                    <PublishConfirm title={a.title} published={publishAsk.published} busy={publishBusy}
-                      onConfirm={() => confirmPublish(a, publishAsk.published)} onCancel={() => setPublishAsk(null)} />
+                    <PublishConfirm anchor={publishAsk.anchor} title={a.title} published={publishAsk.published} busy={publishBusy}
+                      onConfirm={() => confirmPublish(a, publishAsk.published)} onCancel={closePublishAsk} />
                   )}
                   {publishDone?.id === a.id && <PublishDone published={publishDone.published} />}
                 </div>

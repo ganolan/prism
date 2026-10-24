@@ -4,4 +4,6 @@
 // group. The teacher cannot read such a section's grades (403) and its "students" are someone
 // else's, with the teacher among them. Verified 24 Oct 2026: 83 listed, 3 with admin 0 (MAD
 // 3(A-B) 21-22, `5166469329`, and two HS Interim (Faculty) sections). A row with no admin field is kept.
+// An admin section is the teacher's course even when a colleague taught it: teachers add each other as
+// admin to co-teach, and Graham took over his predecessor's 2021-22 courses that way (Graham, 24 Oct 2026).
 export const isTeacherOf = (section) => !('admin' in section) || String(section.admin) === '1';

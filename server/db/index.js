@@ -223,6 +223,12 @@ const MIGRATIONS = [
     course_id INTEGER NOT NULL REFERENCES courses(id),
     section_name TEXT
   )`,
+  // #160: a student's confirmed extra time (schema.sql has the same table, with its notes).
+  `CREATE TABLE IF NOT EXISTS student_extra_time (
+    student_id INTEGER PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+    percent INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
   // #174: the flag date (schema.sql has the column, with its note). Every write to a Schoology
   // record restamps its timestamp (verified 2026-10-21/22), so the read that first shows a flag
   // carries the flag's write time in submitted_at; a write that leaves submitted_at alone (Prism's

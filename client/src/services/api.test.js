@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as api from './api.js';
-import { getSyncRuns, getSyncRun, getSyncRunEvents, getCurrentSync, previewStatusLine, getStatusLineUntil, undoResubmission, undoExtension, recordExtension } from './api.js';
+import { getSyncRuns, getSyncRun, getSyncRunEvents, getCurrentSync, previewStatusLine, getStatusLineUntil, undoResubmission, undoExtension, recordExtension, getExtraTime, setExtraTime, clearExtraTime } from './api.js';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -129,6 +129,21 @@ describe('assessment drafts', () => {
     expect(f.mock.calls.map((c) => c[0])).toEqual([
       '/api/assessment-drafts?assignment_id=8',
       '/api/assessment-drafts?assignment_id=8&student_id=7',
+    ]);
+  });
+});
+
+describe('confirmed extra time (#160)', () => {
+  it('getExtraTime / setExtraTime / clearExtraTime hit the right URLs with the right bodies', async () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) });
+    vi.stubGlobal('fetch', f);
+    await getExtraTime([3, 4]);
+    await setExtraTime(3, 25);
+    await clearExtraTime(3);
+    expect(f.mock.calls.map((c) => [c[0], c[1].method, c[1].body])).toEqual([
+      ['/api/extra-time?studentIds=3,4', undefined, undefined],
+      ['/api/extra-time/3', 'PUT', '{"percent":25}'],
+      ['/api/extra-time/3', 'DELETE', undefined],
     ]);
   });
 });

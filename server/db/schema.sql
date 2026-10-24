@@ -929,3 +929,12 @@ CREATE TABLE IF NOT EXISTS excused_grades (
   restored_at TEXT,
   PRIMARY KEY (student_id, assignment_id)
 );
+
+-- #160: a student's confirmed extra time on tests, as a percentage (0 to 200). Prism-owned: the teacher
+-- confirms a figure Prism suggests from the plan text (server/lib/extraTime.js), once. It belongs to the
+-- student, not a course, so Test day shows it in every course the student is in.
+CREATE TABLE IF NOT EXISTS student_extra_time (
+  student_id INTEGER PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+  percent INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);

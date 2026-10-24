@@ -370,3 +370,10 @@ export const getAssignmentFileSummaries = (assignmentId) => request(`/submission
 // also queues a background read of their uploads in current courses unless refresh is false.
 export const getStudentFileSummaries = (studentId, { refresh = true } = {}) =>
   request(`/submission-files/student/${studentId}${refresh ? '' : '?refresh=0'}`);
+
+// A student's confirmed extra time on tests, in percent (#160, Test day). Prism-owned; belongs to the student.
+// getExtraTime: { [student id]: { percent, updatedAt } }, students without a figure absent.
+export const getExtraTime = (studentIds) => request(`/extra-time?studentIds=${studentIds.map(encodeURIComponent).join(',')}`);
+export const setExtraTime = (studentId, percent) =>
+  request(`/extra-time/${studentId}`, { method: 'PUT', body: JSON.stringify({ percent }) });
+export const clearExtraTime = (studentId) => request(`/extra-time/${studentId}`, { method: 'DELETE' });

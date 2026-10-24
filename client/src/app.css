@@ -1146,6 +1146,19 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .publish-confirm__q b { font-weight: 600; }
 .publish-confirm__warn { color: var(--badge-amber-text); }
 .publish-done { flex-basis: 100%; font-size: 0.78rem; color: var(--badge-green-text); }
+/* The assessment page's header toggle (#184): the task's published state as a switch; changing it
+   opens the same .publish-confirm under the header. */
+.publish-toggle { display: inline-flex; align-items: center; gap: 0.4rem; padding: 2px 10px 2px 4px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--card-bg); color: var(--text-muted); font: inherit; font-size: 0.78rem; cursor: pointer; }
+.publish-toggle:hover, .publish-toggle[aria-expanded="true"] { border-color: var(--accent); }
+.publish-toggle__track { position: relative; width: 26px; height: 15px; border-radius: 8px; background: var(--bg-subtle);
+  border: 1px solid var(--border); transition: background 0.15s; }
+.publish-toggle__knob { position: absolute; top: 1px; left: 1px; width: 11px; height: 11px; border-radius: 50%;
+  background: var(--card-bg); box-shadow: var(--card-shadow-hover); transition: left 0.15s; }
+.publish-toggle--on { color: var(--text); }
+.publish-toggle--on .publish-toggle__track { background: var(--accent); }
+.publish-toggle--on .publish-toggle__knob { left: 12px; }
+.publish-error { flex-basis: 100%; margin: 0; }
 
 /* Linked quizzes: Questions tab rows open from anywhere on their first line; the
    collapsed stem is one line, cut by an ellipsis at whatever width is left. */

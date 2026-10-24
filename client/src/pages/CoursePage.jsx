@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries, getSubmissionFiles, getRubricConfig } from '../services/api.js';
+import { PublishConfirm, PublishDone } from '../components/PublishTask.jsx';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
@@ -1699,25 +1700,10 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                     </span>
                   )}
                   {publishAsk?.id === a.id && (
-                    <div className="publish-confirm" role="group" aria-label={`${publishAsk.published ? 'Publish' : 'Unpublish'} "${a.title}" on Schoology`}>
-                      <span className="publish-confirm__q">
-                        {publishAsk.published ? 'Publish' : 'Unpublish'} <b>{a.title}</b> on Schoology?{' '}
-                        <span className="publish-confirm__warn">
-                          {publishAsk.published ? 'Students see it at once.' : 'Students stop seeing it at once.'}
-                        </span>
-                      </span>
-                      <button type="button" className={publishAsk.published ? 'primary' : 'primary danger'} disabled={publishBusy}
-                        onClick={() => confirmPublish(a, publishAsk.published)}>
-                        {publishAsk.published ? 'Publish' : 'Unpublish'}
-                      </button>
-                      <button type="button" className="ghost" disabled={publishBusy} onClick={() => setPublishAsk(null)}>Cancel</button>
-                    </div>
+                    <PublishConfirm title={a.title} published={publishAsk.published} busy={publishBusy}
+                      onConfirm={() => confirmPublish(a, publishAsk.published)} onCancel={() => setPublishAsk(null)} />
                   )}
-                  {publishDone?.id === a.id && (
-                    <div role="status" className="publish-done">
-                      {publishDone.published ? 'Published' : 'Unpublished'} on Schoology (checked).
-                    </div>
-                  )}
+                  {publishDone?.id === a.id && <PublishDone published={publishDone.published} />}
                 </div>
               );
             })}

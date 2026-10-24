@@ -2017,7 +2017,7 @@ describe('AssessmentSummaryPage — no write controls where Prism cannot write t
   }
   const data = (course) => ({
     course: { id: 4, course_name: 'Course', block_number: null, ...course },
-    assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
+    assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', published: 1, mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
     topics: TOPICS,
     students: [makeStudent()],
   });
@@ -2027,6 +2027,8 @@ describe('AssessmentSummaryPage — no write controls where Prism cannot write t
     renderPage();
     await waitFor(() => expect(document.querySelector('.resubmit-control')).toHaveTextContent(/Ask to resubmit/));
     expect(screen.getByRole('button', { name: /Flags/ })).toBeInTheDocument();
+    // The header's publish toggle (#184) shows the task's state.
+    expect(screen.getByRole('switch', { name: 'Published' })).toHaveAttribute('aria-checked', 'true');
   });
 
   it.each([
@@ -2041,6 +2043,7 @@ describe('AssessmentSummaryPage — no write controls where Prism cannot write t
       await screen.findByPlaceholderText(/Teacher comment/i);
       expect(document.querySelector('.resubmit-control')).toBeNull();
       expect(screen.queryByRole('button', { name: /Flags/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('switch', { name: /Published|Unpublished/ })).not.toBeInTheDocument();
     },
   );
 });

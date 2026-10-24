@@ -12,6 +12,7 @@ import { LEVELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import RubricManagerModal from '../components/RubricManagerModal.jsx';
 import AiSparkle from '../components/AiSparkle.jsx';
 import SchoologyLink from '../components/SchoologyLink.jsx';
+import PublishToggle from '../components/PublishTask.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
 import QuizSetupModal from '../components/quiz/QuizSetupModal.jsx';
 import QuestionsTab from '../components/quiz/QuestionsTab.jsx';
@@ -711,6 +712,12 @@ export default function AssessmentSummaryPage() {
             label="View in Schoology"
             style={{ fontSize: '0.78rem' }}
           />
+          {/* Publish or unpublish the task on Schoology (#184), where Prism can write. An unpublished
+              task hides every grade and comment on it, which Triage counts as feedback hidden. */}
+          {data.course?.writable === true && assignment.id != null && (
+            <PublishToggle courseId={data.course.id} assignment={assignment}
+              onChange={(published) => setData((d) => (d ? { ...d, assignment: { ...d.assignment, published } } : d))} />
+          )}
           {/* #58: when this task last had a full sync, and the button for one now; the check line is
               the page's own background read (#52, #108). */}
           <SyncStatus

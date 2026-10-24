@@ -1517,6 +1517,7 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 - **No room taken while hidden:** the quiet button floats over the row's right end (absolute, opaque card fill), so a hidden button never wraps a long title to an empty second line.
 - **Confirm under the row** (the make-up tracking pattern): "Publish <b>title</b> on Schoology? Students see it at once." with **Publish** (`.primary`) / Cancel, or "Students stop seeing it at once." with **Unpublish** (`.primary.danger`). After the write, a green line "Published on Schoology (checked)." for 5 seconds; a refusal shows in the tab's `.alert.alert-warning`.
 - **Live courses only**, like the make-up chip. The row shows the state Schoology read back after the write.
+- **On the assessment page too, as a toggle (#184, 24 Oct 2026, Graham's choice):** the header shows a switch, "Published" or "Unpublished", beside View in Schoology (`PublishToggle`, `.publish-toggle`: a pill holding a small track and knob, accent when on). Flipping it opens the same confirm under the header, then the same green "checked" line; a refusal shows as a warning there. Both pages draw the confirm and the line from `client/src/components/PublishTask.jsx`. Shown only where Prism can write (`course.writable`). Why: Triage's Unfinished grading counts every graded student on an unpublished task as feedback hidden, and its row opens this page, so the fix is one click from the reason.
 
 ## Remote sign-in to Schoology (October 2026, #136)
 

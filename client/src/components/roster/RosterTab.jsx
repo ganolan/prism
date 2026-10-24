@@ -6,6 +6,7 @@ import CommentsPopover from './CommentsPopover.jsx';
 import CopyEmailsPopover from './CopyEmailsPopover.jsx';
 import NeedsAttention from './NeedsAttention.jsx';
 import TestDay from './TestDay.jsx';
+import MasteryView from './MasteryView.jsx';
 import { usePrivateDetails } from '../../lib/privateDetails.js';
 import { useStickyTab } from '../../hooks/useStickyTab.js';
 import { forRoster } from '../../lib/psAlerts.js';
@@ -19,11 +20,12 @@ import { getCourseCommentSummaries } from '../../services/api.js';
 //
 // Four modes, remembered like the course tabs (`?mode=`). With Private details off, Needs attention,
 // Test day and Mastery each show their explanation box (Test day keeps its test picker and length).
-// Mastery has a slot below until it is built.
-// Props: course, students (with dropped ones, `dropped_at`), mastery, triage (CoursePage's own getTriage
+// Props: course (`linked`: a set of linked sections, where Mastery's override is disabled), students
+// (with dropped ones, `dropped_at`), mastery (getMasteryForCourse), triage (CoursePage's own getTriage
 // answer, as the rail reads it), gradebook (CoursePage's getGradebook: the flag on overdue work, Test day's tests),
 // onTriageChanged (after a Needs attention write: CoursePage re-reads triage), onFlagChanged (after one
-// that changed a Schoology flag: the gradebook too), onMasteryChanged, courseId.
+// that changed a Schoology flag: the gradebook too), onMasteryChanged (after a Mastery override: CoursePage
+// re-reads mastery), courseId.
 
 export const ROSTER_MODES = [
   { id: 'roster', label: 'Roster' },
@@ -51,11 +53,6 @@ export function LockedBox({ title }) {
       <span>Turn on Private details to see it. It stays hidden so the roster is safe to project.</span>
     </div>
   );
-}
-
-// The slot for the mode still to be built (#160 Task 10).
-function MasteryMode({ on }) {
-  return on ? <p className="text-sm text-muted">Mastery is on its way.</p> : <LockedBox title="Levels and grades are private." />;
 }
 
 // Roster mode: the cards, and with Private details on the filters and Copy emails.
@@ -93,7 +90,7 @@ function RosterMode({ on, courseId, active, dropped, unread, filters, setFilters
   );
 }
 
-export default function RosterTab({ course = null, students, triage = null, gradebook = null, onTriageChanged, onFlagChanged, courseId }) {
+export default function RosterTab({ course = null, students, mastery = null, triage = null, gradebook = null, onTriageChanged, onFlagChanged, onMasteryChanged, courseId }) {
   const [mode, setMode] = useStickyTab('roster-mode', 'roster', { param: 'mode' });
   const current = ROSTER_MODES.some((m) => m.id === mode) ? mode : 'roster';
   const [on] = usePrivateDetails();
@@ -157,7 +154,10 @@ export default function RosterTab({ course = null, students, triage = null, grad
       {current === 'testday' && (
         <TestDay on={on} students={active} gradebook={gradebook} locked={<LockedBox title="Extra time for learning plans is private." />} />
       )}
-      {current === 'mastery' && <MasteryMode on={on} />}
+      {current === 'mastery' && (
+        <MasteryView on={on} locked={<LockedBox title="Levels and grades are private." />} mastery={mastery} students={active}
+          courseId={courseId} linked={Boolean(course?.linked)} onMasteryChanged={onMasteryChanged} />
+      )}
       {on && popup?.kind === 'alert' && <AlertPopover student={popup.student} alert={popup.alert} anchor={popup.anchor} onClose={closePopup} />}
       {on && popup?.kind === 'comments' && <CommentsPopover student={popup.student} courseId={courseId} anchor={popup.anchor} onClose={closePopup} />}
     </div>

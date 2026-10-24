@@ -1834,6 +1834,96 @@ button.test-day-card__btn { padding: 0.3rem 0.75rem; font-size: 0.78rem; }
 .test-day-card__line:empty { display: none; }
 button.test-day-card__show { padding: 0; font-size: 0.78rem; color: var(--accent); }
 .test-day-card__error { color: var(--badge-amber-text); }
+/* Mastery: Prism's level beside Schoology's. Fixed column widths (--m-p Prism, --m-s Schoology, --m-gs the
+   grade Schoology's levels give) and a topic track as wide as the longest category (--maxt chips of --sq),
+   so the levels line up in one column down the page. Level fills come from LEVEL_COLORS. */
+.mastery { --sq: 30px; --m-p: 46px; --m-s: 88px; --m-gs: 108px; display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+.mastery-cats { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.mastery-all { display: flex; flex-direction: column; gap: 6px; --track: calc(var(--maxt) * (var(--sq) + 3px) - 3px); }
+.mastery-head, .mastery-card { display: grid; grid-template-columns: 34px minmax(120px, 220px) auto auto minmax(0, 1fr); column-gap: 12px; }
+.mastery-head { padding: 0 12px; align-items: end; }
+.mastery-head__lines { grid-column: 3; display: grid; grid-template-columns: 26px var(--track) 2px auto; column-gap: 8px; align-items: end; }
+.mastery-head__grades { grid-column: 4; display: grid; grid-template-columns: var(--m-p) var(--m-gs); column-gap: 6px; padding-left: 14px; align-items: end; }
+.mastery-hl { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); display: inline-flex; gap: 4px; align-items: center; justify-content: center; white-space: nowrap; }
+.mastery-hl--start { justify-content: flex-start; }
+.mastery-head__grade { flex-direction: column; gap: 2px; }
+.mastery-head__grade button { font-size: 0.68rem; }
+.mastery-phone-help { display: none; font-size: 0.76rem; color: var(--text-muted); gap: 10px; flex-wrap: wrap; align-items: center; }
+.mastery-card { grid-template-areas: "av id ln gr ."; align-items: center; row-gap: 8px; padding: 8px 12px; background: var(--card-bg);
+  border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+.mastery-card:hover { box-shadow: var(--card-shadow-hover); }
+.mastery-card--class { background: var(--bg-subtle); cursor: default; }
+.mastery-card--class:hover { box-shadow: none; }
+.mastery-card__avatar { grid-area: av; }
+.mastery .roster-card__photo { width: 34px; height: 34px; font-size: 0.78rem; }
+.mastery .mastery-class-photo { font-size: 0.58rem; }
+.mastery-card__id { grid-area: id; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mastery-card__name { font-size: 0.95rem; font-weight: 650; color: var(--text); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+a.mastery-card__name:hover { color: var(--accent); }
+.mastery-card__lines { grid-area: ln; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.mastery-card__grade { grid-area: gr; align-self: stretch; display: flex; }
+.mastery-line { display: grid; grid-template-columns: 26px var(--track) 2px auto; column-gap: 8px; align-items: center; justify-content: start; }
+.mastery-cat { width: 26px; height: 24px; border-radius: 5px; background: var(--accent-light); color: var(--accent); font-size: 0.7rem; font-weight: 800; display: grid; place-items: center; cursor: help; }
+.mastery-topics { display: flex; gap: 3px; }
+.mastery-topic { width: var(--sq); height: 24px; border-radius: 5px; display: grid; place-items: center; font-size: 0.66rem; font-weight: 750; flex: none; cursor: default; }
+.mastery-topic--none { background: var(--card-bg); box-shadow: inset 0 0 0 1px var(--border); color: var(--text-muted); }
+.mastery-divider { width: 2px; align-self: stretch; background: var(--accent); opacity: 0.3; border-radius: 1px; }
+.mastery-pair { display: grid; grid-template-columns: var(--m-p) var(--m-s); column-gap: 6px; align-items: center; justify-items: center; }
+.mastery-level { width: var(--m-p); height: 28px; border-radius: 6px; display: inline-grid; place-items: center; font-size: 0.8rem; font-weight: 800; cursor: default; }
+.mastery-level--none { box-shadow: inset 0 0 0 1px var(--border); color: var(--text-muted); }
+.mastery-blank { width: 100%; height: 28px; }
+/* Schoology's chip: faint (dashed, muted) when it agrees with Prism; filled in its level's colour with an
+   amber ring when it differs, so it stands out down a column. No badge (Graham, 25 Oct 2026). */
+.sgc { width: 64px; max-width: 100%; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
+  font-family: inherit; font-size: 0.78rem; font-weight: 800; border: 1.5px dashed var(--border); background: var(--card-bg);
+  color: var(--text-muted); padding: 0; cursor: pointer; }
+button.sgc:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.sgc.off { border: 0; box-shadow: 0 0 0 2.5px var(--warning); color: var(--text); }
+button.sgc:disabled { cursor: not-allowed; }
+.sgc--grade { cursor: default; font-size: 0.82rem; }
+.mastery-grade { display: grid; grid-template-columns: var(--m-p) var(--m-gs); column-gap: 6px; align-items: center; justify-items: center;
+  padding-left: 12px; border-left: 2px solid var(--border); align-self: stretch; align-content: center; }
+.mastery-grade__prism { font-size: 1.3rem; font-weight: 800; line-height: 1; cursor: default; }
+/* One category: a short row per student under a header that stays on screen. Sticky works only with
+   no overflow container around it, so nothing here sets overflow; the columns shrink instead. */
+.mastery-one { display: flex; flex-direction: column; gap: 4px; }
+.mastery-sortbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.78rem; color: var(--text-muted); min-height: 30px; }
+.mastery-row { display: grid; grid-template-columns: 34px minmax(130px, 220px) repeat(var(--n), minmax(40px, 1fr)) 2px auto; column-gap: 8px;
+  align-items: center; padding: 6px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card-bg); cursor: pointer; }
+.mastery-row--class { background: var(--bg-subtle); cursor: default; }
+.mastery-row--head { position: sticky; top: 0; z-index: 3; align-items: end; padding: 8px 12px 6px; cursor: default;
+  border-radius: 0; border-width: 0 0 1px; }
+.mastery-row__who { display: contents; }
+.mastery-row__title { font-size: 0.82rem; min-width: 0; }
+.mastery-row .mastery-topic { width: 100%; }
+.mastery-row .mastery-card__avatar, .mastery-row .mastery-card__id { grid-area: auto; min-width: 0; }
+button.mastery-th { font: inherit; font-size: 0.66rem; font-weight: 600; color: var(--text-muted); line-height: 1.2; text-align: center;
+  border: 0; background: none; padding: 2px; border-radius: 6px; cursor: pointer; min-width: 0; overflow-wrap: anywhere; hyphens: auto; }
+button.mastery-th b { display: block; color: var(--text); font-size: 0.72rem; }
+button.mastery-th:hover { background: var(--bg-subtle); }
+button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accent-light); color: var(--accent); }
+.mastery-th__arrow { margin-left: 2px; font-size: 0.66rem; }
+/* A narrow roster: the header is replaced by one line, the grades move beside the categories. */
+@container roster (max-width: 760px) {
+  .mastery-card { grid-template-columns: 34px auto auto minmax(0, 1fr); grid-template-areas: "av id id id" "ln ln gr ."; }
+  .mastery-head { display: none; }
+  .mastery-phone-help { display: flex; }
+}
+@container roster (max-width: 640px) {
+  .mastery-row { grid-template-columns: repeat(var(--n), minmax(0, 1fr)) 2px auto; row-gap: 6px; }
+  .mastery-row__who { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .mastery-row--head .mastery-row__who { display: none; }
+  .mastery-th__name { display: none; }
+  .mastery-row .mastery-pair { --m-p: 40px; --m-s: 72px; column-gap: 4px; }
+  .mastery-row--head .mastery-hl, .mastery-row--head button.mastery-th b { font-size: 0.64rem; }
+}
+@container roster (max-width: 480px) {
+  .mastery { --sq: 26px; --m-p: 40px; --m-s: 46px; --m-gs: 46px; }
+  .mastery-card { grid-template-columns: 34px minmax(0, 1fr) auto; grid-template-areas: "av id gr" "ln ln ln"; }
+  .mastery-pair, .mastery-grade { column-gap: 4px; }
+  .mastery-grade { padding-left: 8px; }
+  .sgc { width: 46px; }
+}
 /* A narrow roster (a phone, or beside the rail): the private slots move under the name. */
 @container roster (max-width: 600px) {
   .test-day-card { grid-template-columns: 48px minmax(0, 1fr); grid-template-areas: "av id" ". tm" ". ln"; }

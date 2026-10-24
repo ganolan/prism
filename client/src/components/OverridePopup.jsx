@@ -11,13 +11,16 @@ import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLev
  *   objectiveTitle   Label to show in header
  *   currentLevel     Current level string ("ED" / "EX" / …) or null
  *   hasOverride      Whether an override is currently set
+ *   suggestedLevel   The level Prism calculates (the Roster tab's Mastery mode, #160). When it is set and
+ *                    differs from currentLevel, "Override Schoology to {level}" comes first.
  *   saving, setSaving, onClose, onSaved
  */
 export default function OverridePopup({
   courseId, studentUid, objectiveId, objectiveTitle,
-  currentLevel, hasOverride,
+  currentLevel, hasOverride, suggestedLevel = null,
   saving, setSaving, onClose, onSaved,
 }) {
+  const suggest = suggestedLevel && suggestedLevel !== currentLevel ? suggestedLevel : null;
   async function save(level) {
     setSaving(true);
     try {
@@ -57,6 +60,11 @@ export default function OverridePopup({
         <p style={{ margin: '0 0 0.9rem 0', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
           Sets the level Schoology reports for this student. Writes back to Schoology immediately.
         </p>
+        {suggest && (
+          <button className="primary" disabled={saving} onClick={() => save(suggest)} style={{ marginBottom: '0.75rem' }}>
+            Override Schoology to {suggest}
+          </button>
+        )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.75rem' }}>
           {LEVELS.map(lvl => {
             const c = LEVEL_COLORS[lvl];

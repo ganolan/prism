@@ -4,7 +4,7 @@ import { getGradingScalesMap } from '../db/scales.js';
 import { apiGet } from '../services/schoology.js';
 import { openRequestKeys, arrivedKeys } from '../services/resubmissions.js';
 import { getArchivedSections } from '../services/archivedCourses.js';
-import { heldSectionIds } from '../services/courseSections.js';
+import { heldSectionIds, isLinkedSet } from '../services/courseSections.js';
 import { pastImportGivenUp } from '../services/pastImportState.js';
 import { importArchivedCourse } from '../services/archivedImport.js';
 import { getSchoologyConfig, getFeatures } from '../middleware/featureGate.js';
@@ -76,7 +76,7 @@ router.get('/', (req, res) => {
   res.json(rows);
 });
 
-// GET /api/courses/:id — course detail with student count
+// GET /api/courses/:id — course detail with student count and `linked`
 router.get('/:id', (req, res) => {
   const db = getDb();
   const course = db.prepare('SELECT * FROM courses WHERE id = ?').get(req.params.id);
@@ -88,7 +88,9 @@ router.get('/:id', (req, res) => {
     FROM enrolments WHERE course_id = ?
   `).get(req.params.id);
 
-  res.json({ ...course, studentCount, droppedCount });
+  // linked (#178): a set of linked sections, where Prism refuses Schoology writes (the Roster tab's
+  // Mastery mode disables its override chip).
+  res.json({ ...course, studentCount, droppedCount, linked: isLinkedSet(db, course.id) });
 });
 
 // GET /api/courses/:id/students — students enrolled with their grades summary

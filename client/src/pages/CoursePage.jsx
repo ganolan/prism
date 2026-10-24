@@ -3,7 +3,6 @@ import { useParams, Link } from 'react-router-dom';
 import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries, getSubmissionFiles, getRubricConfig } from '../services/api.js';
 import { PublishConfirm, PublishDone } from '../components/PublishTask.jsx';
 import AnalyticsView from '../components/AnalyticsView.jsx';
-import OverridePopup from '../components/OverridePopup.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
 import UrgencyRing from '../components/triage/UrgencyRing.jsx';
 import { waitsByAssignment, redCount } from '../lib/triage.js';
@@ -60,8 +59,6 @@ export default function CoursePage() {
   const [syncOpen, setSyncOpen] = useState(false);
   const [followRun, setFollowRun] = useState(null);
   const bumpDataVersion = useBumpDataVersion();
-  const [overrideTarget, setOverrideTarget] = useState(null); // { studentUid, category, currentLevel, hasOverride }
-  const [overrideSaving, setOverrideSaving] = useState(false);
   const [triageWaits, setTriageWaits] = useState({ waits: {}, feedbackLimit: 10 });
   const [triageVersion, setTriageVersion] = useState(0); // bump → the triage panels re-fetch
   // The triage rail is hidden on the Gradebook tab (it needs the width) and is not drawn on the
@@ -272,20 +269,6 @@ export default function CoursePage() {
             />
           )}
 
-          {overrideTarget && (
-            <OverridePopup
-              courseId={Number(id)}
-              studentUid={overrideTarget.studentUid}
-              objectiveId={overrideTarget.category.id}
-              objectiveTitle={overrideTarget.category.title}
-              currentLevel={overrideTarget.currentLevel}
-              hasOverride={overrideTarget.hasOverride}
-              saving={overrideSaving}
-              setSaving={setOverrideSaving}
-              onClose={() => setOverrideTarget(null)}
-              onSaved={refreshMastery}
-            />
-          )}
           {view === 'gradebook' && (
             <GradebookView data={gradebook} courseId={id} mastery={mastery} filter={gradebookFilter}
               onFlagChange={!course.archived && !course.excluded ? refreshAfterFlag : null} />

@@ -324,6 +324,14 @@ describe('GET /api/courses/:id/students — PowerSchool alerts (#117)', () => {
 
 // A template section (no course code, no school code) is marked excluded by the sync and never
 // read, so it must not reach the dashboard's tabs as a course card (#171).
+describe('GET /api/courses/:id — linked (#178)', () => {
+  test('is false for a course of one section and true for a set of linked sections', async () => {
+    expect((await get(`/api/courses/${courseId}`)).body).toMatchObject({ course_name: 'Course', linked: false });
+    getDb().prepare(`INSERT INTO linked_sections (schoology_section_id, course_id, section_name) VALUES ('sec-2', ?, 'B')`).run(courseId);
+    expect((await get(`/api/courses/${courseId}`)).body).toMatchObject({ linked: true });
+  });
+});
+
 describe('GET /api/courses?view= leaves out excluded sections (#171)', () => {
   beforeEach(() => {
     const db = getDb();

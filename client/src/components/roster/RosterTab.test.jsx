@@ -299,6 +299,14 @@ describe('RosterTab modes', () => {
     expect(screen.queryByText('Annie Lee')).not.toBeInTheDocument();
   });
 
+  it('Mastery is locked with the switch off, and with it on says when there is no mastery data', () => {
+    renderTab('/course/5?mode=mastery');
+    expect(screen.getByText('Levels and grades are private.')).toBeInTheDocument();
+    toggle();
+    expect(screen.getByText('No mastery data yet. Press Sync Course.')).toBeInTheDocument();
+    expect(screen.queryByText('Levels and grades are private.')).not.toBeInTheDocument();
+  });
+
   it('with the switch off, a private mode shows only its explanation', () => {
     renderTab('/course/5?mode=attention');
     expect(screen.getByText('Turn on Private details to see it. It stays hidden so the roster is safe to project.')).toBeInTheDocument();

@@ -40,7 +40,7 @@ const FilterIcon = () => (
     <path d="M2 3h12M4.5 8h7M7 13h2" />
   </svg>
 );
-const ClearIcon = () => (
+export const ClearIcon = () => (
   <svg className="filter-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
     <path d="M4 4l8 8M12 4l-8 8" />
   </svg>

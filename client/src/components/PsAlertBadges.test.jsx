@@ -35,9 +35,4 @@ describe('PsAlertBadges (#117)', () => {
     const { container: off } = render(<PsAlertBadges alerts={undefined} />);
     expect(off).toBeEmptyDOMElement();
   });
-
-  it('the compact form adds the roster class', () => {
-    render(<PsAlertBadges alerts={ALERTS.slice(0, 1)} compact />);
-    expect(screen.getByLabelText('PowerSchool alerts')).toHaveClass('ps-alerts', 'ps-alerts-compact');
-  });
 });

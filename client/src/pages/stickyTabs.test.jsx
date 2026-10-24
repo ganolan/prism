@@ -2,7 +2,7 @@
 // The mechanism itself is covered by src/hooks/useStickyTab.test.jsx — these
 // only prove each page is hooked up with the right storage key and query param.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 import Dashboard from './Dashboard.jsx';
 import CoursePage from './CoursePage.jsx';
@@ -75,15 +75,24 @@ describe('CoursePage sticky tab', () => {
     </MemoryRouter>,
   );
 
+  // The course tabs, not the Roster tab's own mode tabs (#160), which also hold a "Roster".
+  const courseTab = (name) => within(document.querySelector('.course-header__tabs')).getByText(name);
+
   it('opens on the Gradebook tab when the URL says so', async () => {
     renderAt('/course/5?tab=gradebook');
     await waitFor(() => expect(screen.getByText('Gradebook')).toHaveClass('active'));
-    expect(screen.getByText('Roster')).not.toHaveClass('active');
+    expect(courseTab('Roster')).not.toHaveClass('active');
   });
 
   it('opens on Roster by default', async () => {
     renderAt('/course/5');
-    await waitFor(() => expect(screen.getByText('Roster')).toHaveClass('active'));
+    await waitFor(() => expect(courseTab('Roster')).toHaveClass('active'));
+  });
+
+  it('the Roster tab remembers its mode in ?mode=', async () => {
+    renderAt('/course/5?mode=testday');
+    const modes = await screen.findByRole('group', { name: 'Roster view' });
+    expect(within(modes).getByText('Test day')).toHaveClass('active');
   });
 
   it('reopens on the tab last used when returning via a bare "back to course" link', async () => {

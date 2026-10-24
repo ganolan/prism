@@ -39,7 +39,7 @@ export function summaryLabel(summary) {
   return (parts.length ? `${n}, ${parts.join(' and ')}` : n) + unread;
 }
 
-const sizeLabel = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+export const sizeLabel = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 
 // overall: { text, visible } for the cell's popover (the teacher's overall comment, read-only).
 export default function SubmissionComments({ assignmentId, studentId, studentName, title, summary, onSummary, variant = 'card', overall = null }) {

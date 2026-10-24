@@ -302,10 +302,8 @@ tr:last-child td { border-bottom: none; }
 .badge-pink { background: var(--badge-pink-bg); color: var(--badge-pink-text); }
 
 /* #117: PowerSchool student alerts (PsAlertBadges). A wrapping group of the
-   standard badges; the compact form sits beside a roster name. */
+   standard badges. The roster shows them as chips (ROSTER, #160). */
 .ps-alerts { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; vertical-align: middle; }
-.ps-alerts-compact { margin-left: 0.5rem; }
-.ps-alerts-compact .badge { font-size: 0.62rem; padding: 0.05rem 0.4rem; }
 .ps-alerts-revealed { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
 /* The Student Support Summary inside the reveal (#163): a full-width list of
    PowerSchool's Category / Description rows, verbatim. */
@@ -1706,6 +1704,95 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 .sync-status__chip--failed { color: var(--badge-red-text); border-color: var(--badge-red-text); }
 .sync-status__chip--held { color: var(--badge-amber-text); background: var(--badge-amber-bg); border-color: var(--badge-amber-bg); }
 .sync-status__chip .sync-spinner { width: 10px; height: 10px; }
+
+/* ========================================================================
+   ROSTER (#160): the course page's Roster tab (components/roster/). One card
+   per student; with Private details on, fixed-width slots for the unread
+   comments and the alert chips so they line up down the page. The cards
+   respond to the roster's own width (a container query on .roster-tab), as
+   the same page is full width, beside the rail, or on a phone: these rules
+   are about the roster's width, not the device, so they live here and not in
+   PHONE LAYOUT. Design: docs/superpowers/specs/2026-10-25-course-roster-redesign-design.md.
+   ======================================================================== */
+.course-header__title-row { display: flex; align-items: center; gap: 0.5rem 1rem; flex-wrap: wrap; }
+/* Private details: amber while on, so a projected roster shows at a glance whether it is safe. */
+button.private-details-switch { font-weight: 600; }
+button.private-details-switch[aria-pressed="true"] { background: var(--badge-amber-bg); border-color: var(--warning); color: var(--badge-amber-text); }
+.roster-tab { container: roster / inline-size; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.roster-modes { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.roster-mode { display: flex; flex-direction: column; gap: 0.6rem; }
+.roster-cards { display: flex; flex-direction: column; gap: 6px; }
+.roster-card { display: grid; grid-template-columns: 48px minmax(0, 1fr); grid-template-areas: "av id" ". it";
+  column-gap: 12px; row-gap: 8px; align-items: center; padding: 10px 12px; background: var(--card-bg);
+  border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
+.roster-card:hover { box-shadow: var(--card-shadow-hover); }
+.roster-card--private { grid-template-columns: 48px minmax(0, 1fr) 7rem 12rem; grid-template-areas: "av id cm al" ". it it it"; }
+.roster-card--dropped { opacity: 0.55; }
+.roster-card__avatar { grid-area: av; }
+.roster-card__photo { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; }
+.roster-card__photo--initials { background: var(--bg-subtle); color: var(--text-muted); font-weight: 700; font-size: 0.95rem; }
+.roster-card__id { grid-area: id; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.roster-card__name { font-size: 1.14rem; font-weight: 650; letter-spacing: -0.01em; color: var(--text); text-decoration: none;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.roster-card__name:hover { color: var(--accent); }
+/* One line: grade, number, Email. The dot trails each part (the timeline's pattern), so a wrapped
+   line never starts with one; it is drawn, not a character. */
+.roster-card__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 8px; font-size: 0.78rem; color: var(--text-muted); min-width: 0; }
+.roster-card__meta > * { display: inline-flex; align-items: center; }
+.roster-card__meta > *:not(:last-child)::after { content: ''; width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.45; margin-left: 8px; flex: none; }
+.roster-card__number { font-variant-numeric: tabular-nums; }
+button.roster-copy { border: 0; background: none; padding: 2px 4px; border-radius: 6px; cursor: pointer; color: var(--text-muted);
+  display: inline-flex; align-items: center; gap: 4px; font: inherit; }
+button.roster-copy:hover { background: var(--bg-subtle); color: var(--text); }
+.roster-card__comments { grid-area: cm; }
+.roster-card__alerts { grid-area: al; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+.roster-card__items { grid-area: it; display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); min-width: 0; }
+/* A private count: the number large, the word small. Tappable when there is something to read. */
+.roster-stat { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; border: 0; background: none; padding: 0; color: var(--text); font: inherit; text-align: left; }
+.roster-stat b { font-size: 1.05rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.roster-stat span { font-size: 0.72rem; color: var(--text-muted); }
+.roster-stat--zero b { color: var(--text-muted); opacity: 0.6; font-weight: 600; }
+button.roster-stat { cursor: pointer; }
+button.roster-stat b { text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
+button.roster-alert-chip { border: 0; cursor: pointer; white-space: nowrap; font-family: inherit; }
+/* A private mode with Private details off. */
+.roster-locked { padding: 16px; border-radius: 12px; background: var(--bg-subtle); display: flex; flex-direction: column; gap: 4px; }
+.roster-locked span { font-size: 0.82rem; color: var(--text-muted); }
+/* Filters: the assessment page's controls; a pill's count, and Copy emails beside the status count. */
+.filter-btn__n { margin-left: 0.35rem; font-weight: 700; opacity: 0.75; }
+.roster-filter-status__left { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+button.filter-btn-outline:disabled { opacity: 0.5; cursor: default; }
+.roster-dropped { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.roster-dropped .roster-cards { align-self: stretch; }
+/* Pop-ups (AnchoredPopover): fixed, inside a 16px gutter, scrolling inside themselves. */
+.roster-pop { position: fixed; z-index: 1300; display: flex; flex-direction: column; gap: 8px; overflow-y: auto;
+  background: var(--card-bg); color: var(--text); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18); padding: 10px 14px 12px; font-size: 0.82rem; text-align: left; }
+.roster-pop:focus { outline: none; }
+.roster-pop__head { display: flex; align-items: baseline; gap: 8px; }
+.roster-pop__head strong { font-size: 0.88rem; }
+.roster-pop__head button { margin-left: auto; }
+.roster-pop__table { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
+.roster-pop__table th, .roster-pop__table td { border-top: 1px solid var(--border); padding: 4px 8px 4px 0; vertical-align: top; text-align: left; overflow-wrap: anywhere; }
+.roster-pop__table th { color: var(--text-muted); font-weight: 600; width: 38%; }
+.roster-pop__group-start > * { border-top-width: 2px; padding-top: 8px; }
+.roster-pop__text { white-space: pre-line; line-height: 1.45; overflow-wrap: anywhere; }
+.roster-pop__foot { font-size: 0.72rem; color: var(--text-muted); }
+.roster-pop__error { color: var(--badge-amber-text); }
+.roster-pop__field { display: flex; flex-direction: column; gap: 3px; }
+.roster-pop__field label { font-size: 0.76rem; font-weight: 600; color: var(--text-muted); }
+.roster-pop__preview { width: 100%; min-height: 84px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.74rem; background: var(--bg-subtle); resize: vertical; }
+.roster-pop__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.roster-comments { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.roster-comment { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.roster-comment time { font-size: 0.72rem; color: var(--text-muted); }
+.roster-comment__text { white-space: pre-line; overflow-wrap: anywhere; }
+.roster-comment .link { font-weight: 600; font-size: 0.8rem; }
+/* A narrow roster (a phone, or beside the rail): the private slots move under the name. */
+@container roster (max-width: 600px) {
+  .roster-card--private { grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1.4fr); grid-template-areas: "av id id" ". cm al" ". it it"; }
+  .roster-card__alerts { justify-content: flex-start; }
+}
 
 /* ========================================================================
    PHONE LAYOUT

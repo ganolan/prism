@@ -115,7 +115,7 @@ describe('CoursePage triage', () => {
   }
   const rail = () => screen.queryByRole('complementary', { name: 'Triage' });
 
-  it('the triage rail sits beside the tab content (after it in the DOM) on every tab but Gradebook', async () => {
+  it('the triage rail sits beside the tab content (after it in the DOM) on every tab but Gradebook and Roster', async () => {
     loaded({ archived: 0 });
     vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
     const { container } = renderAt('/course/5?tab=assessments');
@@ -150,8 +150,31 @@ describe('CoursePage triage', () => {
     vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
     renderAt('/course/5?tab=gradebook');
     await screen.findByRole('button', { name: /^Triage/ });
-    fireEvent.click(screen.getByRole('button', { name: 'Roster' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Assessments' }));
     expect(await screen.findByRole('complementary', { name: 'Triage' })).toBeInTheDocument();
+  });
+
+  // #160: Needs attention replaces the rail on the Roster tab, in every mode.
+  it('on the Roster tab the rail is hidden too, and "Triage ▸" brings it back', async () => {
+    loaded({ archived: 0 });
+    vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
+    renderAt('/course/5?tab=roster');
+    const toggle = await screen.findByRole('button', { name: /^Triage/ });
+    expect(rail()).not.toBeInTheDocument();
+    expect(document.querySelector('.triage-rail')).toHaveAttribute('hidden');
+    fireEvent.click(toggle);
+    expect(rail()).toBeInTheDocument();
+    expect(toggle).toHaveTextContent('Hide triage');
+  });
+
+  it('Private details sits beside the course name on the Roster tab only', async () => {
+    loaded({ archived: 0 });
+    const { container } = renderAt('/course/5?tab=roster');
+    const pill = await screen.findByRole('button', { name: 'Private details' });
+    expect(pill.closest('.course-header__title-row')).toContainElement(container.querySelector('.course-header__title'));
+    expect(pill).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'Gradebook' }));
+    expect(screen.queryByRole('button', { name: 'Private details' })).not.toBeInTheDocument();
   });
 
   it('shows no triage (and fetches none) on an archived course page', async () => {

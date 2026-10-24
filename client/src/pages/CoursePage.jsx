@@ -29,8 +29,7 @@ import { cardInputs, cardReasons } from '../lib/cardInputs.js';
 import { useGradeCards } from '../hooks/useGradeCards.js';
 import { useCardEditing } from '../hooks/useCardEditing.js';
 import { buildDescriptorRows } from '../lib/rubricDescriptorRows.js';
-import PsAlertBadges from '../components/PsAlertBadges.jsx';
-import { forRoster, getRosterAlertsShown, setRosterAlertsShown } from '../lib/psAlerts.js';
+import RosterTab, { PrivateDetailsSwitch } from '../components/roster/RosterTab.jsx';
 import { useStickyTypeFilter } from '../hooks/useStickyTypeFilter.js';
 import SchoologyLink from '../components/SchoologyLink.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
@@ -64,15 +63,17 @@ export default function CoursePage() {
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [triageWaits, setTriageWaits] = useState({ waits: {}, feedbackLimit: 10 });
   const [triageVersion, setTriageVersion] = useState(0); // bump → the triage panels re-fetch
-  // The triage rail is hidden on the Gradebook tab (it needs the width); "Triage ▸" toggles it back in.
-  const [railOnGradebook, setRailOnGradebook] = useState(false);
+  // The triage rail is hidden on the Gradebook tab (it needs the width) and the Roster tab (its
+  // Needs attention mode replaces it, #160); "Triage ▸" toggles it back in.
+  const [railShown, setRailShown] = useState(false);
+  const [triage, setTriage] = useState(null); // the rail's answer, for the Roster tab's Needs attention
   const [triageRed, setTriageRed] = useState(0);
   // Gradebook tab's compact Summative / Formative / Unpublished filter (lives in the tab row).
   // Remembered across visits, one setting for all courses (#144).
   const [gradebookFilter, setGradebookFilter] = useStickyTypeFilter('gradebook');
 
   useEffect(() => {
-    // includeDropped so RosterView can show the "N dropped" toggle without a
+    // includeDropped so the Roster tab can show the "N dropped" toggle without a
     // second request; it splits the list on `dropped_at` (#128).
     Promise.all([getCourse(id), getCourseStudents(id, { includeDropped: true }), getGradebook(id), getMasteryForCourse(id).catch(() => null)])
       .then(([c, s, g, m]) => { setCourse(c); setStudents(s); setGradebook(g); setMastery(m); })
@@ -152,7 +153,7 @@ export default function CoursePage() {
   if (loading) return <div className="loading">Loading...</div>;
   if (!course) return <div className="error-msg">Course not found</div>;
 
-  const displayName = (s) => preferredFirstName(s);
+  const railHiddenHere = view === 'gradebook' || view === 'roster';
 
   // Course meta collapses to a single dot-separated muted line (section ·
   // students · school code) so the header is two tight rows, not four stacked
@@ -168,7 +169,11 @@ export default function CoursePage() {
   return (
     <div className="fade-in">
       <header className="course-header">
-        <h2 className="course-header__title">{course.course_name}</h2>
+        <div className="course-header__title-row">
+          <h2 className="course-header__title">{course.course_name}</h2>
+          {/* #160: one switch for everything private on the Roster tab, off by default. */}
+          {view === 'roster' && <PrivateDetailsSwitch />}
+        </div>
 
         <div className="course-header__meta-row">
           <p className="course-header__meta">
@@ -221,12 +226,12 @@ export default function CoursePage() {
               onChange={setGradebookFilter}
             />
           )}
-          {courseLive && view === 'gradebook' && (
+          {courseLive && railHiddenHere && (
             <button
-              className="secondary btn-sm triage-rail-toggle" aria-expanded={railOnGradebook} aria-controls="course-triage"
-              onClick={() => setRailOnGradebook((v) => !v)}
+              className="secondary btn-sm triage-rail-toggle" aria-expanded={railShown} aria-controls="course-triage"
+              onClick={() => setRailShown((v) => !v)}
             >
-              {railOnGradebook ? 'Hide triage' : (
+              {railShown ? 'Hide triage' : (
                 <>Triage {triageRed > 0 && <span className="badge badge-red">{triageRed}</span>} <span aria-hidden="true">▸</span></>
               )}
             </button>
@@ -239,13 +244,15 @@ export default function CoursePage() {
         <div className="triage-layout__main">
           {(view === 'gradebook' || view === 'analytics') && <LargerScreenNote />}
           {view === 'roster' && (
-            <RosterView
+            <RosterTab
+              key={id}
+              course={course}
               students={students}
               mastery={mastery}
+              triage={triage}
+              onTriageChanged={() => setTriageVersion((v) => v + 1)}
+              onMasteryChanged={refreshMastery}
               courseId={id}
-              displayName={displayName}
-              onOverrideClick={(studentUid, category, currentLevel, hasOverride) =>
-                setOverrideTarget({ studentUid, category, currentLevel, hasOverride })}
             />
           )}
 
@@ -279,8 +286,8 @@ export default function CoursePage() {
         {courseLive && (
           <TriageSection
             id="course-triage" version={triageVersion} courseId={Number(id)}
-            hidden={view === 'gradebook' && !railOnGradebook}
-            onLoaded={(t) => setTriageRed(redCount(t))}
+            hidden={railHiddenHere && !railShown}
+            onLoaded={(t) => { setTriage(t); setTriageRed(redCount(t)); }}
             onMakeUpIgnored={(aid) => patchMakeUpIgnored(aid, true)}
           />
         )}
@@ -290,6 +297,8 @@ export default function CoursePage() {
 }
 
 // ─── Roster view ────────────────────────────────────────────────────────────
+// The old roster table, no longer rendered: the Roster tab is components/roster/RosterTab.jsx (#160).
+// Kept until the Mastery mode replaces its category columns; then it is deleted.
 
 function levelCellStyle(level, extra = {}) {
   const c = level ? LEVEL_COLORS[level] : null;
@@ -310,11 +319,6 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
   const scale = useProficiencyScale();
   const [showGradeScale, setShowGradeScale] = useState(false);
   const [showDropped, setShowDropped] = useState(false);
-  // #117: PowerSchool alerts, off until turned on (a roster may be projected to a
-  // class); the choice is remembered per browser. Present only with the feature on.
-  const [showAlerts, setShowAlerts] = useState(getRosterAlertsShown);
-  const alertsAvailable = students.some(s => Array.isArray(s.ps_alerts));
-  const toggleAlerts = () => { const next = !showAlerts; setShowAlerts(next); setRosterAlertsShown(next); };
   const categories = mastery?.categories || [];
   const topics = mastery?.topics || [];
   const scores = mastery?.scores || [];
@@ -360,28 +364,15 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
 
   return (
     <div className="card" style={{ overflowX: 'auto' }}>
-      {(droppedStudents.length > 0 || alertsAvailable) && (
+      {droppedStudents.length > 0 && (
         <div className="roster-toolbar">
-          {droppedStudents.length > 0 && (
-            <button
-              className="ghost"
-              onClick={() => setShowDropped(v => !v)}
-              aria-expanded={showDropped}
-            >
-              {droppedStudents.length} dropped {showDropped ? '(hide)' : '(show)'}
-            </button>
-          )}
-          {alertsAvailable && (
-            <button
-              type="button"
-              className={`filter-btn ${showAlerts ? 'active' : ''}`}
-              aria-pressed={showAlerts}
-              onClick={toggleAlerts}
-              title="Learning, health and access alerts from PowerSchool. Off by default; remembered in this browser."
-            >
-              PowerSchool alerts
-            </button>
-          )}
+          <button
+            className="ghost"
+            onClick={() => setShowDropped(v => !v)}
+            aria-expanded={showDropped}
+          >
+            {droppedStudents.length} dropped {showDropped ? '(hide)' : '(show)'}
+          </button>
         </div>
       )}
       <table style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
@@ -538,7 +529,6 @@ export function RosterView({ students, mastery, courseId, displayName, onOverrid
                     </span>
                   )}
                   <PersonSub parts={[s.email, gradeText(s.grad_year)]} />
-                  {showAlerts && <PsAlertBadges alerts={forRoster(s.ps_alerts)} compact />}
                 </td>
                 <td className="text-sm col-desktop">{s.email || '-'}</td>
                 <td className="text-sm col-desktop">{gradeText(s.grad_year) || '-'}</td>

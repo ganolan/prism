@@ -3,6 +3,7 @@ import { getCourses, getEmails, getRandomStudents, getGroups, getRoster, getTool
 import { studentFullName } from '../lib/studentNames.js';
 import { NAME_FORMATS, SEPARATORS, SAMPLE_STUDENT, formatName, formatClassList } from '../lib/nameFormats.js';
 import { groupByYearAndSemester } from '../lib/courseDisplay.js';
+import { EMAIL_FORMATS, emailText } from '../lib/emailFormats.js';
 import { FILTER_TYPES, filterValueLabel, filterValueTitle, rosterFilterQuery, keepHeldValues } from '../lib/rosterFilters.js';
 
 const GROUP_COLORS = [
@@ -251,11 +252,6 @@ function ClassListTool({ courseIds, filters }) {
   );
 }
 
-const EMAIL_FORMATS = [
-  { id: 'named', label: 'Names + emails (Outlook, ; separated)' },
-  { id: 'bare', label: 'Emails only (, separated)' },
-];
-
 function EmailTool({ courseIds, filters }) {
   const [type, setType] = useState('student');
   const [format, setFormat] = useState('named');
@@ -263,7 +259,7 @@ function EmailTool({ courseIds, filters }) {
   const [copied, setCopied] = useState(false);
   const textareaRef = useRef(null);
 
-  const text = !result ? '' : format === 'bare' ? result.addresses.join(', ') : result.formatted;
+  const text = emailText(result, format);
 
   // A list made for other courses or filters no longer matches: clear it.
   useEffect(() => {

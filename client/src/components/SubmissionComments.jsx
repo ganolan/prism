@@ -237,7 +237,7 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
           </div>
         ) : (
           <div className="comment-confirm" role="alert">
-            <span>Post this{file ? ` with ${file.name}` : ''} to {studentName} now? Students see a submission comment at once, and it stays until you delete it.</span>
+            <span>Post this{file ? ` with ${file.name}` : ''} to {studentName} now? Students see a submission comment immediately, and it stays until you delete it.</span>
             <div className="comment-row">
               <button type="button" className="primary" disabled={busy} onClick={post}>{busy ? 'Posting…' : 'Post now'}</button>
               <button type="button" className="ghost" disabled={busy} onClick={() => setConfirmPost(false)}>Cancel</button>

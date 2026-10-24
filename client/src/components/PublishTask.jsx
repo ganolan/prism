@@ -63,7 +63,7 @@ export function PublishConfirm({ anchor, title, published, busy, onConfirm, onCa
       style={place ? { top: place.top, left: place.left } : { visibility: 'hidden', top: 0, left: 0 }}
     >
       <p className="publish-pop__warn">
-        {published ? 'Students see it at once.' : 'Students stop seeing it at once.'}
+        {published ? 'Students see it immediately.' : 'Students stop seeing it immediately.'}
       </p>
       <div className="publish-pop__actions">
         <button ref={confirmRef} type="button" className={`btn-sm ${published ? 'primary' : 'primary danger'}`} disabled={busy} onClick={onConfirm}>

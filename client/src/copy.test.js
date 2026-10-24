@@ -82,3 +82,22 @@ describe('no em dashes in UI copy (AGENTS.md Frontend Conventions)', () => {
     expect(offenders, `Em dashes found (replace with a hyphen, comma or colon):\n${offenders.join('\n')}`).toEqual([]);
   });
 });
+
+// Phrases Graham has rejected in UI copy (the writing-style plugin's list holds the reasons). "at once"
+// reads as both "immediately" and "at the same time" (24 Oct 2026): write "immediately".
+const REJECTED = [/\bat once\b/i];
+
+describe('no rejected phrases in UI copy', () => {
+  test('client/src has none outside comments', () => {
+    const offenders = [];
+    for (const file of listSourceFiles(SRC_ROOT)) {
+      let inBlock = false;
+      fs.readFileSync(file, 'utf8').split('\n').forEach((line, idx) => {
+        const [codeOnly, stillIn] = stripLine(line, inBlock);
+        inBlock = stillIn;
+        if (REJECTED.some((re) => re.test(codeOnly))) offenders.push(`${path.relative(SRC_ROOT, file)}:${idx + 1}: ${line.trim()}`);
+      });
+    }
+    expect(offenders, `Rejected phrases found:\n${offenders.join('\n')}`).toEqual([]);
+  });
+});

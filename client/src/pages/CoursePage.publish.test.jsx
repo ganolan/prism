@@ -36,7 +36,7 @@ describe('AssessmentsView — publish control', () => {
     showUnpublished();
     fireEvent.click(within(rowOf('Unit 2 Validation Test')).getByRole('button', { name: 'Publish' }));
     const confirm = screen.getByRole('group', { name: /Publish "Unit 2 Validation Test"/ });
-    expect(confirm).toHaveTextContent('Students see it at once.');
+    expect(confirm).toHaveTextContent('Students see it immediately.');
     fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('group', { name: /Publish "/ })).not.toBeInTheDocument();
     expect(onSetPublished).not.toHaveBeenCalled();
@@ -47,7 +47,7 @@ describe('AssessmentsView — publish control', () => {
     renderView({ onSetPublished });
     fireEvent.click(within(rowOf('Unit 2 Algorithms Test')).getByRole('button', { name: 'Unpublish' }));
     const confirm = screen.getByRole('group', { name: /Unpublish "Unit 2 Algorithms Test"/ });
-    expect(confirm).toHaveTextContent('Students stop seeing it at once.');
+    expect(confirm).toHaveTextContent('Students stop seeing it immediately.');
     fireEvent.click(within(confirm).getByRole('button', { name: 'Unpublish' }));
     expect(onSetPublished).toHaveBeenCalledWith(expect.objectContaining({ id: 21 }), 0);
     expect(await screen.findByRole('status')).toHaveTextContent('Unpublished on Schoology (checked)');

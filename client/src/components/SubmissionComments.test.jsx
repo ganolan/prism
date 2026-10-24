@@ -64,7 +64,7 @@ describe('SubmissionComments', () => {
     fireEvent.change(screen.getByLabelText('Reply to Ana Lee'), { target: { value: 'Thanks' } });
     fireEvent.click(screen.getByRole('button', { name: 'Post comment' }));
     expect(postSubmissionComment).not.toHaveBeenCalled();
-    expect(screen.getByRole('alert')).toHaveTextContent('Students see a submission comment at once');
+    expect(screen.getByRole('alert')).toHaveTextContent('Students see a submission comment immediately');
     fireEvent.click(screen.getByRole('button', { name: 'Post now' }));
     await waitFor(() => expect(postSubmissionComment).toHaveBeenCalledWith('8590105935', 7, 'Thanks'));
     await waitFor(() => expect(screen.getByLabelText('Reply to Ana Lee')).toHaveValue(''));

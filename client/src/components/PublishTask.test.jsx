@@ -14,10 +14,10 @@ describe('PublishToggle (#184)', () => {
     const toggle = screen.getByRole('switch', { name: 'Unpublished' });
     expect(toggle).toHaveAttribute('aria-checked', 'false');
     fireEvent.click(toggle);
-    expect(screen.getByText('Students see it at once.')).toBeInTheDocument();
+    expect(screen.getByText('Students see it immediately.')).toBeInTheDocument();
     expect(setAssessmentPublished).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByText('Students see it at once.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Students see it immediately.')).not.toBeInTheDocument();
   });
 
   it('the confirm is a popover at the switch: Publish has focus; Escape or a click outside closes it (24 Oct 2026)', () => {
@@ -51,7 +51,7 @@ describe('PublishToggle (#184)', () => {
     vi.mocked(setAssessmentPublished).mockResolvedValue({ published: 0 });
     render(<PublishToggle courseId={4} assignment={{ ...TASK, published: 1 }} />);
     fireEvent.click(screen.getByRole('switch', { name: 'Published' }));
-    expect(screen.getByText('Students stop seeing it at once.')).toBeInTheDocument();
+    expect(screen.getByText('Students stop seeing it immediately.')).toBeInTheDocument();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Unpublish' })); });
     expect(setAssessmentPublished).toHaveBeenCalledWith(4, 50, 0);
   });

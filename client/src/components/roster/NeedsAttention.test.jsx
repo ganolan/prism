@@ -174,6 +174,28 @@ describe('Needs attention', () => {
     expect(onFlagChanged).toHaveBeenCalledTimes(2);
   });
 
+  // CoursePage's refresh throws when the gradebook read fails: the referral is saved, so the list says
+  // the page could not refresh (FlagsMenu's words), and nothing is left as an unhandled rejection.
+  it('a failed refresh after a Schoology referral says so, without an unhandled rejection', async () => {
+    const unhandled = [];
+    const onUnhandled = (reason) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const onFlagChanged = vi.fn().mockRejectedValue(new Error('Request failed: 500'));
+      api.recordReferral.mockResolvedValue({ id: 72, action: 'referred', schoologyMark: { missing: true, cleared: false }, schoology: { topics: 2, missing: true } });
+      renderTab({ onFlagChanged, onTriageChanged: vi.fn() });
+      const maya = rowOf(cardOf('Maya Chen'), 'CP2');
+      fireEvent.click(within(maya).getByRole('button', { name: 'Refer' }));
+      fireEvent.click(within(within(maya).getByRole('group', { name: 'Refer to the academic office?' })).getByRole('button', { name: 'Refer' }));
+      expect(await within(maya).findByText('Referred')).toBeInTheDocument();
+      expect(await screen.findByText('Saved, but the page could not refresh. Reload to see it.')).toBeInTheDocument();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
   it('a refused referral shows in the panel and records nothing', async () => {
     api.recordReferral.mockRejectedValue(new Error('Schoology holds a score for this work'));
     renderTab({ onTriageChanged: vi.fn() });

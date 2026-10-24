@@ -151,15 +151,38 @@ describe('Test day', () => {
 
   it('a failed read shows that student\'s error, and the others still render', async () => {
     api.getAlertDetail.mockImplementation(async (id) => {
-      if (id === 2) throw Object.assign(new Error('The PowerSchool session has expired.'), { code: 'SESSION_EXPIRED' });
+      if (id === 2) throw Object.assign(new Error('Could not read PowerSchool: timed out'), { code: 'PS_FAILED' });
       return detail('support_summary', 'Quiet room if available', null);
     });
     renderTab();
-    await waitFor(() => expect(within(cardOf('Ethan Wong')).getByText(/The PowerSchool session has expired\./)).toBeInTheDocument());
+    await waitFor(() => expect(within(cardOf('Ethan Wong')).getByText(/Could not read PowerSchool: timed out/)).toBeInTheDocument());
     expect(within(cardOf('Ethan Wong')).getByRole('button', { name: 'Set extra time' })).toBeInTheDocument();
     await waitFor(() => expect(within(cardOf('Aiden Li')).getByText('No time in the notes')).toBeInTheDocument());
     expect(within(cardOf('Maya Chen')).getByText('63 minutes, 13 more')).toBeInTheDocument();
   });
+
+  // A refused read (PowerSchool logged a security violation) or an ended session would only repeat
+  // for every later student: the loop stops, and the list says why once (psSupportSummary's codes).
+  for (const [code, message] of [
+    ['SECURITY_VIOLATION', 'PowerSchool refused the read'],
+    ['SESSION_EXPIRED', 'The Schoology session has expired: log in to Schoology in Settings'],
+  ]) {
+    it(`stops reading plans after ${code} and says so once for the list`, async () => {
+      api.getAlertDetail.mockImplementation(async () => { throw Object.assign(new Error(message), { code }); });
+      renderTab();
+      expect(await screen.findByText(`Could not read the plans: ${message}`)).toBeInTheDocument();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(api.getAlertDetail).toHaveBeenCalledTimes(1); // Ethan only: Aiden is never read
+      expect(screen.getAllByText(new RegExp(message))).toHaveLength(1); // not repeated on a card
+      for (const name of ['Ethan Wong', 'Aiden Li']) {
+        expect(within(cardOf(name)).queryByText('Reading the plan…')).toBeNull();
+        expect(within(cardOf(name)).getByRole('button', { name: 'Set extra time' })).toBeInTheDocument();
+      }
+      // No read on request either: Show plan is gone for the confirmed student.
+      expect(within(cardOf('Maya Chen')).queryByRole('button', { name: 'Show plan' })).toBeNull();
+      expect(within(cardOf('Maya Chen')).getByText('63 minutes, 13 more')).toBeInTheDocument();
+    });
+  }
 
   it('a confirmed student loads the plan line only on request', async () => {
     api.getAlertDetail.mockImplementation(async (id) => detail('accommodation_plan', id === 1 ? '25% extra time on tests' : 'Quiet room', null));

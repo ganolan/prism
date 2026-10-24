@@ -49,7 +49,7 @@ export default function CoursePage() {
   const [students, setStudents] = useState([]);
   const [gradebook, setGradebook] = useState(null);
   const [mastery, setMastery] = useState(null);
-  const [view, setView] = useStickyTab('course', 'roster');
+  const [view, setStickyView] = useStickyTab('course', 'roster');
   const [loading, setLoading] = useState(true);
   // #58: Sync Course opens the sync dialog preset to this course; the chip opens it on the
   // background sync's run (followRun).
@@ -62,6 +62,9 @@ export default function CoursePage() {
   // Roster tab (its Needs attention mode replaces it, and a roster may be projected, #160);
   // "Triage ▸" brings it in. On the Roster tab the button's red count needs Private details.
   const [railShown, setRailShown] = useState(false);
+  // Every tab starts with the rail closed: a rail opened on Gradebook must not follow the
+  // teacher to the Roster tab, which may be projected with Private details off.
+  const setView = (next) => { setRailShown(false); setStickyView(next); };
   const [triage, setTriage] = useState(null); // this course's triage, for the Roster tab (Needs attention)
   const [triageRed, setTriageRed] = useState(0);
   const [privateOn] = usePrivateDetails();

@@ -46,7 +46,8 @@ disagrees with the student's topic scores is found only by comparing the topics 
 student has in that category, beside Schoology's, with the topic averages between them and a grade from
 each. Where Schoology agrees, its chip is faint; where it differs, it is filled with an amber ring, so a
 difference stands out down a column. Tapping it sets Schoology's override to Prism's level through the
-same read-write-read-back path the student page uses. One category can be sorted by any topic.
+same path the student page uses: Prism writes the override, then stores Schoology's reply. One
+category can be sorted by any topic.
 
 **Evidence.** `client/src/lib/masteryCompare.js` (the values, with tests),
 `client/src/components/roster/MasteryView.jsx`; commit `e3245a8`.
@@ -272,8 +273,8 @@ accommodation plan (issue #117). The alerts are in a different system from the o
 **What Prism does.**
 - **Reads the alerts on every sync** for all active courses and shows them as badges on the student page.
 - **Hidden until asked:** the student page shows alerts only after the teacher selects Show alerts. The class
-  roster shows learning, health and other alerts only, behind a toggle that is off by default. Family alerts
-  never appear on a roster.
+  roster shows learning, health and other alerts only, behind a toggle (since #160, 25 Oct 2026: behind
+  Private details) that is off by default. Family alerts never appear on a roster.
 - **A badge states that a plan exists, not what it contains.** The Student Support Summary is read from
   PowerSchool when the teacher asks and is never stored.
 - **Feature-flagged,** following the school's handling rules for personal data.

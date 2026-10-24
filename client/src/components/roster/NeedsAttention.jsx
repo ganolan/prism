@@ -4,7 +4,7 @@ import UrgencyRing from '../triage/UrgencyRing.jsx';
 import ExtendEditor, { ExtensionTag } from '../triage/ExtendEditor.jsx';
 import { MailLink } from '../triage/EmailMenu.jsx';
 import ReferPanel, { canClearInSchoology } from '../ReferPanel.jsx';
-import FlagsMenu from '../FlagsMenu.jsx';
+import FlagsMenu, { REFRESH_FAILED } from '../FlagsMenu.jsx';
 import { FlagDisc } from '../FlagSymbol.jsx';
 import { useTriageActions } from '../../hooks/useTriageActions.js';
 import { studentRows, withHeld, rowWhen, flagOnRow } from '../../lib/needsAttention.js';
@@ -57,14 +57,15 @@ function AttentionRow({ entry, done, gradebook, actions, onChanged, onFlagChange
   const flagRow = entry.kind === 'incomplete' || entry.kind === 'absent';
 
   // ReferPanel's confirm (Refer on overdue work, or Undo of a referral that wrote IE and Missing):
-  // a refusal shows in the panel.
+  // a refusal shows in the panel. The write is done before the refresh, so a failed refresh (CoursePage
+  // throws when the gradebook read fails) shows in the list's message, not the closed panel.
   async function viaPanel(run, schoology) {
     setBusy(true);
     setPanelError(null);
     try {
       await run(schoology);
       setOpen(null);
-      if (schoology) onFlagChanged?.();
+      if (schoology) Promise.resolve(onFlagChanged?.()).catch(() => onError(REFRESH_FAILED));
     } catch (err) {
       setPanelError(err.message);
     } finally {

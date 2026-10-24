@@ -1624,6 +1624,38 @@ describe('POST /api/mastery/:courseId/override — level-based input', () => {
     expect(body.error).toMatch(/Unknown level/);
     expect(writeMasteryOverride).not.toHaveBeenCalled();
   });
+
+  // #160: the Roster's Mastery view reads category rollups only (is_category = 1). An override
+  // written where Schoology had no category level yet must land as a category row, or the
+  // view keeps showing "-" for Schoology after the write.
+  test('the override mirror marks a new rollup row as a category when the objective is a reporting category', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, title) VALUES ('cat-ov', ?, 'Design')`).run(COURSE);
+    const isCategory = (obj) => db.prepare(
+      'SELECT is_category FROM mastery_rollups WHERE student_uid = ? AND objective_id = ? AND course_id = ?',
+    ).get(UID, obj, COURSE)?.is_category;
+
+    await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: 'cat-ov', level: 'EX' });
+    await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: OBJ, level: 'EX' });
+
+    expect(isCategory('cat-ov')).toBe(1);
+    expect(isCategory(OBJ)).toBe(0); // a measurement topic stays a topic row
+  });
+
+  test('the override mirror repairs a category row an earlier mirror stored as a topic row', async () => {
+    const db = getDb();
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, title) VALUES ('cat-ov', ?, 'Design')`).run(COURSE);
+    db.prepare(
+      `INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, override_value, synced_at)
+       VALUES (?, 'cat-ov', ?, 0, 1, 't')`,
+    ).run(UID, COURSE);
+
+    await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: 'cat-ov', level: 'EX' });
+
+    expect(db.prepare(
+      `SELECT is_category, override_value FROM mastery_rollups WHERE objective_id = 'cat-ov'`,
+    ).get()).toEqual({ is_category: 1, override_value: 3 });
+  });
 });
 
 describe('rollups are per-course for a multi-course student (#127)', () => {

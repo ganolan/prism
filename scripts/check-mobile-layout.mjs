@@ -19,7 +19,10 @@
 //   reply (page.route), so no Schoology search runs. Desktop keeps its columns.
 // Roster tab checks (#160, fail → exit 1): a course's Roster tab, with Private details on, in all
 //   four modes (and Mastery's one-category layout) at 390px and 1100px: the page is never wider
-//   than the window. Reads only.
+//   than the window. Reads only, but not only Prism's database: the Test day step makes the page
+//   read each unconfirmed learning plan's text from PowerSchool, through the dev server
+//   (GET /api/students/:id/alert-detail/:key, one after another; the server keeps each answer
+//   for 10 minutes, so the second width reads nothing new).
 // Page report (informational, never fails): which pages still scroll
 // sideways at phone width.
 import { chromium } from 'playwright';

@@ -88,7 +88,8 @@ the course tabs (`useStickyTab`).
 The triage rail is hidden on the Roster tab in every mode, with the `Triage ▸` button that the Gradebook tab uses to
 bring it back. Needs attention replaces it here; the dashboard and the other tabs keep the rail. As built, the rail
 is not mounted on the Roster tab until the teacher opens it with `Triage ▸`, and the red count on that button is
-drawn only with Private details on (the count is private too).
+drawn only with Private details on (the count is private too). Every tab change closes the rail, so one opened on
+Gradebook does not follow the teacher to the Roster tab (amended 25 Oct 2026, final review).
 
 ### Roster mode: the card
 
@@ -236,7 +237,8 @@ Private: the test picker and length show with the switch off; the list of studen
   suggestion.
 - **Plan text is read live, only when needed** (Graham, 25 Oct 2026, keeping #163's "nothing stored"): Test day
   reads the Support Summary only for students whose extra time is not yet confirmed, one after another, and keeps
-  each answer for 10 minutes (the existing cache). A confirmed student needs no read; their card shows the confirmed
+  each answer for 10 minutes (the existing cache). A refused read (`SECURITY_VIOLATION`) or an ended session
+  (`SESSION_EXPIRED`) stops the reads, and the list says why once (amended 25 Oct 2026, final review). A confirmed student needs no read; their card shows the confirmed
   figure and loads the plan line on request.
 - **Stored:** the confirmed percentage per student, in a new Prism-owned table (schema plus `MIGRATIONS`), with
   `updated_at`. It belongs to the student, not the course, so it shows in every course the student is in. PrisMCP's
@@ -304,8 +306,9 @@ One short row per student under a header that stays on screen while the page scr
   rather than wrap). Its text: "Schoology's level is the one students and report cards see. Faint means it
   matches Prism. Highlighted means it differs: tap it to set Schoology's override to Prism's level."
 - **Tapping a category's Schoology chip** opens `OverridePopup` for that student and category, the same component
-  and write path as the student page (re-read, write, read back). When the two differ, the pop-up offers
-  **Override Schoology to D** (Prism's level) first, then the other levels and **Clear override**.
+  and write path as the student page (it writes the override, then stores Schoology's reply). When the two
+  differ, the pop-up offers **Override Schoology to D** (Prism's level) first, then the other levels and
+  **Clear override**.
 
 ## Layout and phones
 

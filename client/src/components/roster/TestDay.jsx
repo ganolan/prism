@@ -15,13 +15,17 @@ import { getAlertDetail, getExtraTime, setExtraTime } from '../../services/api.j
 // Extra time is the figure the teacher confirmed once (GET/PUT /api/extra-time, per student, every
 // course). Plan text is read live, only for students with no confirmed figure, one after another, from
 // the student's first learning alert (getAlertDetail, which suggests a percentage); a confirmed student
-// is read only when the teacher asks for the plan line. Prism holds no lesson times, so everything is
-// in minutes ("63 minutes, 13 more"), never a clock time.
+// is read only when the teacher asks for the plan line. A refused read or an ended session stops every
+// later read, on request too, until Test day is opened again (STOPS_READS). Prism holds no lesson
+// times, so everything is in minutes ("63 minutes, 13 more"), never a clock time.
 // Props: on (Private details), students (enrolled ones), gradebook (CoursePage's getGradebook), locked
 // (what shows in place of the list with Private details off), today (for tests; default now).
 
 const NO_TEST = 'none';
 const FIRST_GUESS = 25; // where Set extra time starts when the notes give no figure
+// Errors that every later read would repeat (psSupportSummary's codes): PowerSchool logged a security
+// violation, or the session ended. The reads stop there, and the list says why once.
+const STOPS_READS = new Set(['SECURITY_VIOLATION', 'SESSION_EXPIRED']);
 
 // The plan line from a read: a rows answer through planLine, a text answer one line at a time.
 function lineFrom(detail) {
@@ -31,14 +35,14 @@ function lineFrom(detail) {
 }
 
 function PlanLine({ read, confirmed, onShow }) {
-  if (!read) return confirmed ? <button type="button" className="ghost test-day-card__show" onClick={onShow}>Show plan</button> : null;
+  if (!read) return confirmed && onShow ? <button type="button" className="ghost test-day-card__show" onClick={onShow}>Show plan</button> : null;
   if (read.loading) return null;
   if (read.error) return <span className="test-day-card__error">Could not read the plan: {read.error}</span>;
   if (read.detail.kind === 'none') return <span>Prism can read only that this plan is set.</span>;
   return <span>{lineFrom(read.detail) ?? 'The plan has no notes.'}</span>;
 }
 
-function TimeControls({ student, length, confirmed, read, draft, setDraft, onSave, saving, saveError }) {
+function TimeControls({ student, length, confirmed, read, stopped, draft, setDraft, onSave, saving, saveError }) {
   const name = studentFullName(student);
   if (draft != null) {
     return (
@@ -60,8 +64,8 @@ function TimeControls({ student, length, confirmed, read, draft, setDraft, onSav
       </>
     );
   }
-  if (!read || read.loading) return <span className="test-day-card__muted">Reading the plan…</span>;
-  const suggested = read.detail?.suggestedPercent;
+  if ((!read || read.loading) && !stopped) return <span className="test-day-card__muted">Reading the plan…</span>;
+  const suggested = read?.detail?.suggestedPercent;
   if (suggested != null) {
     return (
       <>
@@ -74,7 +78,7 @@ function TimeControls({ student, length, confirmed, read, draft, setDraft, onSav
   }
   return (
     <>
-      {read.detail && <span className="test-day-card__muted">No time in the notes</span>}
+      {read?.detail && <span className="test-day-card__muted">No time in the notes</span>}
       <button type="button" className="secondary test-day-card__btn" onClick={() => setDraft(FIRST_GUESS)}>Set extra time</button>
     </>
   );
@@ -87,6 +91,8 @@ function PlanList({ plans, length }) {
   const [drafts, setDrafts] = useState({}); // { [student id]: percent } while its stepper is open
   const [saving, setSaving] = useState({}); // { [student id]: true }
   const [saveErrors, setSaveErrors] = useState({});
+  const [stopped, setStopped] = useState(null); // the message of a read error in STOPS_READS
+  const stoppedRef = useRef(false);
   const extraRef = useRef({}); // the latest confirmed figures, for the read loop
   const plansRef = useRef(plans);
   plansRef.current = plans;
@@ -96,7 +102,16 @@ function PlanList({ plans, length }) {
     setReads((r) => ({ ...r, [id]: { loading: true } }));
     return getAlertDetail(id, alertKey)
       .then((detail) => { if (isLive()) setReads((r) => ({ ...r, [id]: { detail } })); })
-      .catch((err) => { if (isLive()) setReads((r) => ({ ...r, [id]: { error: err.message } })); });
+      .catch((err) => {
+        if (!isLive()) return;
+        if (STOPS_READS.has(err.code)) {
+          stoppedRef.current = true;
+          setStopped(err.message);
+          setReads((r) => { const next = { ...r }; delete next[id]; return next; });
+        } else {
+          setReads((r) => ({ ...r, [id]: { error: err.message } }));
+        }
+      });
   };
 
   // The confirmed figures, then each unconfirmed student's plan, one read after another.
@@ -116,7 +131,7 @@ function PlanList({ plans, length }) {
       extraRef.current = confirmed;
       setExtra(confirmed);
       for (const p of list) {
-        if (!live) return;
+        if (!live || stoppedRef.current) return;
         if (extraRef.current[p.student.id]) continue; // confirmed, maybe since the loop began
         await read(p.student.id, p.alertKey, isLive);
       }
@@ -151,6 +166,7 @@ function PlanList({ plans, length }) {
 
   return (
     <div className="roster-cards">
+      {stopped && <div className="alert alert-warning">Could not read the plans: {stopped}</div>}
       {plans.map(({ student, alertKey, planNames }) => {
         const id = student.id;
         return (
@@ -162,11 +178,11 @@ function PlanList({ plans, length }) {
             </span>
             <span className="test-day-card__time">
               <TimeControls student={student} length={length} confirmed={extra[id]} read={reads[id]}
-                draft={drafts[id] ?? null} setDraft={setDraft(id)} onSave={(percent) => save(id, percent)}
+                stopped={Boolean(stopped)} draft={drafts[id] ?? null} setDraft={setDraft(id)} onSave={(percent) => save(id, percent)}
                 saving={Boolean(saving[id])} saveError={saveErrors[id]} />
             </span>
             <span className="test-day-card__line">
-              <PlanLine read={reads[id]} confirmed={Boolean(extra[id])} onShow={() => read(id, alertKey)} />
+              <PlanLine read={reads[id]} confirmed={Boolean(extra[id])} onShow={stopped ? null : () => read(id, alertKey)} />
             </span>
           </div>
         );

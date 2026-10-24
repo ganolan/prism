@@ -294,16 +294,20 @@ router.post('/:courseId/override', async (req, res) => {
     });
 
     // Mirror Schoology's response into mastery_rollups so the UI reflects
-    // the override without requiring a full sync.
+    // the override without requiring a full sync. A reporting category's row is a category
+    // row (is_category = 1) even when Schoology had no level for it yet: the Roster's Mastery
+    // view reads category rows only (#160). MAX repairs a row an earlier mirror stored as 0.
     const override = result?.data?.outcome_override || {};
     const overrideVal = override.grade_scaled_rounded != null ? Number(override.grade_scaled_rounded) : null;
+    const isCategory = db.prepare('SELECT 1 FROM reporting_categories WHERE id = ?').get(String(objectiveId)) ? 1 : 0;
     db.prepare(`
       INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_percentage, grade_scaled_rounded, override_value, synced_at)
-      VALUES (?, ?, ?, 0, NULL, NULL, ?, ?)
+      VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)
       ON CONFLICT(student_uid, objective_id, course_id) DO UPDATE SET
+        is_category = MAX(mastery_rollups.is_category, excluded.is_category),
         override_value = excluded.override_value,
         synced_at = excluded.synced_at
-    `).run(String(studentUid), String(objectiveId), Number(courseId), overrideVal, new Date().toISOString());
+    `).run(String(studentUid), String(objectiveId), Number(courseId), isCategory, overrideVal, new Date().toISOString());
 
     res.json({ ok: true, override: overrideVal });
   } catch (err) {

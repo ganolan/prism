@@ -9,7 +9,7 @@ const MENU_NOTE = 'On graded work, Schoology removes the grade while a flag is s
 // The page shows Prism's last read; a fresh read that differs means Schoology changed since (a sync
 // brings the page up to date). Nothing is written over a grade the teacher has not seen.
 const CHANGED = 'Changed in Schoology since Prism last read this task. Sync, then try again.';
-const REFRESH_FAILED = 'Saved, but the page could not refresh. Reload to see it.';
+export const REFRESH_FAILED = 'Saved, but the page could not refresh. Reload to see it.';
 // Errors that come after Schoology took the write: the page must refetch to show the true state.
 const AFTER_WRITE = ['READBACK_MISMATCH'];
 const MENU_WIDTH = 304; // 19rem

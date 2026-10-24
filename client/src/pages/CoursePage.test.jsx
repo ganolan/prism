@@ -179,6 +179,21 @@ describe('CoursePage triage', () => {
     expect(toggle.querySelector('.badge-red')).toBeNull();
   });
 
+  // The open/closed state of Triage ▸ is per visit to a tab: a rail opened on Gradebook must
+  // not follow the teacher to the Roster tab, where a projected screen may show it.
+  it('a rail opened on the Gradebook tab is not in the page after switching to the Roster tab', async () => {
+    localStorage.clear();
+    loaded({ archived: 0 });
+    vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
+    renderAt('/course/5?tab=gradebook');
+    fireEvent.click(await screen.findByRole('button', { name: /^Triage/ }));
+    expect(rail()).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Roster' }));
+    await screen.findByRole('button', { name: 'Private details' });
+    expect(document.querySelector('.triage-rail')).toBeNull();
+    expect(screen.getByRole('button', { name: /^Triage/ })).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('Private details sits beside the course name on the Roster tab only', async () => {
     loaded({ archived: 0 });
     const { container } = renderAt('/course/5?tab=roster');

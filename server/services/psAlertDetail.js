@@ -42,7 +42,11 @@ function readTable(html) {
   const linkOf = (cell) => { const href = cell.match(/<a\b[^>]*href="([^"]+)"/i)?.[1]; return href ? { url: decode(href) } : {}; };
   let headers = trs.map((tr) => cellsOf(tr, 'th')).find((h) => h.length)?.map(stripTags);
   let body = trs.map((tr) => cellsOf(tr, 'td')).filter((c) => c.length);
-  if (!headers && body.length && body[0].length !== 2) { headers = body[0].map(stripTags); body = body.slice(1); }
+  if (!headers && body.length && body[0].length !== 2) {
+    // No <th>: the first row stands in as headers only when something sits under it; alone it is content.
+    if (body.length === 1) return { found: true, rows: [], loose: body[0].map(stripTags).filter(Boolean) };
+    headers = body[0].map(stripTags); body = body.slice(1);
+  }
   const rows = [];
   const loose = [];
   const summaryLayout = headers ? headers.length === 2 && SUMMARY_HEADERS.every((re, i) => re.test(headers[i])) : true;

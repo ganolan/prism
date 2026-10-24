@@ -93,6 +93,10 @@ describe('parseAlertPopup', () => {
   test('Category | Details is read cell by cell like Category | Description', () => {
     expect(parseAlertPopup(`<table>${th(['Category', 'Details'])}<tbody>${td(['Plan', 'Yes'])}</tbody></table>`).rows).toEqual([{ category: 'Plan', description: 'Yes' }]);
   });
+  test('a header-less table that is a single row is text, not none', () => {
+    expect(parseAlertPopup('<table><tr><td>Notice text here</td></tr></table>')).toEqual({ kind: 'text', text: 'Notice text here' });
+    expect(parseAlertPopup('<table><tr><td>A</td><td>B</td><td>C</td></tr></table>')).toEqual({ kind: 'text', text: 'A\nB\nC' });
+  });
   test('a table with headers and no body rows is kind none, not its header names', () => {
     expect(parseAlertPopup(`<table>${th(['Guardian', 'Email'])}<tbody></tbody></table>`)).toEqual({ kind: 'none' });
     expect(parseAlertPopup(`<h4>Heading</h4><table>${th(['Guardian', 'Email'])}</table>`)).toEqual({ kind: 'text', text: 'Heading' });

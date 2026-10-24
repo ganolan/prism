@@ -29,6 +29,7 @@ import { cookieJar } from '../server/services/schoologyWeb.js';
 import { PowerSchoolWeb, PS_BASE } from '../server/services/powerschoolWeb.js';
 import { ALERT_DEFS } from '../server/lib/psAlerts.js';
 import { PS_SCHOOL_ID } from '../server/services/psAlertsSync.js';
+import { popupLink } from '../server/services/psSupportSummary.js';
 
 const args = process.argv.slice(2);
 const flag = (name) => args.indexOf(`--${name}`);
@@ -93,23 +94,8 @@ const roster = await ps.read(`${Q}getStudentsInSection.json`, { sectionIds: sect
 const studentidByDcid = new Map((Array.isArray(roster) ? roster : []).filter((r) => r && r.studentid != null).map((r) => [String(r.studentdcid), String(r.studentid)]));
 console.log(`roster: ${studentidByDcid.size} students`);
 
-// The plugin's link (api.makeAlert), full form; `bare` leaves the sf / adv extras off (what #163 sent).
-function href(def, dcid, studentid, bare) {
-  const p = new URLSearchParams({ url: def.stub_url, frn: `001${dcid}`, id: String(def.id) });
-  let out = `/teachers/alerts/aet_customalert_custompopup.html?${p}`;
-  if (bare) return out;
-  if (def.trigger_type === 'sf') {
-    const field = String(def.student_field).includes('.') ? `${def.ext_table_name}.${String(def.student_field).split('.')[1]}` : def.student_field;
-    const sf = new URLSearchParams({ mba_frn: `001${dcid}`, student_field: field });
-    if (def.ext_table_name) sf.set('tableName', def.ext_table_name);
-    out += `&${sf}`;
-  }
-  if (def.trigger_type === 'adv') {
-    if (def.querystring) out += `&${def.querystring}`;
-    out += `&${new URLSearchParams({ studentid })}`;
-  }
-  return out;
-}
+// The plugin's link (api.makeAlert) is popupLink in psSupportSummary.js; `bare` leaves the sf / adv extras off (what #163 sent).
+const href = (def, dcid, studentid, bare) => popupLink(def, dcid, studentid, bare);
 
 // The page's shape, never its text: tag counts, <th> headers, class names, cell counts.
 const strip = (s) => s.replace(/<(script|style)\b[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();

@@ -4,7 +4,7 @@
 // SEL/Behavioral Support, Case Manager, Accommodation Plan, TLI, Intervention Plan,
 // ILP, Support Plan URL, Support Notes (.claude/powerschool-api-reference.md
 // "Alert pop-ups"). Read as text, verbatim; nothing is inferred from it.
-const decode = (v) => v
+export const decode = (v) => v
   .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const text = (html) => decode(html.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();

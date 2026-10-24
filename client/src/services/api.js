@@ -53,6 +53,9 @@ export const getGradeCards = (studentId, { courseId, assignmentId } = {}) => {
 };
 // The PowerSchool Student Support Summary, read on demand (#163): { rows: [{ category, description, url? }], readAt }.
 export const getSupportSummary = (id) => request(`/students/${id}/support-summary`);
+// One PowerSchool alert's detail for a student (#160): { alertKey, kind: 'rows' | 'text' | 'none', rows?: [{ category,
+// description, url?, group? }], text?, suggestedPercent: number | null, readAt }. Roster alerts only; read live, kept 10 minutes.
+export const getAlertDetail = (id, alertKey) => request(`/students/${id}/alert-detail/${encodeURIComponent(alertKey)}`);
 export const updateStudent = (id, preferred_name_teacher) => request(`/students/${id}`, {
   method: 'PUT',
   body: JSON.stringify({ preferred_name_teacher }),

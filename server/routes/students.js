@@ -10,6 +10,7 @@ import { getFeatures } from '../middleware/featureGate.js';
 import { psAlertsForStudent } from '../services/psAlertStore.js';
 import { contactsForStudents } from '../services/guardianContactStore.js';
 import { readSupportSummary, SupportSummaryError } from '../services/psSupportSummary.js';
+import { readAlertDetail } from '../services/psAlertDetail.js';
 import { waitingCopies, flagLines } from '../services/savedGrades.js';
 import { buildAssessmentView, courseFlags, courseViewContext } from '../services/assessmentView.js';
 import { getAttachmentForAssignment } from '../services/rubricAttach.js';
@@ -49,6 +50,20 @@ router.get('/:id/support-summary', async (req, res) => {
     res.json(await readSupportSummary(getDb(), Number(req.params.id)));
   } catch (err) {
     if (err instanceof SupportSummaryError) return res.status(SUPPORT_SUMMARY_STATUS[err.code] || 502).json({ error: err.message, code: err.code });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/students/:id/alert-detail/:alertKey → { alertKey, kind: 'rows' | 'text' | 'none', rows?, text?,
+// suggestedPercent, readAt }: one PowerSchool alert's detail for the roster's alert pop-up and Test day
+// (#160; server/services/psAlertDetail.js). A family or unknown alert key is 400 NOT_ROSTER. For the teacher only.
+const ALERT_DETAIL_STATUS = { ...SUPPORT_SUMMARY_STATUS, NOT_ROSTER: 400 };
+router.get('/:id/alert-detail/:alertKey', async (req, res) => {
+  if (!getFeatures().powerschool_alerts) return res.status(404).json({ error: 'PowerSchool alerts are off' });
+  try {
+    res.json(await readAlertDetail(getDb(), Number(req.params.id), req.params.alertKey));
+  } catch (err) {
+    if (err instanceof SupportSummaryError) return res.status(ALERT_DETAIL_STATUS[err.code] || 502).json({ error: err.message, code: err.code });
     res.status(500).json({ error: err.message });
   }
 });

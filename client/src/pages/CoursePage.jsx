@@ -264,7 +264,9 @@ export default function CoursePage() {
               students={students}
               mastery={mastery}
               triage={triage}
+              gradebook={gradebook}
               onTriageChanged={() => setTriageVersion((v) => v + 1)}
+              onFlagChanged={refreshAfterFlag}
               onMasteryChanged={refreshMastery}
               courseId={id}
             />

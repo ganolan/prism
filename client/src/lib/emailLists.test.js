@@ -102,6 +102,11 @@ describe('mailtoFor', () => {
     expect(mailtoFor(row({ title: 'Unit 1 test' }), 'makeUps')).toBe('mailto:ada@example.test?subject=Unit%201%20test%3A%20make-up%20test');
     expect(mailtoFor(row({ title: 'A & B' }), 'resubmissions')).toBe('mailto:ada@example.test?subject=A%20%26%20B%3A%20resubmission');
   });
+  it('a flag row names what the student owes (Needs attention, #160)', () => {
+    expect(mailtoFor(row({ title: 'Lab', flag: 2 }), 'flags')).toBe('mailto:ada@example.test?subject=Lab%3A%20unfinished%20work');
+    expect(mailtoFor(row({ title: 'Lab', flag: 5 }), 'flags')).toBe('mailto:ada@example.test?subject=Lab%3A%20missed%20work');
+    expect(mailtoFor(row({ title: 'Lab', flag: 6 }), 'flags')).toBe('mailto:ada@example.test?subject=Lab');
+  });
   it('null without an email', () => {
     expect(mailtoFor(row({ studentEmail: null }), 'late')).toBeNull();
     expect(mailtoFor(row({ studentEmail: '  ' }), 'late')).toBeNull();

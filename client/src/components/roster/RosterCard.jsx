@@ -12,7 +12,7 @@ import { alertChipLabel } from '../../lib/rosterVitals.js';
 // up down the page. With Private details off those slots are not drawn at all.
 //
 // Tapping the card opens the student page; a button or link inside it does its own job only.
-// `children` (Needs attention's rows) sit under the card's top line.
+// `children` (Needs attention's rows) sit under the card's top line, and a tap among them stays.
 //  - unread: the student's unread comment count, or null when Prism has none to show (slot left empty).
 //  - alerts: the student's roster alerts (forRoster).
 
@@ -69,7 +69,8 @@ export default function RosterCard({ student, showPrivate, unread = null, alerts
   const number = student.email ? student.email.split('@')[0] : null;
   const grade = gradeText(student.grad_year);
   const open = (e) => {
-    if (e.target.closest('a, button, input, select, textarea, label')) return;
+    // Needs attention's rows hold editors and panels: a tap there never leaves the page.
+    if (e.target.closest('a, button, input, select, textarea, label, .roster-card__items')) return;
     navigate(`/student/${student.id}`);
   };
   return (

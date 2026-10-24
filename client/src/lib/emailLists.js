@@ -1,8 +1,10 @@
 // Pure helpers for the triage panels' email actions (#137): who a panel's "@" menu
 // copies, the Outlook-ready address string ("a@x; b@x"), and a row's mailto: link.
-// kind: 'makeUps' | 'late' | 'resubmissions'.
+// kind: 'makeUps' | 'late' | 'resubmissions'; a row's mailto also takes 'flags' (Needs attention, #160).
 
 const KIND_WORDS = { makeUps: 'make-up test', late: 'late work', resubmissions: 'resubmission' };
+// A flag row's subject names what the student owes: Incomplete (2) or Absent (5).
+const FLAG_WORDS = { 2: 'unfinished work', 5: 'missed work' };
 
 // Students who still owe something: everyone who missed a make-up; late work not yet
 // handed in (a submitted-late row is listed for referral, not chasing); resubmissions
@@ -79,5 +81,6 @@ export function copiedMessage(count, missing = 0) {
 export function mailtoFor(row, kind) {
   const email = (row.studentEmail || '').trim();
   if (!email) return null;
-  return `mailto:${email}?subject=${encodeURIComponent(`${row.title}: ${KIND_WORDS[kind]}`)}`;
+  const words = kind === 'flags' ? FLAG_WORDS[row.flag] : KIND_WORDS[kind];
+  return `mailto:${email}?subject=${encodeURIComponent(words ? `${row.title}: ${words}` : row.title)}`;
 }

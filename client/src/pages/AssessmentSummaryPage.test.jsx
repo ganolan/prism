@@ -1764,6 +1764,20 @@ describe('AssessmentSummaryPage ?filter= links (triage)', () => {
       .toHaveAttribute('aria-pressed', 'true');
   });
 
+  // The Roster tab's Needs attention rows (#160) link with both: the Needs action row selected,
+  // and that student's card in view.
+  it('?student= with ?filter=action selects the Needs action row and scrolls to the card', async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    renderAt('/course/4/assessment/8?student=2&filter=action');
+    await waitFor(() => expect(screen.getByText('Bob M')).toBeVisible());
+    const bar = within(document.querySelector('.assessment-filter-bar'));
+    // Every Needs action reason this task has is on (Ada's To grade, Bob's Feedback hidden).
+    expect(bar.getByRole('button', { name: /^Feedback hidden/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(bar.getByRole('button', { name: /^To grade/ })).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
+    expect(document.getElementById('student-card-2')).toHaveClass('student-card--highlight');
+  });
+
   it('a "Draft not published" link finds a card with a stored draft', async () => {
     const ada = mastery.students[0];
     getDraftsForAssignment.mockResolvedValueOnce({

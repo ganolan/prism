@@ -113,10 +113,11 @@ export default function EmailMenu({ kind, rows, showCourse = false }) {
   );
 }
 
-// A row's ✉: opens the mail app to that one student, subject prefilled.
-export function MailLink({ row, kind }) {
+// A row's ✉: opens the mail app to that one student, subject prefilled. Needs attention (#160)
+// draws it as a small "Email" button (`className`, `children`).
+export function MailLink({ row, kind, className = 'triage-row__mail', children = '✉' }) {
   const href = mailtoFor(row, kind);
   if (!href) return null;
   const label = `Email ${row.studentName}`;
-  return <a className="triage-row__mail" href={href} aria-label={label} title={label}>✉</a>;
+  return <a className={className} href={href} aria-label={label} title={label}>{children}</a>;
 }

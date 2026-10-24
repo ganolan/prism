@@ -4,6 +4,7 @@ import RosterFilters from './RosterFilters.jsx';
 import AlertPopover from './AlertPopover.jsx';
 import CommentsPopover from './CommentsPopover.jsx';
 import CopyEmailsPopover from './CopyEmailsPopover.jsx';
+import NeedsAttention from './NeedsAttention.jsx';
 import { usePrivateDetails } from '../../lib/privateDetails.js';
 import { useStickyTab } from '../../hooks/useStickyTab.js';
 import { forRoster } from '../../lib/psAlerts.js';
@@ -15,10 +16,13 @@ import { getCourseCommentSummaries } from '../../services/api.js';
 // emails, and the Needs attention, Test day and Mastery modes) shows only with Private details on, and
 // with it off is not in the page at all. Turning it off closes any pop-up and clears the filters.
 //
-// Four modes, remembered like the course tabs (`?mode=`). Needs attention, Test day and Mastery each
-// have a slot below; until they are built, each shows its explanation box.
+// Four modes, remembered like the course tabs (`?mode=`). With Private details off, Needs attention,
+// Test day and Mastery each show their explanation box. Test day and Mastery have a slot below until
+// they are built.
 // Props: course, students (with dropped ones, `dropped_at`), mastery, triage (CoursePage's own getTriage
-// answer), onTriageChanged, onMasteryChanged, courseId.
+// answer, as the rail reads it), gradebook (CoursePage's getGradebook, for the flag on overdue work),
+// onTriageChanged (after a Needs attention write: CoursePage re-reads triage), onFlagChanged (after one
+// that changed a Schoology flag: the gradebook too), onMasteryChanged, courseId.
 
 export const ROSTER_MODES = [
   { id: 'roster', label: 'Roster' },
@@ -48,10 +52,7 @@ export function LockedBox({ title }) {
   );
 }
 
-// Slots for the modes still to be built (#160 Tasks 7, 9 and 10).
-function NeedsAttentionMode({ on }) {
-  return on ? <p className="text-sm text-muted">Needs attention is on its way.</p> : <LockedBox title="Overdue work, referrals and comments are private." />;
-}
+// Slots for the modes still to be built (#160 Tasks 9 and 10).
 function TestDayMode({ on }) {
   return on ? <p className="text-sm text-muted">Test day is on its way.</p> : <LockedBox title="Extra time for learning plans is private." />;
 }
@@ -59,32 +60,19 @@ function MasteryMode({ on }) {
   return on ? <p className="text-sm text-muted">Mastery is on its way.</p> : <LockedBox title="Levels and grades are private." />;
 }
 
-// Roster mode: the cards, and with Private details on the filters and the pop-ups.
-function RosterMode({ on, courseId, active, dropped, unread, filters, setFilters, labels }) {
+// Roster mode: the cards, and with Private details on the filters and Copy emails.
+function RosterMode({ on, courseId, active, dropped, unread, filters, setFilters, labels, card, popup, openPopup, closePopup }) {
   const [showDropped, setShowDropped] = useState(false);
-  const [popup, setPopup] = useState(null); // { kind: 'alert' | 'comments' | 'emails', anchor, student?, alert? }
-  useEffect(() => { if (!on) setPopup(null); }, [on]);
 
   const options = rosterFilterOptions(active, unread, filters, labels.current);
   for (const o of options.alerts) labels.current[o.key] = o.label;
   const shown = on ? applyRosterFilters(active, filters, unread) : active;
-  // The anchor toggles its own pop-up; another anchor replaces it.
-  const open = (next) => setPopup((cur) => (cur && cur.anchor === next.anchor ? null : next));
-  const close = () => setPopup(null);
-
-  const card = (s, isDropped = false) => (
-    <RosterCard key={s.id} student={s} showPrivate={on}
-      unread={!isDropped && unread ? unread[s.id] || 0 : null}
-      alerts={isDropped ? [] : forRoster(s.ps_alerts)}
-      onOpenComments={(anchor) => open({ kind: 'comments', anchor, student: s })}
-      onOpenAlert={(alert, anchor) => open({ kind: 'alert', anchor, student: s, alert })} />
-  );
 
   return (
     <div className="roster-mode">
       {on && (
         <RosterFilters options={options} selected={filters} onChange={setFilters} shown={shown.length} total={active.length}
-          onCopyEmails={(anchor) => open({ kind: 'emails', anchor })} />
+          onCopyEmails={(anchor) => openPopup({ kind: 'emails', anchor })} />
       )}
       <div className="roster-cards">
         {shown.map((s) => card(s))}
@@ -97,19 +85,17 @@ function RosterMode({ on, courseId, active, dropped, unread, filters, setFilters
           <button type="button" className="ghost" aria-expanded={showDropped} onClick={() => setShowDropped((v) => !v)}>
             {dropped.length} dropped {showDropped ? '(hide)' : '(show)'}
           </button>
-          {showDropped && <div className="roster-cards">{dropped.map((s) => card(s, true))}</div>}
+          {showDropped && <div className="roster-cards">{dropped.map((s) => card(s, { isDropped: true }))}</div>}
         </div>
       )}
-      {on && popup?.kind === 'alert' && <AlertPopover student={popup.student} alert={popup.alert} anchor={popup.anchor} onClose={close} />}
-      {on && popup?.kind === 'comments' && <CommentsPopover student={popup.student} courseId={courseId} anchor={popup.anchor} onClose={close} />}
       {on && popup?.kind === 'emails' && (
-        <CopyEmailsPopover courseId={courseId} studentIds={shown.map((s) => s.id)} filtered={filters.size > 0} anchor={popup.anchor} onClose={close} />
+        <CopyEmailsPopover courseId={courseId} studentIds={shown.map((s) => s.id)} filtered={filters.size > 0} anchor={popup.anchor} onClose={closePopup} />
       )}
     </div>
   );
 }
 
-export default function RosterTab({ students, courseId }) {
+export default function RosterTab({ course = null, students, triage = null, gradebook = null, onTriageChanged, onFlagChanged, courseId }) {
   const [mode, setMode] = useStickyTab('roster-mode', 'roster', { param: 'mode' });
   const current = ROSTER_MODES.some((m) => m.id === mode) ? mode : 'roster';
   const [on] = usePrivateDetails();
@@ -120,6 +106,26 @@ export default function RosterTab({ students, courseId }) {
 
   const active = useMemo(() => students.filter((s) => !s.dropped_at), [students]);
   const dropped = useMemo(() => students.filter((s) => s.dropped_at), [students]);
+  const shownUnread = on ? unread : null;
+
+  // One pop-up at a time (an alert, a student's comments, Copy emails), closed with Private details
+  // off or on a change of mode. The anchor toggles its own pop-up; another anchor replaces it.
+  const [popup, setPopup] = useState(null); // { kind: 'alert' | 'comments' | 'emails', anchor, student?, alert? }
+  useEffect(() => { if (!on) setPopup(null); }, [on]);
+  useEffect(() => { setPopup(null); }, [current]);
+  const openPopup = (next) => setPopup((cur) => (cur && cur.anchor === next.anchor ? null : next));
+  const closePopup = () => setPopup(null);
+
+  // The Roster card, in every mode that lists students; `children` are Needs attention's rows.
+  const card = (s, { isDropped = false, children = null } = {}) => (
+    <RosterCard key={s.id} student={s} showPrivate={on}
+      unread={!isDropped && shownUnread ? shownUnread[s.id] || 0 : null}
+      alerts={isDropped ? [] : forRoster(s.ps_alerts)}
+      onOpenComments={(anchor) => openPopup({ kind: 'comments', anchor, student: s })}
+      onOpenAlert={(alert, anchor) => openPopup({ kind: 'alert', anchor, student: s, alert })}>
+      {children}
+    </RosterCard>
+  );
 
   // Comment counts are read only with Private details on, and dropped with it off.
   useEffect(() => {
@@ -142,12 +148,18 @@ export default function RosterTab({ students, courseId }) {
         ))}
       </div>
       {current === 'roster' && (
-        <RosterMode on={on} courseId={courseId} active={active} dropped={dropped} unread={on ? unread : null}
-          filters={on ? filters : new Set()} setFilters={setFilters} labels={labels} />
+        <RosterMode on={on} courseId={courseId} active={active} dropped={dropped} unread={shownUnread}
+          filters={on ? filters : new Set()} setFilters={setFilters} labels={labels}
+          card={card} popup={popup} openPopup={openPopup} closePopup={closePopup} />
       )}
-      {current === 'attention' && <NeedsAttentionMode on={on} />}
+      {current === 'attention' && (on
+        ? <NeedsAttention triage={triage} active={active} gradebook={gradebook} archived={Boolean(course?.archived)}
+          onChanged={onTriageChanged} onFlagChanged={onFlagChanged} card={card} />
+        : <LockedBox title="Overdue work, referrals and comments are private." />)}
       {current === 'testday' && <TestDayMode on={on} />}
       {current === 'mastery' && <MasteryMode on={on} />}
+      {on && popup?.kind === 'alert' && <AlertPopover student={popup.student} alert={popup.alert} anchor={popup.anchor} onClose={closePopup} />}
+      {on && popup?.kind === 'comments' && <CommentsPopover student={popup.student} courseId={courseId} anchor={popup.anchor} onClose={closePopup} />}
     </div>
   );
 }

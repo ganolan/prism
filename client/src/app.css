@@ -1788,10 +1788,28 @@ button.filter-btn-outline:disabled { opacity: 0.5; cursor: default; }
 .roster-comment time { font-size: 0.72rem; color: var(--text-muted); }
 .roster-comment__text { white-space: pre-line; overflow-wrap: anywhere; }
 .roster-comment .link { font-weight: 600; font-size: 0.8rem; }
+/* Needs attention: a heading per group, and the card's triage rows (ring, kind + task, muted line,
+   then the rail's buttons on the right; an editor or panel under the row). */
+.roster-group-title { margin: 0.4rem 0 0; font-size: 0.95rem; font-weight: 700; }
+.roster-attention__error { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.roster-attention-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; column-gap: 8px; row-gap: 4px; align-items: center; font-size: 0.84rem; cursor: default; }
+.roster-attention-row__text { min-width: 0; display: flex; flex-direction: column; }
+.roster-attention-row__line { display: flex; align-items: center; flex-wrap: wrap; gap: 0.2rem 0.4rem; min-width: 0; }
+.roster-attention-row__kind { font-weight: 650; }
+.roster-attention-row__kind--red { color: var(--danger); }
+.roster-attention-row__flag { display: inline-flex; }
+.roster-attention-row__task { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roster-attention-row__when { font-size: 0.72rem; color: var(--text-muted); }
+.roster-attention-row__actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px; }
+/* Email: a mailto link drawn like a small secondary button. */
+a.roster-attention__email { border: 1px solid var(--border); border-radius: 8px; padding: 0.3rem 0.65rem; font-size: 0.78rem; font-weight: 500; color: var(--text); text-decoration: none; white-space: nowrap; }
+a.roster-attention__email:hover { background: var(--accent-subtle); border-color: var(--accent); color: var(--accent); }
 /* A narrow roster (a phone, or beside the rail): the private slots move under the name. */
 @container roster (max-width: 600px) {
   .roster-card--private { grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1.4fr); grid-template-areas: "av id id" ". cm al" ". it it"; }
   .roster-card__alerts { justify-content: flex-start; }
+  .roster-attention-row { grid-template-columns: 28px minmax(0, 1fr); }
+  .roster-attention-row__actions { grid-column: 2; justify-content: flex-start; }
 }
 
 /* ========================================================================

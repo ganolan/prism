@@ -164,6 +164,12 @@ describe('RosterTab cards', () => {
     expect(ids).not.toContain(13);
   });
 
+  it('shows no dropped toggle when nobody has dropped', () => {
+    renderTab('/course/5', { students: STUDENTS.filter((s) => !s.dropped_at) });
+    expect(screen.getByText('Annie Lee')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /dropped/ })).not.toBeInTheDocument();
+  });
+
   it('a student without an email has no number and no Email button', () => {
     renderTab();
     const card = cardOf('First12 Last12');

@@ -315,7 +315,6 @@ tr:last-child td { border-bottom: none; }
 .ps-support-summary__row dd { margin: 0; overflow-wrap: anywhere; }
 .ps-support-summary__error { flex-basis: 100%; color: var(--badge-amber-text); }
 button.ps-alerts-reveal { font-size: 0.78rem; padding: 0.15rem 0.55rem; }
-.roster-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
 
 /* #76: gradebook cell marker for an lti_submission assignment whose OneDrive
    document fetch failed at the last sync — the teacher should re-sync. Amber
@@ -807,8 +806,8 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
 }
 
 /* Schoology override cell — hover affordance.
-   Used in the course roster and the mastery performance summary to hint
-   that clicking the cell opens the override popup. */
+   Used in the mastery performance summary to hint that clicking the cell
+   opens the override popup. (The Roster tab's Mastery mode uses .sgc.) */
 .schoology-cell {
   position: relative;
   transition: filter 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
@@ -1641,8 +1640,9 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
 /* ========================================================================
    QUICK-LOOKUP PAGES (#134)
    Styles moved out of inline style={{}} on the Student, Search, Directory and
-   Dashboard pages (and the old roster table, since replaced by ROSTER) so the PHONE LAYOUT block can adapt them. Desktop values are
-   exactly the old inline ones.
+   Dashboard pages so the PHONE LAYOUT block can adapt them. Desktop values are
+   exactly the old inline ones. (The course roster table was here too, until
+   the Roster tab replaced it, #160.)
    ======================================================================== */
 /* Shown only at phone width (PHONE LAYOUT turns it on). */
 .phone-only { display: none; }
@@ -1679,8 +1679,9 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 .student-course__head { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 1.25rem; background: none; border: none; cursor: pointer; text-align: left; }
 .student-course__body { padding: 0 1.25rem 1.25rem; }
 
-/* Search / roster / Directory: the line under a name that carries the columns
-   a phone hides (email, grade, school). */
+/* Search / Directory: the line under a name that carries the columns a phone
+   hides (email, grade, school). Also the grade and student number line under a
+   name on the Roster tab's cards and Mastery rows (PersonSub). */
 .person-sub { font-size: 0.78rem; color: var(--text-muted); overflow-wrap: anywhere; }
 
 

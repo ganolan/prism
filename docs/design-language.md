@@ -761,7 +761,8 @@ each colour standing for a *function* so the hierarchy reads at a glance.
 ### Step 2: the quick-lookup pages (October 2026, #134)
 
 - **Move only what must adapt.** On the Student, Search, Directory, Dashboard
-  and roster pages, just the inline styles a phone needs to change moved into
+  and roster pages (*the roster table was replaced by the Roster tab's cards on
+  25 Oct 2026, #160, see "Roster tab: layout and container queries"*), just the inline styles a phone needs to change moved into
   classes (a `QUICK-LOOKUP PAGES` section of `app.css`), with the old inline
   values verbatim, so desktop is pixel-identical (diffed against `main` at
   1440, 1024 and 800px, including the note form open and in edit). The phone

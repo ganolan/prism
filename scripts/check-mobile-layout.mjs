@@ -165,6 +165,8 @@ try {
         const w = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth, rows: document.querySelectorAll('.mastery-row').length }));
         check(w.rows > 0, `${label} roster mastery, one category: rows are drawn`);
         check(w.scroll === w.inner, `${label} roster mastery, one category: no sideways page scroll (${w.scroll} of ${w.inner}px)`);
+      } else {
+        console.log(`SKIP  ${label} roster mastery: one-category Mastery (course has one category)`);
       }
       await ctx.close();
     }

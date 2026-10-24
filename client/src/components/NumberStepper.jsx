@@ -6,7 +6,8 @@ import { useState } from 'react';
 // an empty/invalid field reverts to the committed value on blur.
 // `step` (default 1) is how far −/+ move; a typed value snaps to the nearest
 // multiple of it, then is clamped. `suffix` ("min", "%") is display text after
-// the number and is never part of the value.
+// the number and is never part of the value. `step` is a whole number, and `min`
+// should be a multiple of it (a snapped value is clamped, so it can land on `min`).
 export default function NumberStepper({ value, onChange, min = 1, max = 365, step = 1, suffix, ...rest }) {
   const clamp = (n) => Math.min(max, Math.max(min, Math.floor(n)));
   const emit = (n) => { if (Number.isFinite(n)) onChange(clamp(n)); };
@@ -25,6 +26,7 @@ export default function NumberStepper({ value, onChange, min = 1, max = 365, ste
         inputMode="numeric"
         min={min}
         max={max}
+        step={step}
         value={draft ?? String(value)}
         onFocus={(e) => { setDraft(String(value)); e.target.select(); }}
         onChange={(e) => {

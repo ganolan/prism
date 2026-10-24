@@ -106,6 +106,11 @@ describe('NumberStepper', () => {
       expect(screen.getByRole('spinbutton')).toHaveAccessibleName('Minutes');
     });
 
+    it('passes step to the input so the keyboard arrows move by it', () => {
+      stepped(50);
+      expect(screen.getByRole('spinbutton')).toHaveAttribute('step', '5');
+    });
+
     it('shows no suffix by default', () => {
       const { container } = render(<NumberStepper value={3} onChange={() => {}} aria-label="n" />);
       expect(container.querySelector('.number-stepper__suffix')).toBeNull();

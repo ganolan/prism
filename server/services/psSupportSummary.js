@@ -47,7 +47,7 @@ export function popupLink(def, dcid, studentid, bare = false) {
 // courses, finds them on that section's roster, then asks `linkFor(ps, { dcid, studentid })` for the
 // pop-up path (it may read PowerSchool first; null = nothing to read) and GETs it.
 // → the page's HTML, or null when `linkFor` gave no path. Throws SupportSummaryError.
-export async function readAlertPopup(db, studentId, alertKey, { jar, fetchImpl = fetch } = {}, linkFor, { name = 'alert pop-up' } = {}) {
+export async function readAlertPopup(db, studentId, alertKey, { jar, fetchImpl = fetch } = {}, linkFor, { name = 'alert pop-up', noCourse = `The ${name} is read through a current course, and this student has none` } = {}) {
   const student = db.prepare('SELECT id, school_uid FROM students WHERE id = ?').get(studentId);
   if (!student) throw new SupportSummaryError('NOT_FOUND', 'Student not found');
   const hasAlert = db.prepare('SELECT 1 FROM student_ps_alerts WHERE student_id = ? AND alert_key = ?').get(studentId, alertKey);
@@ -58,7 +58,7 @@ export async function readAlertPopup(db, studentId, alertKey, { jar, fetchImpl =
     SELECT c.schoology_section_id FROM enrolments e JOIN courses c ON c.id = e.course_id
     WHERE e.student_id = ? AND e.dropped_at IS NULL AND c.archived = 0 AND c.excluded = 0
     ORDER BY c.id LIMIT 1`).get(studentId);
-  if (!course) throw new SupportSummaryError('NO_COURSE', `The ${name} is read through a current course, and this student has none`);
+  if (!course) throw new SupportSummaryError('NO_COURSE', noCourse);
 
   const ps = new PowerSchoolWeb({ sgyJar: jar ?? cookieJar(), fetchImpl });
   try {
@@ -95,7 +95,7 @@ export async function readSupportSummary(db, studentId, deps = {}) {
   const query = (dcid, studentid) => new URLSearchParams({ url: STUB, frn: `001${dcid}`, id: SUPPORT_SUMMARY_ALERT_ID, studentid });
   const html = await readAlertPopup(db, studentId, 'support_summary', deps,
     (ps, { dcid, studentid }) => `/teachers/alerts/aet_customalert_custompopup.html?${query(dcid, studentid)}`,
-    { name: 'Student Support Summary' });
+    { name: 'Student Support Summary', noCourse: 'The Support Summary is read through a current course, and this student has none' });
   const rows = parseSupportSummary(html);
   const readAt = new Date(now()).toISOString();
   cache.set(studentId, { rows, readAt, at: now() });

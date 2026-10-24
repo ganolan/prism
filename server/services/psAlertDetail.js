@@ -24,12 +24,19 @@ const NO_POPUP = new Set(['mobility']);
 
 const stripTags = (html) => decode(html.replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 
-// The page's table as rows: { category, description, url?, group? }. A two-column table is read cell by
-// cell, as parseSupportSummary reads the Support Summary; a wider one pairs each header with the cell
-// under it (blank cells left out), `group` numbering the body row when there are several.
-function tableRows(html) {
+const SUMMARY_HEADERS = [/^category$/i, /^(description|details)$/i];
+
+// The page's first table. → { found, rows, loose }
+//  - rows: { category, description, url?, group? }. The Support Summary layout (Category | Description,
+//    or Details) and a header-less two-column table are read cell by cell, as parseSupportSummary reads
+//    the Support Summary. Any other table pairs each cell with the header over it (blank cells left out),
+//    `group` numbering the body row when there are several.
+//  - loose: the text of a cell with no header over it: a body row of one cell, or short by more than the one
+//    trailing column the recorded allergies table can lack (its "one cell" answer), is never labelled with a
+//    header it may not belong to.
+function readTable(html) {
   const table = html.match(/<table\b[\s\S]*?<\/table>/i)?.[0];
-  if (!table) return [];
+  if (!table) return { found: false, rows: [], loose: [] };
   const trs = [...table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((m) => m[1]);
   const cellsOf = (tr, tag) => [...tr.matchAll(new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)</${tag}>`, 'gi'))].map((m) => m[1]);
   const linkOf = (cell) => { const href = cell.match(/<a\b[^>]*href="([^"]+)"/i)?.[1]; return href ? { url: decode(href) } : {}; };
@@ -37,22 +44,29 @@ function tableRows(html) {
   let body = trs.map((tr) => cellsOf(tr, 'td')).filter((c) => c.length);
   if (!headers && body.length && body[0].length !== 2) { headers = body[0].map(stripTags); body = body.slice(1); }
   const rows = [];
-  if (!headers || (headers.length === 2 && body.every((c) => c.length === 2))) {
-    // headers such as Category | Description are the column names, not data
+  const loose = [];
+  const summaryLayout = headers ? headers.length === 2 && SUMMARY_HEADERS.every((re, i) => re.test(headers[i])) : true;
+  if (summaryLayout) {
     for (const cells of body) {
-      if (cells.length < 2) continue;
+      if (cells.length < 2) { const t = stripTags(cells[0]); if (t) loose.push(t); continue; }
       const row = { category: stripTags(cells[0]), description: stripTags(cells[1]), ...linkOf(cells[1]) };
       if (row.category) rows.push(row);
     }
-    return rows;
+    return { found: true, rows, loose };
   }
   body.forEach((cells, i) => {
+    const group = body.length > 1 ? { group: i + 1 } : {};
+    // The recorded allergies table has 10 headers over 9-cell rows for some students (the extra header is the
+    // trailing legacy column), so a row may be one cell short and still line up; a lone cell never does.
+    const aligned = cells.length > 1 && cells.length >= headers.length - 1;
     cells.forEach((cell, j) => {
       const description = stripTags(cell);
-      if (description && headers[j]) rows.push({ category: headers[j], description, ...linkOf(cell), ...(body.length > 1 ? { group: i + 1 } : {}) });
+      if (!description) return;
+      if (aligned && headers[j]) rows.push({ category: headers[j], description, ...linkOf(cell), ...group });
+      else loose.push(description);
     });
   });
-  return rows;
+  return { found: true, rows, loose };
 }
 
 // The page's visible text, one line per paragraph or <br>, scripts and styles dropped.
@@ -65,10 +79,13 @@ function visibleText(html) {
 }
 
 // → { kind: 'rows', rows } | { kind: 'text', text } | { kind: 'none' }
+// Rows when a table has cells under headers; a table of lone cells is text; a table with headers and no
+// cells is none (its header names are not content); a page with no table is its visible text.
 export function parseAlertPopup(html) {
-  const rows = tableRows(String(html || ''));
-  if (rows.length) return { kind: 'rows', rows };
-  const text = visibleText(html || '');
+  const page = String(html || '');
+  const { found, rows, loose } = readTable(page);
+  if (rows.length) return { kind: 'rows', rows: [...rows, ...loose.map((description) => ({ category: '', description }))] };
+  const text = loose.length ? loose.join('\n') : visibleText(found ? page.replace(/<table\b[\s\S]*?<\/table>/i, ' ') : page);
   return text ? { kind: 'text', text } : { kind: 'none' };
 }
 

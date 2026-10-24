@@ -64,6 +64,7 @@ describe('readSupportSummary (on demand)', () => {
     seed({ archived: 1 });
     const w = web();
     await expect(readSupportSummary(db, studentId, deps(w))).rejects.toMatchObject({ code: 'NO_COURSE' });
+    await expect(readSupportSummary(db, studentId, deps(w))).rejects.toMatchObject({ message: 'The Support Summary is read through a current course, and this student has none' });
     seed({ schoolUid: null });
     await expect(readSupportSummary(db, studentId, deps(w))).rejects.toMatchObject({ code: 'NOT_LINKED' });
     expect(w.requests).toEqual([]);

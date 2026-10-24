@@ -12,9 +12,16 @@ const SPP_EMPTY = '<p style="margin-left:10px">\n</p>'; // the 77-byte shape, no
 const SPP_SENTENCE = '<p style="margin-left:10px">This student has an accommodation plan on file.</p>';
 const SPP_TIME = '<p style="margin-left:10px">Extra time: 25% on tests and quizzes.</p>';
 const NO_PHOTO = '<p>Line one of the notice.<br>Line two of the notice.<br>Line three &amp; last.</p>';
-const ALLERGIES = `<div><table><thead><tr><th>Allergy Type</th><th>Allergen</th><th>Treatment</th></tr></thead><tbody>
-<tr><td>Food</td><td>Peanut</td><td></td></tr>
-<tr><td>Insect</td><td>Wasp</td><td>Antihistamine</td></tr></tbody></table></div>`;
+// The recorded allergies shape: 9 headers (10 with "Other Allergies (Legacy)"), 9 cells per body row, blanks,
+// <img> and <a> inside cells; or one body row with a single cell.
+const ALLERGY_HEADERS = ['Allergy Type', 'Allergen', 'Sensitivity Type', 'Hospitalized for reaction', '# of Times EpiPen Used',
+  'Last date tested by Allergist', 'Date of last reaction', 'Treatment', 'Medication', 'Please describe reaction'];
+const th = (hs) => `<thead><tr>${hs.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`;
+const td = (cells) => `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+const ALLERGIES = `<div><table>${th(ALLERGY_HEADERS.slice(0, 9))}<tbody>
+${td(['Food', 'Peanut', 'Severe', 'No', '', '<a href="https://example.org/test">Report</a>', '', 'Antihistamine', '<img src="x.png">'])}
+${td(['Insect', 'Wasp', '', '', '', '', '', '', ''])}</tbody></table></div>`;
+const ALLERGIES_NONE = `<table>${th(ALLERGY_HEADERS)}<tbody>${td(['No allergy records found'])}</tbody></table>`;
 const NOT_A_TABLE = '<div><h4>Something new</h4><ul><li>Item one</li><li>Item two</li></ul></div>';
 
 const STUBS = {
@@ -50,12 +57,45 @@ describe('parseAlertPopup', () => {
     expect(d.rows).toHaveLength(9);
     expect(d.rows[7]).toEqual({ category: 'Support Plan URL', description: 'Open plan', url: 'https://example.org/plan' });
   });
-  test('a wider table pairs each header with its cell, leaves blanks out and numbers the body rows', () => {
-    expect(parseAlertPopup(ALLERGIES).rows).toEqual([
+  test('a wider table (the recorded allergies shape) pairs each header with its cell, leaves blanks out and numbers the body rows', () => {
+    const rows = parseAlertPopup(ALLERGIES).rows;
+    expect(rows).toEqual([
       { category: 'Allergy Type', description: 'Food', group: 1 }, { category: 'Allergen', description: 'Peanut', group: 1 },
+      { category: 'Sensitivity Type', description: 'Severe', group: 1 }, { category: 'Hospitalized for reaction', description: 'No', group: 1 },
+      { category: 'Last date tested by Allergist', description: 'Report', url: 'https://example.org/test', group: 1 },
+      { category: 'Treatment', description: 'Antihistamine', group: 1 },
       { category: 'Allergy Type', description: 'Insect', group: 2 }, { category: 'Allergen', description: 'Wasp', group: 2 },
-      { category: 'Treatment', description: 'Antihistamine', group: 2 },
     ]);
+  });
+  test('a body row with a single cell under 10 headers is text, never labelled with a header', () => {
+    expect(parseAlertPopup(ALLERGIES_NONE)).toEqual({ kind: 'text', text: 'No allergy records found' });
+  });
+  test('10 headers over 9-cell rows (the recorded legacy-column variant) still pair the first 9', () => {
+    const rows = parseAlertPopup(`<table>${th(ALLERGY_HEADERS)}<tbody>${td(['Food', 'Peanut', 'Severe', 'No', '', '', '', 'Antihistamine', ''])}</tbody></table>`).rows;
+    expect(rows.map((r) => r.category)).toEqual(['Allergy Type', 'Allergen', 'Sensitivity Type', 'Hospitalized for reaction', 'Treatment']);
+  });
+  test('a lone cell beside paired rows is a row with no category', () => {
+    const d = parseAlertPopup(`<table>${th(['A', 'B', 'C'])}<tbody>${td(['1', '2', '3'])}${td(['stray'])}</tbody></table>`);
+    expect(d.rows).toEqual([
+      { category: 'A', description: '1', group: 1 }, { category: 'B', description: '2', group: 1 }, { category: 'C', description: '3', group: 1 },
+      { category: '', description: 'stray' },
+    ]);
+  });
+  test('a two-column table that is not Category | Description keeps its header names', () => {
+    expect(parseAlertPopup(`<table>${th(['Guardian', 'Email'])}<tbody>${td(['Parent One', 'one@example.org'])}</tbody></table>`).rows)
+      .toEqual([{ category: 'Guardian', description: 'Parent One' }, { category: 'Email', description: 'one@example.org' }]);
+    expect(parseAlertPopup(`<table>${th(['Allergen', 'Treatment'])}<tbody>${td(['Peanut', 'Antihistamine'])}${td(['Wasp', 'Ice'])}</tbody></table>`).rows)
+      .toEqual([
+        { category: 'Allergen', description: 'Peanut', group: 1 }, { category: 'Treatment', description: 'Antihistamine', group: 1 },
+        { category: 'Allergen', description: 'Wasp', group: 2 }, { category: 'Treatment', description: 'Ice', group: 2 },
+      ]);
+  });
+  test('Category | Details is read cell by cell like Category | Description', () => {
+    expect(parseAlertPopup(`<table>${th(['Category', 'Details'])}<tbody>${td(['Plan', 'Yes'])}</tbody></table>`).rows).toEqual([{ category: 'Plan', description: 'Yes' }]);
+  });
+  test('a table with headers and no body rows is kind none, not its header names', () => {
+    expect(parseAlertPopup(`<table>${th(['Guardian', 'Email'])}<tbody></tbody></table>`)).toEqual({ kind: 'none' });
+    expect(parseAlertPopup(`<h4>Heading</h4><table>${th(['Guardian', 'Email'])}</table>`)).toEqual({ kind: 'text', text: 'Heading' });
   });
   test('a table with no header cells takes its first row as headers when it is not two columns wide', () => {
     const d = parseAlertPopup('<table><tr><td>A</td><td>B</td><td>C</td></tr><tr><td>1</td><td>2</td><td>3</td></tr></table>');

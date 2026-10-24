@@ -715,6 +715,7 @@ same.)*
 **2. Archived / past courses: REST `GET /users/{teacherUid}/sections?include_past=1` lists them all (2026-10-23, #178); the HTML page below hides linked sections and is no longer read.**
 
 *(Verified live 2026-10-23, public OAuth, read only, `scripts/probe-past-sections.js me` and a REST-vs-page-vs-prod diff:)*
+- **A listed past section can refuse its grades (seen 22-24 Oct 2026, prod sync runs 71 to 81):** Mobile App Development 3(A-B), `5166469329`, came in through `include_past=1`, and its enrolments and assignments were read, but `GET /sections/5166469329/grades` answers **403** on every try. Until `9969f01` that 403 stopped every full sync (the archived backfill did not catch it); now the course is logged ("not read ... trying again next sync") and skipped. Why the grades are refused is not known.
 - **`include_past=1` works for the teacher's own uid:** `GET /users/114956593/sections` returned 10 sections (all `active: 1`);
   with `?include_past=1` it returned **83** (10 current + 73 past `active: 0`, back to 2021-22, plus the MASTER template),
   with no paging links, the same 83 with `&limit=200`. Row fields: `id, course_title, course_code, course_id, school_id,

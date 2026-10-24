@@ -170,6 +170,9 @@ description, and #174.
 - **No new probe for semester dates.** The PowerSchool reference (verified 2026-10-06) already showed that a
   section's calendar spans its term, so each course's first and last school day is its term. No Settings
   fallback: a course whose term is not stored yet gives rows a null semester end, shown green.
+  *(24 Oct 2026, #180: in a year with only full-year terms, the full-year term is split at the school
+  calendar's longest break, the winter break; on the 2026-27 calendar that matches PowerSchool's semester
+  terms exactly. Still no Settings dates.)*
 - **`flag_seen_at` is INTEGER epoch seconds,** like the other `grades` timestamps, and the backfill is not
   marked `approx`: Schoology restamps a record on every write, so its stored timestamp is the flag's write
   time unless a later write moved it.

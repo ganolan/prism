@@ -275,7 +275,11 @@ start and end. Read live for all 9 active courses on a dev copy, 23 Oct 2026: se
 Robotics Block 5); full-year sections 2026-08-13 to 2027-06-08 (AI & ML, AP CSP Blocks 6 and 7, PCG). Stored per
 course as `courses.term_start` / `term_end` on every block sync (`termRange`, `server/lib/psCalendar.js`); Triage's
 Flags panel takes a date's semester end from the shortest stored term containing it (`server/lib/semesters.js`).
-`section_info.term` was not used.
+`section_info.term` was not used. **The calendar's longest break is the semester split (2026-10-24, #180):** on prod's
+merged `school_days` for 2026-27, the longest gap between school days in the full-year term is winter, 2026-12-11 to
+2027-01-04 (24 days; next spring 2027-03-23 to 04-06, 14 days, then Chinese New Year 2027-02-04 to 02-15, 11 days), and
+the last school day before it and the first after it are exactly the semester sections' term end and start. Prism uses
+that split only where no semester term is stored.
 
 ### Step 3 — Fetch the roster with grade level
 

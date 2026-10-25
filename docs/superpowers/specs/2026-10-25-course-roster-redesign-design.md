@@ -360,7 +360,7 @@ Where the build departs from the text above, or settled what it left open (each 
   details on. Needs attention reads triage from the course page's own fetch.
 - **Needs attention:** overdue work at the limit shows Email beside Refer and Extend.
 - **Test day:** "No test chosen." when tests exist and No test is picked.
-- **Mastery:** an aligned category with no scores shows "-" levels and no grade; a missing Schoology level beside a
+- **Mastery:** an aligned category with no scores shows "-" levels and no grade (Graham confirmed, 25 Oct 2026: no grade is projected without evidence from every reporting category); a missing Schoology level beside a
   Prism level is a difference (amber ring); the `OverridePopup` lives in the Mastery view, and the course page's
   old unreachable override pop-up was removed.
 - **Server:** `GET /api/courses/:id` returns `linked` (a set of linked sections), so the client can disable

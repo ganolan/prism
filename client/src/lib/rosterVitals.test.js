@@ -86,7 +86,7 @@ describe('gender pills', () => {
     expect(o.gender).toEqual([
       { key: 'gender:F', label: 'F', tip: 'Female', count: 2 },
       { key: 'gender:M', label: 'M', tip: 'Male', count: 1 },
-      { key: 'gender:NB', label: 'NB', tip: 'Non-binary', count: 1 },
+      { key: 'gender:NB', label: 'NB', tip: 'Recorded in PowerSchool as "X"', count: 1 },
       { key: 'gender:none', label: '?', tip: 'Not recorded in PowerSchool', count: 2 },
     ]);
     expect(o.genderStudents).toBe(6);
@@ -114,6 +114,6 @@ describe('gender pills', () => {
   });
 
   it('any value other than F or M is NB; only a blank or missing value is ?', () => {
-    expect(rosterFilterOptions([{ id: 1, gender: 'X' }], null).gender).toEqual([{ key: 'gender:NB', label: 'NB', tip: 'Non-binary', count: 1 }]);
+    expect(rosterFilterOptions([{ id: 1, gender: 'X' }], null).gender).toEqual([{ key: 'gender:NB', label: 'NB', tip: 'Recorded in PowerSchool as "X"', count: 1 }]);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { genderTag, genderOf, GENDER_TAGS } from './genderTag.js';
+import { genderTag, genderOf, GENDER_TAGS, otherValueLabel } from './genderTag.js';
 
 describe('genderTag (the roster shows a code, never a word)', () => {
   it('F and M, whatever the case or spacing', () => {
@@ -7,9 +7,14 @@ describe('genderTag (the roster shows a code, never a word)', () => {
     expect(genderTag(' m ')).toEqual({ code: 'M', label: 'Male' });
   });
 
-  it('any other value PowerSchool sends is NB', () => {
-    expect(genderTag('X')).toEqual({ code: 'NB', label: 'Non-binary' });
-    expect(genderTag('Non-binary')).toEqual({ code: 'NB', label: 'Non-binary' });
+  it('any other value PowerSchool sends is NB, and its label quotes that value exactly', () => {
+    expect(genderTag('X')).toEqual({ code: 'NB', label: 'Recorded in PowerSchool as "X"' });
+    expect(genderTag(' Non-binary ')).toEqual({ code: 'NB', label: 'Recorded in PowerSchool as "Non-binary"' });
+  });
+
+  it('otherValueLabel quotes each distinct value, sorted', () => {
+    expect(otherValueLabel(['X', 'U', 'X'])).toBe('Recorded in PowerSchool as "U" or "X"');
+    expect(otherValueLabel([])).toBe('Recorded in PowerSchool as another value');
   });
 
   it('a blank or missing value is ?', () => {

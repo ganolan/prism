@@ -382,7 +382,7 @@ Where the build departs from the text above, or settled what it left open (each 
   value. It applies to the Roster mode only. Code: `lib/rosterSort.js`, `components/roster/RosterSort.jsx`,
   `rosterVitals.js` (`gender` options and keys), `genderTag.js` (`genderTag`, `genderOf`).
 - **Gender as a tag (Graham, 25 Oct 2026):** gender shows as a code, never a word: `F` (Female), `M` (Male), `NB` (any
-  other value PowerSchool sends: Non-binary), `?` (blank or missing: Not recorded in PowerSchool). It is a small muted
+  other value PowerSchool sends; the label quotes that value exactly, "Recorded in PowerSchool as \"X\"", so nothing is assumed), `?` (blank or missing: Not recorded in PowerSchool). It is a small muted
   tag on the **name line**, right after the name, and no longer on the meta line (grade, student number, Email), so the
   card is no taller; the name shrinks first and the tag never wraps under it. The tag sits in a tag group built so age
   (#191) can be added as its first tag. Private details only (not in the DOM with the switch off). Hovering, focusing

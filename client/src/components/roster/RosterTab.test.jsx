@@ -331,21 +331,21 @@ describe('RosterTab gender', () => {
   it('the tag is named in full and shows that label in an instant popover on hover, focus and tap', () => {
     renderTab('/course/5', { students: [student(1, { first_name: 'Cy', last_name: 'Nox', gender: 'X' }), student(2, { first_name: 'Di', last_name: 'Orr', gender: null })] });
     toggle();
-    const nb = within(cardOf('Cy Nox')).getByRole('img', { name: 'Non-binary' });
+    const nb = within(cardOf('Cy Nox')).getByRole('img', { name: 'Recorded in PowerSchool as "X"' });
     expect(nb).toHaveAttribute('tabindex', '0');
     expect(within(cardOf('Di Orr')).getByRole('img', { name: 'Not recorded in PowerSchool' })).toBeInTheDocument();
     expect(nb).not.toHaveAttribute('title'); // an instant popover, not a native title delay
     expect(document.querySelector('.help-pop')).toBeNull();
     fireEvent.mouseEnter(nb);
-    expect(document.querySelector('.help-pop')).toHaveTextContent('Non-binary');
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Recorded in PowerSchool as "X"');
     fireEvent.mouseLeave(nb);
     expect(document.querySelector('.help-pop')).toBeNull();
     fireEvent.focus(nb);
-    expect(document.querySelector('.help-pop')).toHaveTextContent('Non-binary');
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Recorded in PowerSchool as "X"');
     fireEvent.blur(nb);
     expect(document.querySelector('.help-pop')).toBeNull();
     fireEvent.click(nb); // a phone has no hover
-    expect(document.querySelector('.help-pop')).toHaveTextContent('Non-binary');
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Recorded in PowerSchool as "X"');
   });
 
   it('tapping a tag shows its popover and does not open the student page', () => {
@@ -378,12 +378,12 @@ describe('RosterTab gender', () => {
   it('with Private details off, no tag is in the DOM; turning it on draws one, off removes it', () => {
     const { container } = renderTab();
     expect(container.querySelector('.roster-tags, .roster-tag')).toBeNull();
-    expect(container).not.toHaveTextContent(/Female|Male|Non-binary|Not recorded/);
+    expect(container).not.toHaveTextContent(/Female|Male|Recorded in PowerSchool|Not recorded/);
     toggle();
     expect(container.querySelectorAll('.roster-tag').length).toBeGreaterThan(0);
     toggle();
     expect(container.querySelector('.roster-tags, .roster-tag')).toBeNull();
-    expect(container).not.toHaveTextContent(/Female|Male|Non-binary|Not recorded/);
+    expect(container).not.toHaveTextContent(/Female|Male|Recorded in PowerSchool|Not recorded/);
     expect(container.querySelector('[aria-label="Female"]')).toBeNull();
   });
 

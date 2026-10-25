@@ -6,7 +6,7 @@
 // roster alert (health, other; family alerts never reach a roster, `forRoster`), UNREAD, and
 // `gender:F`, `gender:M`, `gender:NB`, `gender:none` (25 Oct 2026; none = blank or missing). Alerts and Follow up pills combine as "any of"; the Gender row narrows that (AND).
 import { forRoster } from './psAlerts.js';
-import { genderOf, GENDER_TAGS } from './genderTag.js';
+import { genderOf, GENDER_TAGS, otherValueLabel } from './genderTag.js';
 
 export const LEARNING_PLAN = 'learning';
 export const UNREAD = 'unread';
@@ -48,6 +48,7 @@ export function rosterFilterOptions(students, unread, selected = new Set(), labe
   let alertStudents = 0;
   let followUpStudents = 0;
   const genders = { F: 0, M: 0, NB: 0, none: 0 };
+  const otherValues = [];
   for (const s of students) {
     const roster = forRoster(s.ps_alerts);
     if (roster.length) alertStudents += 1;
@@ -58,7 +59,9 @@ export function rosterFilterOptions(students, unread, selected = new Set(), labe
       if (!counted.has(key)) { alerts.get(key).count += 1; counted.add(key); }
     }
     if (unread?.[s.id] > 0) followUpStudents += 1;
-    genders[genderOf(s)] += 1;
+    const g = genderOf(s);
+    genders[g] += 1;
+    if (g === 'NB') otherValues.push(s.gender);
   }
   for (const key of selected) {
     if (key === UNREAD || key.startsWith(GENDER_PREFIX) || alerts.has(key)) continue;
@@ -69,7 +72,7 @@ export function rosterFilterOptions(students, unread, selected = new Set(), labe
   // F, M, NB, ?: listed while some student matches or the pill is on. The pill shows the code; `tip` is the full label.
   const gender = GENDER_ORDER
     .filter((g) => genders[g] > 0 || selected.has(GENDER_PREFIX + g))
-    .map((g) => ({ key: GENDER_PREFIX + g, label: GENDER_TAGS[g].code, tip: GENDER_TAGS[g].label, count: genders[g] }));
+    .map((g) => ({ key: GENDER_PREFIX + g, label: GENDER_TAGS[g].code, tip: g === 'NB' ? otherValueLabel(otherValues) : GENDER_TAGS[g].label, count: genders[g] }));
   return {
     alerts: [...alerts.values()].sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label)).map(({ key, label, count }) => ({ key, label, count })),
     followUp,

@@ -130,25 +130,25 @@ describe('RosterFilters Gender row', () => {
   it('a pill names itself in full (aria-label) and shows the full label in an instant popover', () => {
     render(<GenderHarness people={[...PEOPLE, { id: 5, gender: 'X', ps_alerts: [] }]} />);
     const row = screen.getByRole('group', { name: 'Gender' });
-    const nb = within(row).getByRole('button', { name: 'Non-binary, 1' });
+    const nb = within(row).getByRole('button', { name: 'Recorded in PowerSchool as "X", 1' });
     expect(nb).toHaveTextContent('NB1');
     expect(within(row).getByRole('button', { name: 'Not recorded in PowerSchool, 1' })).toHaveTextContent('?1');
     expect(document.querySelector('.help-pop')).toBeNull();
     fireEvent.mouseEnter(nb);
-    expect(document.querySelector('.help-pop')).toHaveTextContent('Non-binary');
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Recorded in PowerSchool as "X"');
     fireEvent.mouseLeave(nb);
     expect(document.querySelector('.help-pop')).toBeNull();
     fireEvent.focus(nb);
-    expect(document.querySelector('.help-pop')).toHaveTextContent('Non-binary');
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Recorded in PowerSchool as "X"');
   });
 
   it('the NB and ? pills filter', () => {
     render(<GenderHarness people={[...PEOPLE, { id: 5, gender: 'X', ps_alerts: [] }]} />);
-    fireEvent.click(screen.getByRole('button', { name: /^Non-binary/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Recorded in PowerSchool/ }));
     expect(status()).toHaveTextContent('Showing 1 of 5 students');
     fireEvent.click(screen.getByRole('button', { name: /^Not recorded/ }));
     expect(status()).toHaveTextContent('Showing 2 of 5 students');
-    fireEvent.click(screen.getByRole('button', { name: /^Non-binary/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Recorded in PowerSchool/ }));
     expect(status()).toHaveTextContent('Showing 1 of 5 students');
   });
 });

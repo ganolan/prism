@@ -53,7 +53,16 @@ The repository's `.codex/config.toml` points Codex at the same endpoint (`url = 
 
 ### Claude Desktop and Cowork
 
-This guide covers Claude Code. Claude Desktop starts local commands from `~/Library/Application Support/Claude/claude_desktop_config.json`, and the old `prism` entry there (`node` on `mcp/server.js`, or `ssh`) no longer works. Quit Desktop (Cmd-Q), remove the `prism` entry from `"mcpServers"`, then reopen it. Desktop keeps the config in memory and can write it back over an edit made while it runs. Connecting Desktop to the HTTP endpoint is not verified.
+This guide covers Claude Code. Claude Desktop starts local commands from `~/Library/Application Support/Claude/claude_desktop_config.json`, and the old `prism` entry there (`node` on `mcp/server.js`, or `ssh`) no longer works. Quit Desktop (Cmd-Q), remove the `prism` entry from `"mcpServers"`, then reopen it. Desktop keeps the config in memory and can write it back over an edit made while it runs. To connect Desktop to the HTTP endpoint (verified on Graham's laptop, 25 Oct 2026), put this entry in the `"prism"` block's place, with Desktop quit, then reopen it. `mcp-remote` runs on the machine (which must be on the tailnet) and relays to Prism:
+
+```json
+"prism": {
+  "command": "npx",
+  "args": ["-y", "mcp-remote", "https://prism.swordtail-everest.ts.net/mcp"]
+}
+```
+
+Do not use Desktop's Settings, Connectors, "Add custom connector" for this address: those connectors are reached from Anthropic's servers, not from the machine, so a tailnet-only address cannot be reached that way. The same entry is used on every machine, the mini included.
 
 How Desktop showed the earlier server (2026-06-06): the `grade-assignment` prompt as "Grade an assignment (Prism)" under the composer's **＋ → Connectors → Add from prism**, and `prism://courses` as "Prism courses". The templated resources were absent, and `@`-mention was inert. Claude Code shows the prompt as `/mcp__prism__grade-assignment` and resources as `@prism:...`.
 

@@ -62,7 +62,7 @@ This guide covers Claude Code. Claude Desktop starts local commands from `~/Libr
 }
 ```
 
-Do not use Desktop's Settings, Connectors, "Add custom connector" for this address: those connectors are reached from Anthropic's servers, not from the machine, so a tailnet-only address cannot be reached that way. The same entry is used on every machine, the mini included.
+Do not use Desktop's Settings, Connectors, "Add custom connector" for this address: custom connectors are expected to connect from Anthropic's servers rather than from the machine, so a tailnet-only address would not be reachable that way (not tested). The same entry is used on every machine, the mini included.
 
 How Desktop showed the earlier server (2026-06-06): the `grade-assignment` prompt as "Grade an assignment (Prism)" under the composer's **＋ → Connectors → Add from prism**, and `prism://courses` as "Prism courses". The templated resources were absent, and `@`-mention was inert. Claude Code shows the prompt as `/mcp__prism__grade-assignment` and resources as `@prism:...`.
 

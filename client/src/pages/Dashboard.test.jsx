@@ -357,18 +357,18 @@ describe('Dashboard — background sync', () => {
       { id: 2, course_name: 'B', course_synced_at: '2026-10-18T19:00:00.000Z' },
     ]);
     renderDashboard();
-    expect(await screen.findByText(/^Synced 19\/10\/2026|^Synced 18\/10\/2026|^Synced \d\d:\d\d today$/)).toBeInTheDocument();
+    expect(await screen.findByText(/^19\/10\/2026 at|^18\/10\/2026 at|^\d{1,2}:\d\d [AP]M today$/)).toBeInTheDocument();
     expect(api.ensureSync).toHaveBeenCalledWith({ kind: 'all' });
-    expect(screen.queryByText(/^Synced \d\d:\d\d today$/)).toBeNull(); // the oldest, not the newest
+    expect(screen.queryByText(/^\d{1,2}:\d\d [AP]M today$/)).toBeNull(); // the oldest, not the newest
   });
 
-  it('a help "?" beside the Synced time, and the nightly line beneath it, amber when the night was missed', async () => {
+  it('a help "?" beside the sync time, and the nightly line beneath it, amber when the night was missed', async () => {
     api.getCoursesByView.mockResolvedValue([{ id: 1, course_name: 'A', course_synced_at: new Date().toISOString() }]);
     api.getSyncStatus.mockResolvedValue({ nightlyData: { readAt: new Date(Date.now() - 50 * 3600 * 1000).toISOString(), nightly: false } });
     renderDashboard();
     const dot = await screen.findByRole('img', { name: /Press Sync Courses only if you changed something in Schoology just now\./ });
     expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed when you press Sync Courses.'));
-    expect(screen.getByText('Blocks, calendar and alerts: 2 days old. Press Sync Courses to refresh them.')).toHaveClass('sync-status__nightly--stale');
+    expect(screen.getByText('2 days old').closest('.sync-status__row')).toHaveClass('sync-status__row--stale');
   });
 
   it('final review #8: the "?" is there when the sync status cannot be read (nightly taken as off)', async () => {
@@ -379,7 +379,7 @@ describe('Dashboard — background sync', () => {
     expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed when you press Sync Courses.'));
   });
 
-  it('with Show hidden on, an excluded template is neither shown nor counted in the Synced time (#171)', async () => {
+  it('with Show hidden on, an excluded template is neither shown nor counted in the sync time (#171)', async () => {
     const recent = new Date().toISOString();
     api.getCourses.mockResolvedValue([
       { id: 1, course_name: 'Real Course', archived: 0, hidden: 0, course_synced_at: recent },
@@ -392,8 +392,8 @@ describe('Dashboard — background sync', () => {
     expect(await screen.findByText('Hidden Course')).toBeInTheDocument();
     expect(screen.getByText('Real Course')).toBeInTheDocument();
     expect(screen.queryByText('Template')).toBeNull();
-    expect(screen.getByText(/^Synced \d\d:\d\d today$/)).toBeInTheDocument();
-    expect(screen.queryByText('Not synced yet')).toBeNull();
+    expect(screen.getByText(/^\d{1,2}:\d\d [AP]M today$/)).toBeInTheDocument();
+    expect(screen.queryByText('none yet')).toBeNull();
   });
 
   it('Sync Courses on the Current tab is one click: it posts { everything: true } and shows the progress', async () => {
@@ -419,17 +419,17 @@ describe('Dashboard: the Archived tab', () => {
     expect(await screen.findByRole('img', {
       name: 'Prism does not refresh past courses automatically. Open a course and press Sync Course to read it again.',
     })).toBeInTheDocument();
-    expect(screen.queryByText(/Blocks, calendar and alerts: not read yet/)).toBeNull();
+    expect(screen.queryByText('Blocks, calendar and alerts')).toBeNull();
   });
 
-  it('has no Sync Courses button, and still shows its Synced time', async () => {
+  it('has no Sync Courses button, and still shows its sync time', async () => {
     api.getCoursesByView.mockImplementation(async (view) => (view === 'archived'
       ? [{ id: 4, course_name: 'Archived Bio', hidden: 0, archived: 1, course_synced_at: '2026-06-18T03:02:00.000Z' }] : []));
     renderDashboard();
     fireEvent.click(await screen.findByRole('button', { name: 'Archived' }));
     expect(await screen.findByText('Archived Bio')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Sync Courses' })).toBeNull();
-    expect(screen.getByText(/^Synced /)).toBeInTheDocument();
+    expect(screen.getByText('Last successful sync')).toBeInTheDocument();
   });
 });
 
@@ -469,11 +469,11 @@ describe('Dashboard: the first run (#171)', () => {
     expect(screen.queryByText(/Getting your courses/)).toBeNull(); // none pending: no line
   });
 
-  it('the Synced time ignores pending courses', async () => {
+  it('the sync time ignores pending courses', async () => {
     const recent = new Date().toISOString();
     api.getCoursesByView.mockResolvedValue([course(1, { course_synced_at: recent }), course(2, { first_sync: 'pending' })]);
     renderDashboard();
-    expect(await screen.findByText(/^Synced \d\d:\d\d today$/)).toBeInTheDocument();
+    expect(await screen.findByText(/^\d{1,2}:\d\d [AP]M today$/)).toBeInTheDocument();
   });
 
   it('re-fetches the courses every 3 seconds while any is pending, and stops when none is', async () => {

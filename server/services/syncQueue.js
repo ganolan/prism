@@ -250,7 +250,7 @@ export function enqueue(request) {
   return { runId, state: 'queued', joined: false };
 }
 
-// The newest finished run of a scope that did not complete cleanly, for the "Sync failed" chip.
+// The newest finished run of a scope that did not complete cleanly, for the "Last sync failed" chip.
 function lastFailedRun(d, { courseIds = [], task = null }) {
   const rows = d.prepare(`SELECT id, options_json FROM sync_runs WHERE status IN ('failed', 'completed_with_errors', 'interrupted')
     ORDER BY id DESC LIMIT 50`).all();

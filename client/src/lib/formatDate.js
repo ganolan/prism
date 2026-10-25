@@ -35,13 +35,11 @@ export function localIsoDate(value = new Date()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// The "Synced" label (SyncStatus): "14:05 today", else "18/10/2026, 03:02".
+// A sync time (SyncStatus, #198): 12-hour, "10:51 PM today", else "23/10/2026 at 10:51 PM".
+// Built by hand: en-US puts a narrow no-break space before "PM" on newer ICU.
 export function freshnessTime(iso, now = new Date()) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  if (localIsoDate(d) === localIsoDate(now)) {
-    return `${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })} today`;
-  }
-  return formatDateTime(d);
+  const d = toDate(iso);
+  if (!d) return '';
+  const time = `${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() < 12 ? 'AM' : 'PM'}`;
+  return localIsoDate(d) === localIsoDate(now) ? `${time} today` : `${formatDate(d)} at ${time}`;
 }

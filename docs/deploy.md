@@ -157,8 +157,8 @@ Every sync reads everything (Schoology data, every submission, comment threads, 
 there is no partial sync (20/10/2026). All syncs go through one queue on the server, one at a
 time (`server/services/syncQueue.js`):
 - **Background:** the dashboard, course, assessment and student pages sync their scope after
-  they load when it was last synced (or tried) over 10 minutes ago; a chip beside the "Synced"
-  time opens the progress.
+  they load when it was last synced (or tried) over 10 minutes ago; a chip under the Sync button
+  ("Last sync failed", "Syncing…") opens the progress.
 - **By hand:** **Sync Courses** (dashboard, Current tab: one click, the nightly run's scope with PowerSchool on), **Sync Course** (course page) and
   **Sync Assignment** (assessment page) queue a sync now, ahead of the pages' own.
 - **First run:** a database with no course (a new install, or a restored empty one) starts a

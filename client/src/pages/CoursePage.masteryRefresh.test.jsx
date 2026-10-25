@@ -1,5 +1,5 @@
 // Background sync: the course page asks the queue to sync its course after it loads (nothing when synced
-// in the last 10 minutes), shows one "Synced …" (course_synced_at) with a chip while it syncs, and
+// in the last 10 minutes), shows one "Last successful sync" (course_synced_at) with a chip while it syncs, and
 // reloads when the sync ends. Sync Course queues a full sync now.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
@@ -52,10 +52,10 @@ describe('CoursePage background sync', () => {
     await waitFor(() => expect(api.ensureSync).toHaveBeenCalledWith({ kind: 'courses', courseIds: [5] }));
     expect(api.refreshMasteryForCourse).toBeUndefined(); // the partial page read is gone
     expect(screen.queryByText(/new work/)).toBeNull();
-    expect(await screen.findByText(/^Synced \d\d:\d\d today$/)).toBeInTheDocument();
+    expect(await screen.findByText(/^\d{1,2}:\d\d [AP]M today$/)).toBeInTheDocument();
   });
 
-  it('a help "?" sits beside the Synced time and names Sync Course', async () => {
+  it('a help "?" sits beside the sync time and names Sync Course', async () => {
     renderPage();
     const dot = await screen.findByRole('img', { name: /Press Sync Course only if you changed something in Schoology just now\./ });
     expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed every night.'));
@@ -94,9 +94,9 @@ describe('CoursePage background sync', () => {
   it('an archived course: no background sync, never amber', async () => {
     vi.mocked(api.getCourse).mockResolvedValue({ id: 5, course_name: 'AP CSP', archived: 1, course_synced_at: OLD });
     const { container } = renderPage();
-    await screen.findByText(/^Synced /);
+    await screen.findByText('Last successful sync');
     expect(api.ensureSync).not.toHaveBeenCalled();
-    expect(container.querySelector('.sync-status')).not.toHaveClass('sync-status--stale');
+    expect(container.querySelector('.sync-status__row--stale')).toBeNull();
   });
 
   it('Sync Course queues a full sync of this course and shows its progress', async () => {

@@ -1723,18 +1723,28 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 .person-sub { font-size: 0.78rem; color: var(--text-muted); overflow-wrap: anywhere; }
 
 
-/* #58: the prominent "Synced ..." label beside Sync Course / Sync Assignment, with the check line. */
-.sync-status { display: flex; flex-direction: column; align-items: flex-end; gap: 0.2rem; }
-.sync-status__row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; justify-content: flex-end; }
-.sync-status__time {
-  font-size: 0.95rem; font-weight: 600; color: var(--text);
-  padding: 0.2rem 0.6rem; border-radius: 999px; background: var(--accent-light);
+/* #58, #198: the sync status beside a page title, one type size. A small table: a status dot, what
+   was read, when (the times line up), the "?"; the Sync button on the right, the chip under it.
+   Each row is `display: contents`, so its cells sit in the shared grid. */
+.sync-status {
+  display: grid; grid-template-columns: repeat(5, auto); column-gap: 0.6rem; row-gap: 0.35rem;
+  align-items: center; font-size: 0.85rem;
 }
-.sync-status--stale .sync-status__time { color: var(--badge-amber-text); background: var(--badge-amber-bg); }
-.sync-status__button { white-space: nowrap; }
-/* The dashboard's second line (blocks, calendar and alerts); amber, like the Synced time, when missed. */
-.sync-status__nightly { font-size: 0.78rem; color: var(--text-muted); padding: 0.1rem 0.6rem; border-radius: 999px; }
-.sync-status__nightly--stale { color: var(--badge-amber-text); background: var(--badge-amber-bg); }
+.sync-status__row { display: contents; }
+.sync-status__dot { grid-column: 1; width: 8px; height: 8px; border-radius: 50%; background: var(--success); margin-right: -0.2rem; }
+.sync-status__label { grid-column: 2; color: var(--text-muted); }
+.sync-status__time {
+  grid-column: 3; justify-self: end; font-weight: 600; color: var(--text);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.sync-status__time[role="img"] { cursor: help; }
+.sync-status__help { grid-column: 4; display: inline-flex; }
+/* Amber when a day old or never (the nightly row: over 26 hours); gray for a past course's frozen data. */
+.sync-status__row--stale .sync-status__dot { background: var(--warning); }
+.sync-status__row--stale .sync-status__time { color: var(--badge-amber-text); }
+.sync-status__row--archived .sync-status__dot { background: var(--badge-gray-text); }
+.sync-status__actions { display: contents; }
+.sync-status__button { grid-column: 5; grid-row: 1; white-space: nowrap; margin-left: 0.4rem; }
 /* Help popover for the Synced time (SyncHelp): intro, two bullets, last line (a past course's
    help: the two lines alone, so each is its own block). */
 .help-pop .sync-help__intro, .help-pop .sync-help__last { display: block; }
@@ -1744,7 +1754,8 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 /* Background sync: the chip beside the label while the page's sync waits, runs, failed or needs a
    sign-in; it opens the progress dialog (or the sign-in). */
 .sync-status__chip {
-  display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; font-weight: 600;
+  grid-column: 5; grid-row: 2; margin-left: 0.4rem; justify-content: center;
+  display: inline-flex; align-items: center; gap: 0.35rem; font-size: inherit; font-weight: 600;
   padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid var(--border);
   background: var(--card-bg); color: var(--text-muted); cursor: pointer;
 }
@@ -2206,8 +2217,9 @@ button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accen
   /* Dashboard: the "Show hidden" switch is tappable on its words too. */
   .show-hidden-toggle { min-height: 40px; }
 
-  /* #58: the sync label sits at the start of the line on a phone, not the right edge. */
-  .sync-status { align-items: flex-start; }
-  .sync-status__row { justify-content: flex-start; }
-  .sync-status__nightly { padding-left: 0; }
+  /* #58, #198: on a phone the sync table sits at the start of the line, and the button and chip
+     take their own line under it. */
+  .sync-status { grid-template-columns: repeat(4, auto); justify-content: start; }
+  .sync-status__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; grid-column: 1 / -1; }
+  .sync-status__button, .sync-status__chip { margin-left: 0; }
 }

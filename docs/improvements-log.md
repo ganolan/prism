@@ -261,7 +261,7 @@ already submitted.
   installation reads all current courses on its first run, with no setup screen.
 - **Pages renew themselves:** a page whose data is more than 10 minutes old starts a sync of its own data in
   the background. A read made less than 2 minutes ago is not repeated.
-- **One time per page:** "Synced 10:05 today" turns amber when it is over a day old. The line for blocks,
+- **One time per page:** "Last successful sync: 10:05 AM today" turns amber when it is over a day old. The line for blocks,
   calendar and alerts turns amber after 26 hours.
 - **Whole or nothing:** a time is recorded only when a sync fully succeeded, so a partial read never looks
   current. If the Schoology login has lapsed, Prism asks for a login instead of showing partial data.

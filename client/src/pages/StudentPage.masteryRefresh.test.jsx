@@ -1,5 +1,5 @@
 // Background sync: the student page asks the queue to sync the student's current courses after it loads,
-// shows one "Synced …" (the oldest of those courses), and reloads when the sync ends. Each course
+// shows one "Last successful sync" (the oldest of those courses), and reloads when the sync ends. Each course
 // section shows no freshness line of its own.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
@@ -51,14 +51,14 @@ beforeEach(() => {
 });
 
 describe('StudentPage background sync', () => {
-  it('asks the queue for the student\'s current courses; one "Synced" time, the oldest; no per-course line', async () => {
+  it('asks the queue for the student\'s current courses; one sync time, the oldest; no per-course line', async () => {
     renderPage();
     await waitFor(() => expect(ensureSync).toHaveBeenCalledWith({ kind: 'courses', courseIds: [1, 2] }));
-    expect(await screen.findByText('Synced 19/10/2026, 03:00')).toBeInTheDocument();
+    expect(await screen.findByText('19/10/2026 at 3:00 AM')).toBeInTheDocument();
     expect(screen.queryByText(/Mastery levels/)).toBeNull();
   });
 
-  it('a help "?" sits beside the Synced time and names Sync Courses', async () => {
+  it('a help "?" sits beside the sync time and names Sync Courses', async () => {
     renderPage();
     const dot = await screen.findByRole('img', { name: /Press Sync Courses only if you changed something in Schoology just now\./ });
     expect(dot).toHaveAttribute('aria-label', expect.stringContaining('Blocks, calendar and alerts: refreshed every night.'));

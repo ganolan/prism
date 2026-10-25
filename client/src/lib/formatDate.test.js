@@ -47,11 +47,14 @@ describe('localIsoDate', () => {
   });
 });
 
-describe('freshnessTime (the "Synced" label)', () => {
-  const NOW = new Date('2026-10-19T06:30:00');
-  it('a time today, else the day-first date and time', () => {
-    expect(freshnessTime(new Date('2026-10-19T03:02:00').toISOString(), NOW)).toBe('03:02 today');
-    expect(freshnessTime(new Date('2026-10-18T03:02:00').toISOString(), NOW)).toBe('18/10/2026, 03:02');
+describe('freshnessTime (the sync times, #198)', () => {
+  const NOW = new Date('2026-10-19T23:30:00');
+  it('a 12-hour time today, else the day-first date and the time', () => {
+    expect(freshnessTime(new Date('2026-10-19T03:02:00').toISOString(), NOW)).toBe('3:02 AM today');
+    expect(freshnessTime(new Date('2026-10-19T22:51:00').toISOString(), NOW)).toBe('10:51 PM today');
+    expect(freshnessTime(new Date('2026-10-19T12:05:00').toISOString(), NOW)).toBe('12:05 PM today');
+    expect(freshnessTime(new Date('2026-10-19T00:07:00').toISOString(), NOW)).toBe('12:07 AM today');
+    expect(freshnessTime(new Date('2026-10-18T03:02:00').toISOString(), NOW)).toBe('18/10/2026 at 3:02 AM');
     expect(freshnessTime(null, NOW)).toBe('');
   });
 });

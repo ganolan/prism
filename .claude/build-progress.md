@@ -1844,7 +1844,11 @@ Commits `c481c5b` and `610a40e` (server) and `76f679e` (client), then the docs (
 
 ## False "Sync failed" after every successful sync (#198, fixed 2026-10-25)
 
-A run stamps `course_synced_at` / `sync_attempted_at` (and the task pair) with its start time; the queue's `recordAttempt` then wrote the attempt again with the run's end time, so `ensure` saw "attempted later than synced" and answered `failed` for 10 minutes after every successful page sync (the chip opened the last failed run on record, which could be days old). `recordAttempt` now uses the run's start time (`entry.startedAt`) and only moves an attempt stamp forward. Tests: `syncQueue.test.js` (course and task cases). The redesign of the sync status area is the rest of #198.
+A run stamps `course_synced_at` / `sync_attempted_at` (and the task pair) with its start time; the queue's `recordAttempt` then wrote the attempt again with the run's end time, so `ensure` saw "attempted later than synced" and answered `failed` for 10 minutes after every successful page sync (the chip opened the last failed run on record, which could be days old). `recordAttempt` now uses the run's start time (`entry.startedAt`) and only moves an attempt stamp forward. Tests: `syncQueue.test.js` (course and task cases). The redesign of the sync status area is the rest of #198 (next section).
+
+## Sync status redesign (#198, 2026-10-25)
+
+Graham picked option 3 of three mocks, with status dots (https://claude.ai/artifact/NVUJ27v66fkQmEy2nNwpek). `SyncStatus.jsx` is now a small table: a dot, "Last successful sync" and its time, the "?"; on the dashboard a second row "Blocks, calendar and alerts"; the Sync button on the right with the chip under it. One type size (0.85rem). `freshnessTime` (`formatDate.js`) gives 12-hour times: "10:51 PM today", "23/10/2026 at 10:51 PM". The chip reads "Last sync failed". `nightlyLine` returns `{ label, time, stale, hint }`; an amber Blocks time carries "Press Sync Courses to refresh them." as a `Tip` popover. A past course's dot is gray. Phone: the button and chip go on their own line. Tests: `SyncStatus.test.jsx`, `formatDate.test.js`, and the four pages' sync tests. Checked in a browser on a copy of prod's data (dashboard, course, past course, assessment and student pages, 1300px and 390px). Rules: `docs/design-language.md`, "Sync status: a small table with dots".
 
 ## Mastery: one Translated grade with a mismatch warning (#193 follow-up, 2026-10-25)
 

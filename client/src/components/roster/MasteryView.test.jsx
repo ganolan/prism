@@ -185,10 +185,27 @@ describe('MasteryView', () => {
     await screen.findByText('Annie Lee');
     const annie = cardOf('Annie Lee').querySelector('.mastery-grade .sgc');
     expect(annie).toHaveClass('off');
-    expect(popOn(annie)).toBe("Schoology's levels give B; Prism's give B+");
+    expect(popOn(annie)).toBe("Schoology's levels give B-; Prism's give B+");
     const bo = cardOf('Bo Ma').querySelector('.mastery-grade .sgc');
     expect(bo.className).toBe('sgc sgc--grade');
-    expect(popOn(bo)).toBe("Schoology's levels give the same grade: B+");
+    expect(popOn(bo)).toBe("Schoology's levels give the same grade: B");
+  });
+
+  it('a course with one reporting category has no letter grade, and the grade states why', async () => {
+    const one = {
+      categories: MASTERY.categories.filter((c) => c.id === 'c1'),
+      topics: MASTERY.topics.filter((t) => t.category_id === 'c1'),
+      alignments: MASTERY.alignments.slice(0, 1),
+      scores: MASTERY.scores.filter((x) => x.topic_id === 't11'),
+      rollups: MASTERY.rollups.filter((r) => r.objective_id === 'c1'),
+    };
+    renderView({ mastery: one });
+    await screen.findByText('Annie Lee');
+    const why = "No letter grade: HKIS's letter grade chart covers 2 to 5 reporting categories, and this course has 1.";
+    const prism = cardOf('Annie Lee').querySelector('.mastery-grade__prism');
+    expect(prism).toHaveTextContent('-');
+    expect(popOn(prism)).toBe(why);
+    expect(popOn(cardOf('Annie Lee').querySelector('.mastery-grade .sgc'))).toBe(why);
   });
 
   it("tapping a differing chip opens the override with Prism's level first; saving refreshes", async () => {
@@ -204,11 +221,14 @@ describe('MasteryView', () => {
     expect(api.writeMasteryOverride).toHaveBeenCalledWith(5, { studentUid: 'u1', objectiveId: 'c2', level: 'EX' });
   });
 
-  it('opens the letter grade scale from the Scale link by the Grade header', async () => {
+  it("the Grade heading's \"?\" shows HKIS's letter grades for the course's number of categories", async () => {
     renderView();
     await screen.findByText('Annie Lee');
-    fireEvent.click(within(document.querySelector('.mastery-head')).getByRole('button', { name: 'Scale' }));
-    expect(screen.getByText('HKIS Letter Grade Translation Scale')).toBeInTheDocument();
+    const dot = document.querySelector('.mastery-head__grade .help-dot');
+    expect(dot).toHaveAttribute('aria-label', expect.stringMatching(/^HKIS letter grade, 2 reporting categories\. A: 2 ED\. A-: 1 ED, 1 EX\./));
+    expect(popOn(dot)).toMatch(/^HKIS letter grade, 2 reporting categories/);
+    expect(within(document.querySelector('.mastery-head')).queryByRole('button', { name: 'Scale' })).toBeNull();
+    expect(document.querySelector('.mastery-phone-help .help-dot[aria-label^="HKIS letter grade"]')).not.toBeNull();
   });
 
   it('one category: tapping a heading sorts highest first, lowest first, then off, with Clear sort', async () => {

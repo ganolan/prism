@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import NumberStepper from '../components/NumberStepper.jsx';
+import { GradeScaleChart } from '../components/GradeScale.jsx';
 import RecentSyncs from '../components/RecentSyncs.jsx';
 import SchoologyConnectionStatus, { useSchoologyConnection } from '../components/SchoologyConnectionStatus.jsx';
 import { getSettings, updateSettings, getTriage } from '../services/api.js';
@@ -198,6 +199,15 @@ export default function SettingsPage() {
           <span>Show formative work in Feedback owed by default</span>
         </label>
         {status && <p className="text-sm text-muted" role="status">{status}</p>}
+      </section>
+
+      <section className="card settings-section" id="grade-scale" aria-labelledby="grade-scale-title">
+        <h3 id="grade-scale-title">Grade scale</h3>
+        <p className="text-sm text-muted">
+          HKIS's letter grade for each combination of reporting category levels, and the score band of each level.
+          For checking that Prism's grades and levels match HKIS and Schoology.
+        </p>
+        <GradeScaleChart />
       </section>
 
       <section className="card settings-section">

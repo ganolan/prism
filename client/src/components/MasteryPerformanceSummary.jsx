@@ -2,18 +2,11 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getMasteryForStudent } from '../services/api.js';
 import OverridePopup from './OverridePopup.jsx';
-import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT, computeLetterGrade } from '../lib/masteryLevels.js';
+import { LEVEL_COLORS, CELL_TEXT, LETTER_GRADE_COLORS, computeLetterGrade } from '../lib/masteryLevels.js';
+import { GradeScaleHelp } from './GradeScale.jsx';
+import { chartCovers } from '../lib/hkisLetterGrade.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
 
-// Match proficiency level order: A=ED(blue), B=EX(green), C=D(yellow),
-// D=EM(orange), F=IE(red). Text tones from LEVEL_COLORS[].text; +/- variants
-// step one shade lighter.
-export const LETTER_GRADE_COLORS = {
-  A: '#1e40af', 'A-': '#2563eb',
-  'B+': '#15803d', B: '#166534', 'B-': '#166534',
-  'C+': '#854d0e', C: '#713f12',
-  D: '#9a3412', F: '#991b1b',
-};
 
 function modeOf(arr) {
   if (!arr.length) return null;
@@ -35,110 +28,6 @@ function average(arr) {
 function sentenceCase(str) {
   if (!str) return '';
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-}
-
-// ── Letter grade scale popup ─────────────────────────────────────────────────
-
-export function LetterGradePopup({ onClose, numCategories }) {
-  const scale = [
-    { grade: 'A',   bg: '#dbeafe', rows: { 2: '2ED', 3: '3ED', 4: '4ED', 5: '5ED' } },
-    { grade: 'A-',  bg: '#dbeafe', rows: { 2: '1ED / 1EX', 3: '2ED / 1EX', 4: '3ED / 1EX', 5: '4ED / 1EX\n3ED / 2EX' } },
-    { grade: 'B+',  bg: '#dcfce7', rows: { 2: '2EX\n1ED / 1D', 3: '1ED / 2EX\n3EX', 4: '2ED / 2EX\n1ED / 3EX\n4EX', 5: '3ED / 2EX\n2ED / 3EX\n1ED / 4EX\n5EX' } },
-    { grade: 'B',   bg: '#dcfce7', rows: { 2: '1EX / 1D\n1ED / 1EM', 3: '1ED / 1EX / 1D\n2EX / 1D\n1ED / 2D', 4: '1ED / 1EX / 2D\n2EX / 2D\n3EX / 1D', 5: '1ED / 2EX / 2D\n3EX / 2D' } },
-    { grade: 'B-',  bg: '#dcfce7', rows: { 2: '2D\n1EX / 1EM', 3: '1EX / 2D\n1ED / 1D / 1EM\n3D', 4: '2EX / 1D / 1EM\n1EX / 3D\n4D', 5: '2EX / 3D\n1EX / 4D\n5D' } },
-    { grade: 'C+',  bg: '#fef9c3', rows: { 2: '1D / 1EM', 3: '2D / 1EM\n1EX / 2EM', 4: '3D / 1EM\n2EX / 2EM', 5: '4D / 1EM\n3D / 2EM' } },
-    { grade: 'C',   bg: '#fef9c3', rows: { 2: '2EM', 3: '1D / 2EM\n3EM', 4: '2D / 2EM\n1D / 3EM\n4EM', 5: '3D / 2EM\n2D / 3EM\n1D / 4EM\n5EM' } },
-    { grade: 'D',   bg: '#ffedd5', rows: { 2: '1EM / 1IE+\nor lower', 3: '2EM / 1IE+\nor lower', 4: 'any IE\n≥2EM', 5: 'any IE\n≥3EM' } },
-    { grade: 'F',   bg: '#fee2e2', rows: { 2: 'any IE', 3: 'any IE', 4: 'any IE', 5: 'any IE' } },
-  ];
-
-  return (
-    <div
-      style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '1rem',
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          background: 'var(--card-bg)', borderRadius: 12,
-          padding: '1.5rem', maxWidth: 700, width: '100%',
-          maxHeight: '85vh', overflow: 'auto',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h3 style={{ margin: 0 }}>HKIS Letter Grade Translation Scale</h3>
-          <button className="ghost" onClick={onClose}>✕</button>
-        </div>
-
-        <p className="text-sm text-muted" style={{ marginBottom: '0.75rem' }}>
-          Based on reporting category proficiency levels. Approximate, verify against official HKIS scale.
-        </p>
-
-        {/* Proficiency boundaries */}
-        <div style={{ overflowX: 'auto', marginBottom: '1rem' }}>
-          <table style={{ fontSize: '0.8rem', width: '100%' }}>
-            <thead>
-              <tr>
-                {LEVELS.map(l => (
-                  <th key={l} style={{ background: LEVEL_COLORS[l].headerFill, color: CELL_TEXT, padding: '0.3rem 0.5rem', textAlign: 'center' }}>
-                    {l} - {LEVEL_LABELS[l]}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                {['87.5-100', '62.5-87.49', '37.5-62.49', '12.5-37.49', '0-12.49'].map((r, i) => (
-                  <td key={i} style={{ textAlign: 'center', padding: '0.25rem', color: 'var(--text-muted)' }}>{r}</td>
-                ))}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* Letter grade table */}
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ fontSize: '0.8rem', borderCollapse: 'collapse', width: '100%' }}>
-            <thead>
-              <tr>
-                <th style={{ padding: '0.4rem 0.6rem', background: 'var(--bg-subtle)', textAlign: 'left' }}>Grade</th>
-                {[2, 3, 4, 5].map(n => (
-                  <th key={n} style={{ padding: '0.4rem 0.6rem', background: 'var(--bg-subtle)', textAlign: 'center' }}>
-                    {n} Reporting Categories{numCategories === n ? ' ← this course' : ''}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {scale.map(row => (
-                <tr key={row.grade}>
-                  <td style={{ padding: '0.4rem 0.6rem', fontWeight: 700, background: row.bg, color: LETTER_GRADE_COLORS[row.grade] || '#000', textAlign: 'center' }}>
-                    {row.grade}
-                  </td>
-                  {[2, 3, 4, 5].map(n => (
-                    <td key={n} style={{
-                      padding: '0.4rem 0.6rem', textAlign: 'center',
-                      background: numCategories === n ? `${row.bg}cc` : 'transparent',
-                      color: 'var(--text)', whiteSpace: 'pre-line', verticalAlign: 'top',
-                      border: '1px solid var(--border)',
-                    }}>
-                      {row.rows[n] || '-'}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 // ── Cell component ───────────────────────────────────────────────────────────
@@ -167,7 +56,6 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
   const scale = useProficiencyScale();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [showGradeScale, setShowGradeScale] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [overrideTarget, setOverrideTarget] = useState(null); // { category, currentLevel, hasOverride }
   const [overrideSaving, setOverrideSaving] = useState(false);
@@ -573,9 +461,6 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
         </button>
       </div>
 
-      {showGradeScale && (
-        <LetterGradePopup onClose={() => setShowGradeScale(false)} numCategories={categories.length} />
-      )}
 
       {overrideTarget && (
         <OverridePopup
@@ -624,24 +509,18 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
         <p className="text-sm text-muted">No mastery data yet. Run a mastery sync for this course.</p>
       ) : masteryTable}
 
-      {/* Letter grade + grade scale link below table */}
-      {letterGrade && assignmentIds.length > 0 && (
+      {/* Letter grade + the grade scale "?" below table */}
+      {(letterGrade || (categories.length > 0 && !chartCovers(categories.length))) && assignmentIds.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.5rem' }}>
-          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>Approximate letter grade:</span>
+          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>Letter grade:</span>
           <span style={{
             padding: '0.15rem 0.6rem', borderRadius: 6, fontWeight: 700, fontSize: '0.9rem',
-            background: '#f8fafc', border: '2px solid var(--border)',
+            background: 'var(--card-bg)', border: '2px solid var(--border)',
             color: LETTER_GRADE_COLORS[letterGrade] || 'var(--text)',
           }}>
-            {letterGrade}
+            {letterGrade ?? '-'}
           </span>
-          <button
-            className="ghost"
-            onClick={() => setShowGradeScale(true)}
-            style={{ fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}
-          >
-            Letter Grade Scale ↗
-          </button>
+          <GradeScaleHelp numCategories={categories.length} />
         </div>
       )}
     </div>

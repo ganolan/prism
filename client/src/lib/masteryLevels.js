@@ -1,3 +1,5 @@
+import { hkisLetterGrade } from './hkisLetterGrade.js';
+
 // Maps the full level names from Schoology's General Academic-family scales
 // to the ED/EX/D/EM/IE codes used by the mastery rubric. Lets the gradebook
 // match colors to the aligned-rubric look and shorten labels where space is
@@ -32,7 +34,15 @@ export const LEVEL_COLORS = {
   IE: { headerFill: '#fecaca', draftFill: '#fef2f2', finalBorder: '#dc2626', draftBorder: '#fca5a5' },
 };
 
-const LEVEL_POINTS_FOR_LETTER = { ED: 100, EX: 75, D: 50, EM: 25, IE: 0 };
+// Match proficiency level order: A=ED(blue), B=EX(green), C=D(yellow),
+// D=EM(orange), F=IE(red). Text tones from LEVEL_COLORS[].text; +/- variants
+// step one shade lighter.
+export const LETTER_GRADE_COLORS = {
+  A: '#1e40af', 'A-': '#2563eb',
+  'B+': '#15803d', B: '#166534', 'B-': '#166534',
+  'C+': '#854d0e', C: '#713f12',
+  D: '#9a3412', F: '#991b1b',
+};
 
 // Returns numeric helpers bound to a fetched scale table (ordered ED→IE).
 export function makeScaleHelpers(levels) {
@@ -51,31 +61,8 @@ export function makeScaleHelpers(levels) {
   };
 }
 
-// Approximate HKIS letter grade from per-category levels. Moved verbatim from
-// MasteryPerformanceSummary (single home now). See the letter-grade popup for
-// the authoritative combination table.
+// The HKIS letter grade from per-category levels: a lookup in HKIS's translation chart
+// (`hkisLetterGrade.js`, #193), null while a category has no level or outside 2 to 5 categories.
 export function computeLetterGrade(categoryLevels) {
-  if (!categoryLevels.length || categoryLevels.some((l) => l == null)) return null;
-  if (categoryLevels.includes('IE')) return 'F';
-  const n = categoryLevels.length;
-  const pts = categoryLevels.map((l) => LEVEL_POINTS_FOR_LETTER[l] || 0);
-  const avg = pts.reduce((a, b) => a + b, 0) / n;
-  if (n === 2) {
-    const sorted = [...categoryLevels].sort().join('+');
-    return ({
-      'ED+ED': 'A', 'ED+EX': 'A-', 'EX+EX': 'B+', 'D+ED': 'B+',
-      'D+EX': 'B', 'ED+EM': 'B', 'D+D': 'B-', 'EM+EX': 'B-',
-      'D+EM': 'C+', 'EM+EM': 'C',
-    })[sorted] || 'D';
-  }
-  const scaled = avg / 25;
-  if (scaled >= 3.75) return 'A';
-  if (scaled >= 3.25) return 'A-';
-  if (scaled >= 2.83) return 'B+';
-  if (scaled >= 2.33) return 'B';
-  if (scaled >= 2.0) return 'B-';
-  if (scaled >= 1.75) return 'C+';
-  if (scaled >= 1.25) return 'C';
-  if (scaled >= 1.0) return 'D';
-  return 'F';
+  return hkisLetterGrade(categoryLevels);
 }

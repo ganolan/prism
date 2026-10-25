@@ -887,6 +887,31 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
 /* A short list in a popover (HelpDot children). */
 .help-pop__list { margin: 0; padding-left: 1rem; }
 .help-pop__list li + li { margin-top: 0.25rem; }
+/* The wide popover (HelpDot `wide`): a small table, the grade scale's (#193). */
+.help-pop--wide { max-width: 340px; overflow-wrap: normal; }
+
+/* Grade scale (#193): HKIS's letter grade chart drawn with level chips, one chip per category, best
+   first. The "?" beside a grade shows the course's column; Settings shows every column. */
+.grade-scale, .grade-scale__rows { display: grid; gap: 0.3rem; }
+.grade-scale__title { font-weight: 700; }
+.grade-scale__row { display: grid; grid-template-columns: 1.9em 1fr; gap: 0.5rem; align-items: start; padding-bottom: 0.25rem; border-bottom: 1px solid var(--bg-subtle); }
+.grade-scale__row:last-child { border-bottom: 0; padding-bottom: 0; }
+.grade-scale__letter { font-weight: 800; text-align: center; font-variant-numeric: tabular-nums; }
+.grade-scale__combos { display: flex; flex-wrap: wrap; gap: 0.2rem 0.45rem; }
+.grade-scale__combo { display: inline-flex; align-items: center; gap: 0.2rem; }
+.grade-scale__combo sup { color: var(--text-muted); }
+.grade-scale__any { color: var(--text-muted); }
+.grade-scale__foot { color: var(--text-muted); }
+.level-strip { display: inline-flex; border-radius: 4px; overflow: hidden; }
+.level-strip b { font-weight: 600; font-size: 0.62rem; line-height: 1.5; padding: 0 0.2rem; min-width: 1.55em; text-align: center; }
+.grade-scale-chart { display: grid; gap: 0.6rem; min-width: 0; }
+.grade-scale-chart__scroll { overflow-x: auto; }
+.grade-scale-table { border-collapse: collapse; font-size: 0.75rem; width: 100%; }
+.grade-scale-table th, .grade-scale-table td { border: 1px solid var(--border); padding: 0.3rem 0.45rem; vertical-align: top; text-align: left; }
+.grade-scale-table thead th { background: var(--bg-subtle); font-weight: 600; white-space: nowrap; }
+.grade-scale-table tbody th { width: 3em; letter-spacing: normal; }
+.grade-scale-bands th, .grade-scale-bands td { text-align: center; font-variant-numeric: tabular-nums; }
+.grade-scale-bands caption { text-align: left; padding-bottom: 0.3rem; }
 
 /* Number stepper: prominent −/+ controls flanking a number that reads as plain
    text until focused. Native spinners hidden. See docs/design-language.md. */
@@ -1890,9 +1915,8 @@ button.test-day-card__show { padding: 0; font-size: 0.78rem; color: var(--accent
 .mastery-head__grades { grid-column: 4; display: grid; grid-template-columns: var(--m-p) var(--m-gs); column-gap: 6px; padding-left: 14px; align-items: end; }
 .mastery-hl { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); display: inline-flex; gap: 4px; align-items: center; justify-content: center; white-space: nowrap; }
 .mastery-hl--start { justify-content: flex-start; }
-.mastery-head__grade { flex-direction: column; gap: 2px; }
-.mastery-head__grade button { font-size: 0.68rem; }
 .mastery-phone-help { display: none; font-size: 0.76rem; color: var(--text-muted); gap: 10px; flex-wrap: wrap; align-items: center; }
+.mastery-phone-help__grade { display: inline-flex; align-items: center; gap: 4px; }
 .mastery-card { grid-template-areas: "av id ln gr ."; align-items: center; row-gap: 8px; padding: 8px 12px; background: var(--card-bg);
   border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
 .mastery-card:hover { box-shadow: var(--card-shadow-hover); }

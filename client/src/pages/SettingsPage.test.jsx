@@ -7,6 +7,7 @@ vi.mock('../services/api.js', () => ({
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
   getTriage: vi.fn(),
+  getProficiencyScale: vi.fn(),
   getSyncRuns: vi.fn(),
   getSyncRun: vi.fn(),
   getMasteryLoginStatus: vi.fn(),
@@ -28,11 +29,30 @@ beforeEach(() => {
   api.getSettings.mockResolvedValue({ triage: TRIAGE });
   api.updateSettings.mockImplementation(async ({ triage }) => ({ triage: { ...TRIAGE, ...triage } }));
   api.getSyncRuns.mockResolvedValue([]);
+  api.getProficiencyScale.mockResolvedValue({ schoologyScaleId: 1, levels: [
+    { code: 'ED', label: 'Exhibiting Depth', points: 100, gradeScaled: '87.50' },
+    { code: 'EX', label: 'Exhibiting', points: 75, gradeScaled: '62.50' },
+    { code: 'D', label: 'Developing', points: 50, gradeScaled: '37.50' },
+    { code: 'EM', label: 'Emerging', points: 25, gradeScaled: '12.50' },
+    { code: 'IE', label: 'Insufficient Evidence', points: 0, gradeScaled: '0.00' },
+  ] });
   api.getTriage.mockResolvedValue({ calendar: { source: 'powerschool', totalSchoolDays: 164, syncedAt: '2026-10-01T00:00:00Z' } });
   api.getMasteryLoginStatus.mockResolvedValue({ loggedIn: true, live: 'connected', checkedAt: '2026-10-03T06:05:00Z' });
 });
 
 describe('SettingsPage', () => {
+  it("shows HKIS's grade chart for 2 to 5 categories and each level's score band from the scale", async () => {
+    render(<SettingsPage />);
+    const section = (await screen.findByRole('heading', { name: 'Grade scale' })).closest('section');
+    const bands = await within(section).findByRole('table', { name: /Level score bands/ });
+    const chart = within(section).getAllByRole('table')[0];
+    expect(within(chart).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Grade', '2 categories', '3 categories', '4 categories', '5 categories']);
+    expect(within(chart).getAllByRole('rowheader').map((h) => h.textContent)).toEqual(['A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'D', 'F']);
+    expect(within(chart).getByRole('img', { name: '3 ED, 1 EX' })).toBeInTheDocument();
+    expect(within(chart).getByRole('img', { name: '1 ED, 1 EX, 2 D, 1 EM (not on the HKIS chart)' })).toBeInTheDocument();
+    expect(within(bands).getAllByRole('cell').map((c) => c.textContent)).toEqual(['87.5 to 100', '62.5 to 87.49', '37.5 to 62.49', '12.5 to 37.49', '0 to 12.49']);
+  });
+
   it('shows the triage limits in school days and the calendar status', async () => {
     render(<SettingsPage />);
     expect(await screen.findByLabelText('Referral limit (school days late)')).toHaveValue(8);

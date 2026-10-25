@@ -2,12 +2,13 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import HelpDot, { Tip } from '../HelpDot.jsx';
 import OverridePopup from '../OverridePopup.jsx';
-import { LetterGradePopup, LETTER_GRADE_COLORS } from '../MasteryPerformanceSummary.jsx';
+import { GradeScaleHelp } from '../GradeScale.jsx';
+import { chartCovers, uncoveredText } from '../../lib/hkisLetterGrade.js';
 import { ClearIcon } from '../AssessmentFilterBar.jsx';
 import { Photo } from './RosterCard.jsx';
 import { gradeText } from '../PersonSub.jsx';
 import { studentFullName } from '../../lib/studentNames.js';
-import { LEVEL_COLORS, CELL_TEXT } from '../../lib/masteryLevels.js';
+import { LEVEL_COLORS, CELL_TEXT, LETTER_GRADE_COLORS } from '../../lib/masteryLevels.js';
 import { useProficiencyScale } from '../../hooks/useProficiencyScale.js';
 import { categoryTracks, studentMastery, classMastery, nextSort, sortedBy, missingCategories } from '../../lib/masteryCompare.js';
 
@@ -100,11 +101,13 @@ function SchoologyChip({ track, cell, linked, scale, onOpen }) {
 function GradeCell({ grade, isClass, tracks, categories }) {
   const p = grade.prism;
   const s = grade.schoology;
-  const prismTip = p == null
-    ? blankGradeText(missingCategories(tracks, categories, 'prism'), { isClass })
+  const covered = chartCovers(tracks.length);
+  const prismTip = !covered ? uncoveredText(tracks.length)
+    : p == null ? blankGradeText(missingCategories(tracks, categories, 'prism'), { isClass })
     : isClass ? `Class average grade: ${p}` : `Prism's grade, from Prism's category levels: ${p}`;
   let tip;
-  if (s == null) tip = blankGradeText(missingCategories(tracks, categories, 'schoology'), { side: 'schoology' });
+  if (!covered) tip = uncoveredText(tracks.length);
+  else if (s == null) tip = blankGradeText(missingCategories(tracks, categories, 'schoology'), { side: 'schoology' });
   else tip = s === p ? `Schoology's levels give the same grade: ${s}` : `Schoology's levels give ${s}; Prism's give ${p ?? 'no grade yet'}`;
   return (
     <span className="mastery-grade">
@@ -172,7 +175,7 @@ function useOpenStudent() {
   };
 }
 
-function AllCategories({ tracks, rows, classRow, count, linked, scale, onOverride, onScale }) {
+function AllCategories({ tracks, rows, classRow, count, linked, scale, onOverride }) {
   const open = useOpenStudent();
   const maxTopics = Math.max(1, ...tracks.map((t) => t.topics.length));
   // The label column fits the longest short label (about 8px a letter at its size).
@@ -208,14 +211,14 @@ function AllCategories({ tracks, rows, classRow, count, linked, scale, onOverrid
         <span className="mastery-head__grades">
           <span className="mastery-hl mastery-head__grade">
             <span>Grade</span>
-            <button type="button" className="filter-btn-link" onClick={onScale}>Scale</button>
+            <GradeScaleHelp numCategories={tracks.length} />
           </span>
           <Tip className="mastery-hl" text="The grade Schoology's levels give">Schoology levels</Tip>
         </span>
       </div>
       <div className="mastery-phone-help">
         <span><b>Left:</b> Prism</span><span><b>Right:</b> Schoology</span><HelpDot text={HELP}>{HELP_POP}</HelpDot>
-        <button type="button" className="filter-btn-link" onClick={onScale}>Scale</button>
+        <span className="mastery-phone-help__grade">Grade <GradeScaleHelp numCategories={tracks.length} /></span>
       </div>
       {card(null, classRow)}
       {rows.map(({ student, m }) => card(student, m))}
@@ -285,7 +288,6 @@ function MasteryOn({ mastery, students, courseId, linked, onMasteryChanged }) {
   const [cat, setCat] = useState('all'); // 'all' or a category id
   const [target, setTarget] = useState(null); // { student, track, cell }: the override being set
   const [saving, setSaving] = useState(false);
-  const [showScale, setShowScale] = useState(false);
 
   if (!scale.ready) return <p className="text-sm text-muted">Reading the proficiency scale…</p>;
   const rows = students.map((student) => ({ student, m: studentMastery(mastery, student.schoology_uid, scale) }));
@@ -311,9 +313,8 @@ function MasteryOn({ mastery, students, courseId, linked, onMasteryChanged }) {
         ? <OneCategory key={one.id} track={one} rows={rows} classRow={classRow} linked={linked} scale={scale} onOverride={onOverride} />
         : (
           <AllCategories tracks={tracks} rows={rows} classRow={classRow} count={students.length} linked={linked} scale={scale}
-            onOverride={onOverride} onScale={() => setShowScale(true)} />
+            onOverride={onOverride} />
         )}
-      {showScale && <LetterGradePopup onClose={() => setShowScale(false)} numCategories={tracks.length} />}
       {target && (
         <OverridePopup
           courseId={Number(courseId)}

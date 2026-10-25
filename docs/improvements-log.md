@@ -14,6 +14,28 @@ systems as they are; never overstate.
 
 ---
 
+## Letter grades from the HKIS chart, beside the levels (#193, October 2026)
+
+**Status quo.** Schoology shows a student's level in each reporting category but no letter grade. The
+letter grade comes from HKIS's "HS Proficiency to Letter Grade Translation Scale", a one-page chart the
+teacher reads by hand: find the column for the course's number of categories, then the row that matches the
+student's levels.
+
+**The problem.** A teacher who wants a student's letter grade, or a whole class's, looks up each student in
+the chart. The 5-category column alone has 55 combinations, so a lookup is slow and easy to misread.
+
+**What Prism does.**
+- **Every student's letter grade,** from the chart, beside Prism's levels and Schoology's on the roster and
+  the student page.
+- **The chart at the grade:** a "?" shows the course's column, each combination drawn in the level colors.
+- **A gap reported:** the chart has no row for one 5-category combination; Prism marks the grade it uses.
+
+**Evidence.** HKIS chart received 25 Oct 2026; `client/src/lib/hkisLetterGrade.test.js` checks every one
+of the chart's 120 cells and that every combination appears once (only 1 ED, 1 EX, 2 D, 1 EM with 5
+categories is missing). Issue #193.
+
+---
+
 ## One switch makes every page safe to project (#197, October 2026)
 
 **Status quo.** Schoology's gradebook and PowerSchool's student pages show grades, alerts and family

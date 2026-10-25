@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import HelpDot from './HelpDot.jsx';
 
@@ -16,6 +16,26 @@ describe('HelpDot', () => {
     expect(pop(container)).toHaveTextContent(TEXT);
     fireEvent.mouseLeave(dot);
     expect(pop(container)).toBeNull();
+  });
+
+  // A tall popover (the grade scale's, #193) opens above its trigger when it would pass the bottom of
+  // the window, and stays below when it fits.
+  it('a popover too tall for the space below opens above the trigger', () => {
+    const height = window.innerHeight;
+    window.innerHeight = 800;
+    const tall = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(300);
+    const { container } = render(<HelpDot text={TEXT} wide />);
+    const dot = screen.getByRole('img', { name: TEXT });
+    dot.getBoundingClientRect = () => ({ left: 400, width: 16, top: 600, bottom: 616 });
+    fireEvent.mouseEnter(dot);
+    expect(pop(container)).toHaveClass('help-pop--wide');
+    expect(pop(container).style.top).toBe('292px'); // 600 - 8 - 300
+    fireEvent.mouseLeave(dot);
+    dot.getBoundingClientRect = () => ({ left: 400, width: 16, top: 100, bottom: 116 });
+    fireEvent.mouseEnter(dot);
+    expect(pop(container).style.top).toBe('124px');
+    tall.mockRestore();
+    window.innerHeight = height;
   });
 
   // A phone has no hover (#134): a tap shows it, tapping elsewhere (blur) or

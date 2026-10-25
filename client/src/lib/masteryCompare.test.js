@@ -127,10 +127,10 @@ describe('studentMastery', () => {
   });
 
   it('the grades differ when the category levels give different letters', () => {
-    // Prism EX + EX = B+; Schoology EX + D = B.
-    expect(studentMastery(MASTERY, 'u1', scale).grade).toEqual({ prism: 'B+', schoology: 'B', differs: true });
-    // u2: Prism ED (100) + D (50) = B+; Schoology ED + D = B+.
-    expect(studentMastery(MASTERY, 'u2', scale).grade).toEqual({ prism: 'B+', schoology: 'B+', differs: false });
+    // HKIS chart, 2 categories: Prism EX + EX = B+; Schoology EX + D = B-.
+    expect(studentMastery(MASTERY, 'u1', scale).grade).toEqual({ prism: 'B+', schoology: 'B-', differs: true });
+    // u2: Prism ED (100) + D (50) = B; Schoology ED + D = B.
+    expect(studentMastery(MASTERY, 'u2', scale).grade).toEqual({ prism: 'B', schoology: 'B', differs: false });
   });
 
   it('a student with no scores and no rollups has no levels and no grade, and nothing differs', () => {
@@ -153,7 +153,7 @@ describe('classMastery', () => {
     // u1 62.5 and u2 50 (its null score counts for nothing).
     expect(c.categories.c2.prism).toEqual({ pct: 56.25, level: 'D' });
     expect(c.categories.c2.schoology).toBeNull();
-    expect(c.grade.prism).toBe('B+'); // ED (87.5) + D
+    expect(c.grade.prism).toBe('B'); // ED (87.5) + D
     expect(classMastery(MASTERY, ['u2'], scale).topics.t11).toEqual({ pct: 100, level: 'ED' });
   });
 });

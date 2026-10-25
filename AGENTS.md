@@ -69,6 +69,7 @@ npm run test:api   # Schoology API smoke test
 - **Theming:** All colors must use CSS custom properties from `client/src/app.css` — never hardcode hex values in components. Use `var(--accent)`, `var(--bg-subtle)`, `var(--card-bg)`, etc.
 - **Button classes:** Use `.primary`, `.secondary`, `.ghost` (with `.danger`, `.success`, `.accent` modifiers), `.tab-btn`, `.filter-btn` — avoid inline button styles.
 - **Alert/banner classes:** Use `.alert.alert-warning`, `.alert.alert-success`, etc. instead of inline colored divs.
+- **Letter grades come only from HKIS's chart** (#193): `client/src/lib/hkisLetterGrade.js` (`computeLetterGrade` is a lookup in it; 2 to 5 categories, any IE is F). Show the chart with `GradeScaleHelp` (`components/GradeScale.jsx`), never a copy of the table.
 - **One grade card:** `client/src/components/gradeCard/StudentRubricCard.jsx` is the only component that draws a student's grade and comment on a task (#176). View mode is the student page and the gradebook pop-up (Edit switches to edit mode in place); edit mode is the assessment page. Change the card, not a copy of it.
 - **Page wrapper:** Add `className="fade-in"` to the top-level div of each page for entry animation.
 - **Sidebar width:** 240px (set in CSS), content margin-left matches.

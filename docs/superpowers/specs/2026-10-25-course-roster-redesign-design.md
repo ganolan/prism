@@ -324,6 +324,8 @@ One short row per student under a header that stays on screen while the page scr
 The email column, the Grade column, the per-category Computed and Schoology cells, the two letter-grade columns and
 their legend (all replaced by the Mastery mode), the legal name in parentheses, and the alerts toggle. The letter-grade
 scale pop-up (`LetterGradePopup`) moves to the Mastery mode, opened from a "Scale" link beside the Grade header.
+(Superseded 25 Oct 2026, #193: the modal is deleted; a "?" beside the Grade header shows the course's column of HKIS's
+letter grade chart, `GradeScaleHelp`.)
 
 ## Tests
 

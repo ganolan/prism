@@ -189,11 +189,11 @@ export function timelineForPair(db, { studentId, assignmentId }) {
   return timelineContext(db, { courseId: a.course_id }).timeline(a, Number(studentId), grade);
 }
 
-// The card's triage state per student for one assignment: the Late work row the
+// The card's triage state per student for one assignment: the Overdue work row the
 // dashboard shows ({ kind, tone, day, daysLate }), keyed by student id. Same rules
 // as the rail, so the card's Refer / Waive can never disagree with it.
 // triage: the course's getTriage result when the caller already has one (the grade-cards route
-// builds one per request, not one per task). Late work is summative only, so a triage built with
+// builds one per request, not one per task). Overdue work is summative only, so a triage built with
 // includeFormative true holds the same rows.
 export function lateWorkByStudent(db, { courseId, assignmentId, studentId = null, triage = null }) {
   const rows = (triage ?? getTriage(db, { courseId: Number(courseId), studentId, includeFormative: false })).lateWork;

@@ -1324,7 +1324,7 @@ a.triage-row__title:hover { text-decoration: underline; }
 .lesson-hint { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 .triage-row button.triage-row__quiet { color: var(--text-muted); }
 /* Referred / extended history (no ring): text, then its badges + Undo, wrapping in the rail
-   (the stacked-actions column above is for the live Late work / Make-up tests rows only). */
+   (the stacked-actions column above is for the live Overdue work / Make-up tests rows only). */
 .triage-row--history { display: flex; flex-wrap: wrap; gap: 0.3rem 0.75rem; }
 .triage-row--history .triage-row__text { flex: 1 1 12rem; }
 /* Email menu (#137): "@ ▾" in a panel header copies student addresses; its menu,

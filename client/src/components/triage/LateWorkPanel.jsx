@@ -41,8 +41,8 @@ export default function LateWorkPanel({
   const key = (r) => `${r.studentId}:${r.assignmentId}`;
 
   return (
-    <section className="card triage-panel" id="triage-late" aria-label="Late work">
-      <PanelHead title="Late work" badge={toRefer > 0 && <span className="badge badge-red">{toRefer} to refer</span>}>
+    <section className="card triage-panel" id="triage-late" aria-label="Overdue work">
+      <PanelHead title="Overdue work" badge={toRefer > 0 && <span className="badge badge-red">{toRefer} to refer</span>}>
         <EmailMenu kind="late" rows={rows} showCourse={showCourse} />
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>

@@ -402,7 +402,7 @@ export function createServer({ devCopy = false } = {}) {
         'The dashboard no longer shows day numbers (they read as timetable cycle days): it shows the distance, day − 1, e.g. day 9 = "8 school days late", ' +
         'and its limits as "refer at 8 school days late" / "feedback overdue at 10 school days waiting". Say it that way to the teacher, never "day N". ' +
         'quote `day` to the teacher, not the raw counts (daysLate / oldestWaitDays / daysSince = day − 1, kept for compatibility). ' +
-        'lateWork: summative work that takes Schoology submissions, not submitted (or submitted after the limit; submittedDay = the day it came in), ' +
+        'lateWork (the dashboard\'s Overdue work panel): summative work that takes Schoology submissions, not submitted (or submitted after the limit; submittedDay = the day it came in), ' +
         'tone green/amber/red: late work is allowed through day {referralLimitDays} (settings, default 8) and referred after day {referralLimitDays} ' +
         '(red, e.g. day 9); amber = the last warnLeadDays allowed days. feedbackOwed: per assessment, how many submissions are ungraded (only Schoology\'s Exempt (1) and Missing (3) flags count as handled; work flagged Late (6), Incomplete (2) or Absent (5) still owes feedback until graded) and `day` of the oldest ' +
         'wait (day 1 = the start of the wait: the due date, or a late student\'s submission date), overdue (red) after day {feedbackLimitDays} (paper/no-dropbox work counts the whole roster as handed in on the due date; a Schoology test ' +

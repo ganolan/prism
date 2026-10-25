@@ -16,7 +16,7 @@ beforeEach(() => {
 });
 
 describe('ReferControl (assessment card)', () => {
-  it('nothing before the limit (or with no Late work row)', () => {
+  it('nothing before the limit (or with no Overdue work row)', () => {
     const { container } = render(<ReferControl student={student({ late_work: { kind: 'outstanding', tone: 'amber' } })} assignmentId={30} />);
     expect(container).toBeEmptyDOMElement();
   });

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import ActionPanel, { PanelRow } from './ActionPanel.jsx';
 
 // The confirm for a referral that writes to Schoology (#175), on the assessment card and in
-// Triage's Late work. One box, ticked by default:
+// Triage's Overdue work. One box, ticked by default:
 //   mode 'refer' (work still missing): "Also record IE on every topic and mark Missing in
 //     Schoology". Missing alone adds no evidence to the topic averages; IE then Missing does.
 //   mode 'undo' (a referral that wrote them): "Also clear Missing and the IE levels in Schoology".

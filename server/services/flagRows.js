@@ -3,7 +3,7 @@
 // Late, Incomplete and Absent leave the task out of the grade, so they always show; Missing counts as
 // zero, so it shows only once the student has submitted after it; Exempt is a decision and never
 // shows. A cleared flag whose saved grade (#40, excused_grades) is still waiting shows too.
-// Flagged work keeps its rows in Make-ups, Late work and Feedback owed (Graham, 23 October 2026).
+// Flagged work keeps its rows in Make-ups, Overdue work and Feedback owed (Graham, 23 October 2026).
 // Each row counts school days from the flag date (grades.flag_seen_at, day 1) and grows more urgent
 // as the end of the semester that contains the task's due date approaches.
 

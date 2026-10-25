@@ -3,7 +3,7 @@
 // rail can never disagree: no lateness is worked out here, only which rows count and their order.
 //
 // A row is in when the next move is the student's, or a referral Graham decides about the student:
-//  - Late work: overdue (nothing handed in), and handed in late at the limit (Refer or Waive).
+//  - Overdue work: overdue (nothing handed in), and handed in late at the limit (Refer or Waive).
 //  - Make-up tests still owed.
 //  - Resubmissions asked for and not yet arrived (pending, or overdue once red).
 //  - Flags that leave the student owing work: Incomplete (2) and Absent (5).
@@ -107,7 +107,7 @@ export function rowWhen(e) {
 }
 
 // The Schoology flag code the course gradebook (CoursePage's getGradebook) holds for a row's student
-// and task (internal ids), or 0. Late work rows carry no flag; the gradebook has it.
+// and task (internal ids), or 0. Overdue work rows carry no flag; the gradebook has it.
 export function flagOnRow(gradebook, row) {
   return Number(gradebook?.grades?.[row.studentId]?.[row.assignmentId]?.exception) || 0;
 }

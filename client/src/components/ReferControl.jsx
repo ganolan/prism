@@ -3,7 +3,7 @@ import ActionPanel, { PanelRow } from './ActionPanel.jsx';
 import ReferPanel, { canClearInSchoology } from './ReferPanel.jsx';
 import { recordReferral, undoReferral, getTriagePair } from '../services/api.js';
 
-// The assessment card's referral actions, mirroring the dashboard's Late work row
+// The assessment card's referral actions, mirroring the dashboard's Overdue work row
 // (student.late_work, built by the same rules): at the limit, missing work offers
 // Refer; work handed in late past the limit offers Refer and Waive (with an optional
 // reason, in the card's panel row). Once decided, a "Referred" / "Referral waived" pill

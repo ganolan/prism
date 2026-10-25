@@ -967,7 +967,7 @@ easily than "8 days late". `limit` is the **last allowed day** (late work 8, fee
 by day `makeUpRedDay − 1`), so a ring reads amber "8" on the last day and red "9" the day after; the
 late-work action says "N left" (`limit − day`) and "last day" on day `limit`. Subtitles state the rule
 ("due date = day 1 · refer after day 8"), Dashboard chips say "7 to grade · day 9", and Settings
-labels are day numbers ("Late work is allowed through day [8]"). Display only — the server keeps its
+labels are day numbers ("Late work is allowed through day [8]", since replaced). Display only: the server keeps its
 `schoolDaysBetween` counts for the tones, so who is flagged and when did not change. Reuse this
 numbering for any future school-day clock. `≈` (with a tooltip) marks
 counts from the weekday fallback (no PowerSchool calendar).
@@ -1000,7 +1000,7 @@ than a modal. On the Assessments tab a per-test setting is a click-to-flip badge
 
 **Rail.** The triage panels stack in a right-hand **rail** (`<aside class="triage-rail"
 aria-label="Triage">`, 380px) beside the page's main column (`.triage-layout` →
-`.triage-layout__main` + rail): Make-up tests, Late work, Feedback owed (since joined by Unfinished
+`.triage-layout__main` + rail): Make-up tests, Overdue work, Feedback owed (since joined by Unfinished
 grading, Resubmissions and Flags (#174), ordered by their most urgent row, `orderPanels`). On the Dashboard (Current
 tab) the main column is the course cards, two per row (`.grid-2` becomes `auto-fill,
 minmax(min(260px, 100%), 1fr)` there, so it drops to one column when narrow — no new breakpoint; the PHONE LAYOUT block restates the one-column rule for it so phones stay governed there).
@@ -1032,7 +1032,7 @@ two cards fit per row.
 revealing Extend behind an expand step one tap too many.)* `.triage-row__actions` is a `flex`
 **column** (`align-items: stretch`, 0.3rem gap): it auto-sizes to its widest child and stretches
 the rest to match, so stacked buttons share one width with no fixed sizing — same column, same
-behaviour, at every rail width, not just on phones. Late work stacks **Refer** above **Extend** on
+behaviour, at every rail width, not just on phones. Overdue work stacks **Refer** above **Extend** on
 a red row, or the muted "N left" / "last day" label above **Extend** otherwise (Refer never
 repeats once a row has it inline). Make-up tests stacks **Extend** above **Ignore this test**
 (still its quiet bordered `.secondary.triage-row__quiet` style). The whole column sits vertically
@@ -1065,7 +1065,7 @@ get an `All N ▾` / `Fewer ▴` button (`.ghost.accent`) in the panel **header*
 the Formative checkbox on Feedback) — at the top so the teacher never scrolls to find it. Per panel,
 remembered for the session (`sessionStorage` `prism.triage.showAll.<panel>.<all|courseId>`). Badges
 ("N overdue", "N to refer") always count the full list. Subtitles are short rules ("due date = day 1
-· refer after day 8"); the Referred / extended history link stays at the bottom of Late work. Reuse
+· refer after day 8"); the Referred / extended history link stays at the bottom of Overdue work. Reuse
 the header-toggle + per-row ▾ pattern for any other dense side list.
 
 **Logo = home.** The sidebar logo (still the `h1`) and the phone top-bar logo are `Link to="/"`
@@ -1239,7 +1239,7 @@ the Settings card.
 
 ## Triage: "@" copies addresses, ✉ writes one email (October 2026, #137)
 
-- **"@ ▾" in a panel header** (Make-up tests, Late work, Resubmissions) copies the addresses of students who still owe something: tiers Red / Red + amber / Everyone still owing, then By assessment. Format `a@x; b@x` for Outlook To or Bcc. Students who already acted (submitted late, resubmission arrived) are left out of the bulk copy. "@" was chosen over the word "Email" because it reads as *addresses* and keeps the header on one line on a phone.
+- **"@ ▾" in a panel header** (Make-up tests, Overdue work, Resubmissions) copies the addresses of students who still owe something: tiers Red / Red + amber / Everyone still owing, then By assessment. Format `a@x; b@x` for Outlook To or Bcc. Students who already acted (submitted late, resubmission arrived) are left out of the bulk copy. "@" was chosen over the word "Email" because it reads as *addresses* and keeps the header on one line on a phone.
 - **✉ on a row** is a `mailto:` to that one student, subject `<title>: late work | make-up test | resubmission`. Course names are not in the subject: the stored Schoology names are long capitals and Prism has no short name.
 - **No toast system.** Confirmation is an inline `role="status"` bubble under the button that clears after 5 seconds. If the clipboard is unavailable, a pre-selected read-only field holds the addresses to copy by hand.
 - **Menu width is capped, not just right-aligned.** A long "By assessment" label truncates with an ellipsis (the count stays visible, the full "label (count)" is in the item's tooltip); the menu itself is capped at `min(18rem, viewport - 2rem)` so it can't run past either the 380px rail or a 390px phone screen.
@@ -1390,7 +1390,7 @@ The /assessment/ filter used to be one row of descriptive pills: OR within a gro
 ## Triage: Unfinished grading and filtered links (October 2026)
 
 - **Unfinished grading panel** (named "Loose ends" for its first two days; renamed 17/10/2026 to say what it holds): in the triage rail (Dashboard and course page), one row per task with unfinished work that runs on no clock: drafts not published (a live Prism draft; one Schoology changed under is left out, the same check the card makes), feedback hidden (a teacher comment the student cannot see; since 24/10/2026 also every student with a score or comment on an unpublished task, shown as "3 with feedback hidden (task not published)", #184; on a published task "1 with comment hidden" since 25/10/2026, because Display hides only the comment), unread student comments. No ring and no action column, because nothing here is late: title, then "2 drafts not published, 1 with comment hidden, oldest draft 09/10/2026", then the course line. Tasks with a draft come first, oldest first. Hidden when empty, like Resubmissions. No Stats strip tile: the tiles are for overdue work.
-- **Links open the page already filtered (`?filter=`):** an Unfinished grading title selects that row's reasons; a Feedback owed title selects the whole Needs action row (`?filter=action`; a group name stands for its row); a Resubmissions name focuses the student and selects Resubmitted (arrived) or Resubmission pending + overdue (waiting). Late work and Make-up names still only focus the student.
+- **Links open the page already filtered (`?filter=`):** an Unfinished grading title selects that row's reasons; a Feedback owed title selects the whole Needs action row (`?filter=action`; a group name stands for its row); a Resubmissions name focuses the student and selects Resubmitted (arrived) or Resubmission pending + overdue (waiting). Overdue work and Make-up names still only focus the student.
 - **Feedback owed is unchanged:** hidden feedback is its own count, not a reason to keep the feedback clock running, because feedback is sometimes held on purpose (moderation).
 - **Draft validity on the server:** `server/lib/assessmentDraft.js` mirrors the client's `draftBaseline` (parity test in `client/src/lib/assessmentDraft.test.js`), and `unfinishedGrading.test.js` checks the server baseline against the one the card computes from the real `/api/mastery/.../assignment/...` payload.
 
@@ -1653,7 +1653,7 @@ Chosen 18/10/2026 from three mockups (state chip on every row, verb where it mat
 
 ## The Refer panel (#175, 23 Oct 2026)
 
-- **Refer on missing work confirms first,** because it now writes to Schoology. `ReferPanel` opens in the card's panel row (and below the row in Triage's Late work): the title "Refer to the academic office?", one box, ticked by default, "Also record IE on every topic and mark Missing in Schoology", a muted line under it while ticked, then Cancel and a red Refer (`primary danger`, as the Triage row's Refer). A refusal shows in the panel, which stays open.
+- **Refer on missing work confirms first,** because it now writes to Schoology. `ReferPanel` opens in the card's panel row (and below the row in Triage's Overdue work): the title "Refer to the academic office?", one box, ticked by default, "Also record IE on every topic and mark Missing in Schoology", a muted line under it while ticked, then Cancel and a red Refer (`primary danger`, as the Triage row's Refer). A refusal shows in the panel, which stays open.
 - **Handed-in work keeps the one-click Refer:** nothing is written to Schoology there.
 - **Undo mirrors it:** on a referral that wrote Missing (and Missing still set), Undo opens the same panel, "Undo the referral?", with "Also clear Missing and the IE levels in Schoology", ticked. Otherwise Undo acts at once, as before.
 - **Reuses the Flags panels' parts** (`.flag-panel__check`, `.flag-panel__line`) rather than a new modal: the action is one decision with one option.
@@ -1776,3 +1776,7 @@ Prism's level is the correct one; Schoology's is what students and report cards 
 - **Level strips (Graham's choice of three mocks):** each combination is one chip per category, best first, in the level colors (`.level-strip`), so it matches the roster's level cells and still reads without color.
 - **Wide popover:** `HelpDot wide` / `useHelpPop({ wide: true })` gives `.help-pop--wide` (340px) for a small table. Any popover too tall for the space below its trigger now opens above it.
 - **Settings, Grade scale:** the full chart (2 to 5 categories) in the same chips, then each level's score band from the proficiency scale in `config.yaml` (no fixed numbers). The bands are for an administrator checking Prism against Schoology, so they left the teacher's popover.
+
+## Triage panel renamed Overdue work (25 Oct 2026)
+
+- **Graham's request:** the Triage panel listing summative work still owed (and work handed in at the referral limit) is now titled **Overdue work** (was Late work). Earlier entries in this log use the new name. Internal names stay (`LateWorkPanel`, `#triage-late`, `lateWork` in `get_triage`), so links and PrisMCP are unchanged. Settings keeps "Refer late work at", which names the rule, not the panel.

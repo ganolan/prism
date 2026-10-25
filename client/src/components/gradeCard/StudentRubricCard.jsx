@@ -572,7 +572,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
   }
 
   // The card's Extend control: the pair's fresh timeline + what the status line did;
-  // then the Late work row (an extension can take the student off it).
+  // then the Overdue work row (an extension can take the student off it).
   function handleExtensionChange(timeline, commentChange = null) {
     applyCardChange(timeline ? { timeline } : {}, commentChange);
     if (assignmentRow?.id) getTriagePair(student.id, assignmentRow.id).then(handlePairChange).catch(() => {});
@@ -1327,7 +1327,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
             Not offered on an archived/excluded course (the server refuses those). */}
         {/* Extend (late work, or a missed test's make-up): before or after the due date.
             Summative or Schoology test only, in a current course, not for an exempt student. */}
-        {/* Refer / Waive at the referral limit, the same row the dashboard's Late work shows. */}
+        {/* Refer / Waive at the referral limit, the same row the dashboard's Overdue work shows. */}
         {/* A view card offers only the Flags menu (and Edit). */}
         {isView && hasDraft && draftMark}
         {!isView && resubmitEnabled && (

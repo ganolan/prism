@@ -144,7 +144,7 @@ export function buildAssessmentView(db, { courseId, assignmentId, studentId = nu
   // The full submission picture per student (due, extension, submitted when / how
   // late, clock day if missing, resubmission, referral): the card's timeline row.
   const timelines = assignmentRow ? (context.timelines ?? timelineContext(db, { courseId: assignmentRow.course_id })) : null;
-  // The Late work row per student (Refer / Waive on the card), as the dashboard shows it.
+  // The Overdue work row per student (Refer / Waive on the card), as the dashboard shows it.
   const lateWork = assignmentRow
     ? lateWorkByStudent(db, { courseId: assignmentRow.course_id, assignmentId: assignmentRow.id, triage: context.triage })
     : new Map();

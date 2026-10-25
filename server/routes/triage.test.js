@@ -645,7 +645,7 @@ describe('Ask with unsubmit (Phase 2, LTI unsubmit on Ask)', () => {
     expect((await call('DELETE', `/api/triage/resubmissions/${asked.body.id}`)).body).toEqual({ deleted: true });
   });
 
-  test('I2: an ask that unsubmits ungraded work keeps the pair out of Late work (tracked in Resubmissions)', async () => {
+  test('I2: an ask that unsubmits ungraded work keeps the pair out of Overdue work (tracked in Resubmissions)', async () => {
     // Submitted on time (Prism saw it), ungraded.
     const due = Math.floor(Date.parse('2020-01-06T00:00:00Z') / 1000);
     getDb().prepare('UPDATE grades SET score = NULL, first_submitted_at = ?, latest_revision_at = ?, late = 0').run(due, due);
@@ -724,7 +724,7 @@ describe('GET /api/triage/lesson-plan', () => {
 });
 
 describe('GET /api/triage/pair', () => {
-  test('one student\'s card state: the timeline and the Late work row (red, outstanding)', async () => {
+  test('one student\'s card state: the timeline and the Overdue work row (red, outstanding)', async () => {
     const { status, body } = await call('GET', `/api/triage/pair?studentId=${studentId}&assignmentId=${assignmentId}`);
     expect(status).toBe(200);
     expect(body.timeline).toMatchObject({ due: { date: '2020-01-06' }, referral: null });
@@ -732,7 +732,7 @@ describe('GET /api/triage/pair', () => {
     expect(body.attention.reasons).toEqual([expect.objectContaining({ id: 'referral', kind: 'outstanding' })]);
   });
 
-  test('after a referral: no Late work row; the timeline carries the referral with its id', async () => {
+  test('after a referral: no Overdue work row; the timeline carries the referral with its id', async () => {
     const r = await call('POST', '/api/triage/referrals', { studentId, assignmentId, action: 'referred' });
     const { body } = await call('GET', `/api/triage/pair?studentId=${studentId}&assignmentId=${assignmentId}`);
     expect(body.late_work).toBeNull();

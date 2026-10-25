@@ -1,6 +1,6 @@
 // The /assessment/ page's "Needs action" and "Watch" reasons that depend on the
 // school calendar, per student, for one assignment. Built from triage's own rows
-// (getTriage), so a card never disagrees with the dashboard: Late work (referral
+// (getTriage), so a card never disagrees with the dashboard: Overdue work (referral
 // clock), Resubmissions (deadline) and Make-up tests. Plus two OneDrive/Google
 // Drive watch reasons triage has no panel for: work never opened with the due
 // date close, and work opened but not submitted after the due date.
@@ -50,7 +50,7 @@ export function attentionByStudent(db, { assignment, students, today = todayLoca
   const mine = (r) => r.assignmentId === assignment.id;
   const triage = given ?? getTriage(db, { courseId: assignment.course_id, includeFormative: true, today });
 
-  // Late work (summative work that takes submissions; referred / waived pairs are gone).
+  // Overdue work (summative work that takes submissions; referred / waived pairs are gone).
   const lateRow = new Map();
   for (const r of triage.lateWork.filter(mine)) {
     lateRow.set(r.studentId, r);
@@ -78,7 +78,7 @@ export function attentionByStudent(db, { assignment, students, today = todayLoca
   const lti = Number(assignment.is_lti_submission) === 1;
 
   // Referred students whose work has still not come in (a referral takes the pair off
-  // Late work for good; waived pairs had already handed it in).
+  // Overdue work for good; waived pairs had already handed it in).
   const referred = new Map(db.prepare(`SELECT student_id, created_at FROM referrals WHERE assignment_id = ? AND action = 'referred'`)
     .all(assignment.id).map((r) => [r.student_id, r.created_at]));
   const facts = referred.size ? assignmentFacts(db, assignment) : null;

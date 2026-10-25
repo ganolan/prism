@@ -39,7 +39,7 @@ const PAYLOAD = {
     { studentId: 8, studentName: 'Zoe Tan', courseId: 5, courseName: 'AP CSP', assignmentId: 21, schoologyAssignmentId: 'q21', title: 'Unit 2 quiz', dueDate: '2026-10-15', daysSince: 0, day: 1, tone: 'green', approx: false, extension: { id: 9, lessons: 2, until: '2026-10-20', note: 'sits Tue', schoolDaysLeft: 2 } },
   ],
 };
-const latePanel = async () => screen.findByLabelText('Late work');
+const latePanel = async () => screen.findByLabelText('Overdue work');
 const makeUpPanel = async () => screen.findByLabelText('Make-up tests');
 const rowOf = (el) => el.closest('.triage-row');
 const referButtons = () => screen.getAllByRole('button', { name: 'Refer' });
@@ -104,7 +104,7 @@ describe('TriageSection', () => {
     expect(screen.getByText('school days late · refer at 8')).toBeInTheDocument();
   });
 
-  it('Referred / waived / extended opens the history inside the Late work panel, right below the link; the link and Close both toggle it', async () => {
+  it('Referred / waived / extended opens the history inside the Overdue work panel, right below the link; the link and Close both toggle it', async () => {
     renderSection();
     const panel = await latePanel();
     const link = within(panel).getByText(/Referred \/ waived \/ extended \(2\)/);
@@ -124,7 +124,7 @@ describe('TriageSection', () => {
     const { rerender } = renderSection();
     const rail = await screen.findByRole('complementary', { name: 'Triage' });
     expect(rail).toHaveClass('triage-rail');
-    expect(within(rail).getByLabelText('Late work')).toBeInTheDocument();
+    expect(within(rail).getByLabelText('Overdue work')).toBeInTheDocument();
     rerender(<MemoryRouter><TriageSection hidden /></MemoryRouter>);
     expect(screen.queryByRole('complementary', { name: 'Triage' })).not.toBeInTheDocument();
     expect(document.querySelector('.triage-rail')).toHaveAttribute('hidden');
@@ -599,7 +599,7 @@ describe('TriageSection — 5 rows, then "All N" in the header', () => {
     expect(names(panel)).toHaveLength(5);
   });
 
-  it('no toggle at 5 rows or fewer; the history link stays at the bottom of Late work', async () => {
+  it('no toggle at 5 rows or fewer; the history link stays at the bottom of Overdue work', async () => {
     api.getTriage.mockResolvedValue({ ...PAYLOAD, lateWork: lateRows(5) });
     renderSection();
     const panel = await latePanel();
@@ -640,7 +640,7 @@ describe('TriageSection — make-up tests', () => {
     renderSection();
     await screen.findByText('Noah Park');
     expect(screen.getAllByRole('region').map((el) => el.getAttribute('aria-label')))
-      .toEqual(['Make-up tests', 'Late work', 'Feedback owed']);
+      .toEqual(['Make-up tests', 'Overdue work', 'Feedback owed']);
     const panel = await makeUpPanel();
     expect(panel.parentElement).not.toHaveClass('triage-grid');
   });
@@ -1000,22 +1000,22 @@ describe('TriageSection — email (#137)', () => {
     renderSection();
     await screen.findByText('Maya Chen');
     expect(screen.getByLabelText('Make-up tests')).toHaveAttribute('id', 'triage-makeups');
-    expect(screen.getByLabelText('Late work')).toHaveAttribute('id', 'triage-late');
+    expect(screen.getByLabelText('Overdue work')).toHaveAttribute('id', 'triage-late');
     expect(screen.getByLabelText('Resubmissions')).toHaveAttribute('id', 'triage-resubmissions');
     expect(screen.getByLabelText('Feedback owed')).toHaveAttribute('id', 'triage-feedback');
-    expect(within(screen.getByLabelText('Late work')).getByRole('heading', { level: 3 })).toHaveAttribute('tabindex', '-1');
+    expect(within(screen.getByLabelText('Overdue work')).getByRole('heading', { level: 3 })).toHaveAttribute('tabindex', '-1');
   });
 
   it('three panels get the @ menu; Feedback owed does not', async () => {
     renderSection();
     await screen.findByText('Maya Chen');
-    for (const name of ['Make-up tests', 'Late work', 'Resubmissions']) {
+    for (const name of ['Make-up tests', 'Overdue work', 'Resubmissions']) {
       expect(within(screen.getByLabelText(name)).getByRole('button', { name: 'Copy student emails' })).toBeInTheDocument();
     }
     expect(within(screen.getByLabelText('Feedback owed')).queryByRole('button', { name: 'Copy student emails' })).not.toBeInTheDocument();
   });
 
-  it('Late work menu skips submitted-late rows; Resubmissions menu skips arrived rows', async () => {
+  it('Overdue work menu skips submitted-late rows; Resubmissions menu skips arrived rows', async () => {
     renderSection();
     const late = await latePanel();
     fireEvent.click(within(late).getByRole('button', { name: 'Copy student emails' }));

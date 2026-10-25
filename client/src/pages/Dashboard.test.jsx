@@ -215,7 +215,7 @@ describe('Dashboard — triage', () => {
     const main = layout.querySelector('.triage-layout__main');
     expect(main.querySelector('.grid-2')).toHaveTextContent('AP Computer Science Principles');
     expect([...rail.querySelectorAll('section')].map((el) => el.getAttribute('aria-label')))
-      .toEqual(['Make-up tests', 'Late work', 'Feedback owed']);
+      .toEqual(['Make-up tests', 'Overdue work', 'Feedback owed']);
   });
 
   it('no triage on the Archived tab', async () => {

@@ -80,7 +80,7 @@ export function useTriageActions({ onChanged, onError, onMakeUpIgnored, onDone }
   const lessonsText = (n) => `${n} school day${n === 1 ? '' : 's'}`;
   const untilFor = async (q) => (await getStatusLineUntil(q)).until;
 
-  // Late work (extensionLine) and make-up tests (makeUpLine): the note goes into the line.
+  // Overdue work (extensionLine) and make-up tests (makeUpLine): the note goes into the line.
   const extendBy = (row, lessons, note, makeUp) => publish(row, 'extended', {
     // N school days from today (these rows are past their due / test date).
     consequence: makeUp

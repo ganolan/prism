@@ -121,7 +121,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
     .map((e) => [`${e.student_id}:${e.assignment_id}`, e]));
   // Work the student submitted and was then asked to redo (an open resubmission request)
   // is tracked in Resubmissions: an Ask that unsubmitted their OneDrive work leaves it
-  // "in progress", which must not read as Late work "outstanding". Only that branch is
+  // "in progress", which must not read as Overdue work "outstanding". Only that branch is
   // skipped — a never-submitted pair stays outstanding, and submitted_late stays listed.
   const openAsks = new Set(db.prepare(`SELECT student_id, assignment_id FROM resubmissions WHERE kind = 'request' AND status = 'open'`).all()
     .map((r) => `${r.student_id}:${r.assignment_id}`));
@@ -193,7 +193,7 @@ export function getTriage(db, { courseId = null, studentId = null, includeFormat
       let waitApprox = false;
 
       for (const { st, s } of states) {
-        // Late work (summative only, and only work that takes submissions).
+        // Overdue work (summative only, and only work that takes submissions).
         if (a.aligned && tracked && !handled.has(`${st.id}:${a.id}`)) {
           // An extension moves this student's due date to the N-th school day
           // after it: hidden until then, late from then. dueDate stays original.

@@ -503,7 +503,7 @@ feedback within about two weeks. Schoology's Reminders panel shows a headline co
 which tasks have waited longest for feedback. Counting school days by hand means checking the school calendar.
 
 **What Prism does.**
-- **A Late work list** of students approaching the referral limit, with a green, amber or red clock in school
+- **An Overdue work list** (named Late work until 25 Oct 2026) of students approaching the referral limit, with a green, amber or red clock in school
   days, and a record of each referral. A teacher can extend one student's deadline.
 - **A Feedback owed list** of tasks with submitted, ungraded work, longest wait first, with the count owed out
   of the count submitted. The limit is 10 school days by default, and both limits are adjustable in Settings.

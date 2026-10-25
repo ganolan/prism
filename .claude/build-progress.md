@@ -1842,6 +1842,10 @@ Commits `c481c5b` and `610a40e` (server) and `76f679e` (client), then the docs (
 - **Gender is stored now** (`students.gender`, MIGRATIONS): each block sync's grade pass keeps every joined student's non-blank `gender` from the section student list (`students_integration`; the `section_attendance` fallback has none) via `applyGenders`. The sync log line adds "Gender: N changed (M seen)". Students PowerSchool did not list this year (former students) show as "Not known" in Class Tools and as the `?` tag on the Roster tab (25 Oct 2026).
 - **Page:** a closed "Filter students" card above the tools (`RosterFilters`), with pills and counts per value and "Showing N of M students"; every tool clears what it showed when the courses or filters change (the Email List, Random Picker and Group Generator had kept a stale result before). See `docs/design-language.md`.
 
+## Triage panel renamed Overdue work (2026-10-25)
+
+Graham's request: the Triage "Late work" panel is titled **Overdue work** (`LateWorkPanel.jsx`, its aria-label and heading). Code comments, test names and `docs/design-language.md` use the new name; older sections of this file keep the old one. Internal names are unchanged (`LateWorkPanel`, `#triage-late`, `lateWork` in `get_triage`, whose PrisMCP description now names the panel). Settings keeps "Refer late work at" (the rule, not the panel).
+
 ## Grade scale: HKIS letter grades and the "?" pop-up (#193, 2026-10-25)
 
 Graham sent HKIS's official chart (Translation_Scale_HKIS_FINAL.pdf) after Prism's two letter grade sources were found to disagree on 19 of 58 combinations. Rules: `docs/design-language.md`, "Grade scale".

@@ -150,7 +150,7 @@ const hasTeacherComment = (student) => teacherText(student.grade_comment, studen
 // teacher's own grading changes (to grade, partly graded, draft, feedback hidden,
 // resubmitted) are worked out here, so they follow each save at once. The
 // school-calendar ones come from the server (server/services/cardAttention.js:
-// student.attention.reasons), built from triage's Late work, Resubmissions and
+// student.attention.reasons), built from triage's Overdue work, Resubmissions and
 // Make-up tests rows.
 
 export const REASONS = {

@@ -402,15 +402,20 @@ function failNoSession(d, entry, live) {
 }
 
 // Every run records when its scope was last tried, whatever the outcome (a run that threw too), so
-// a failing scope waits out the background window instead of re-running on every visit.
+// a failing scope waits out the background window instead of re-running on every visit. The attempt is
+// the run's START time and never moves a stamp the run wrote itself: the run stamps synced and attempted
+// with its own start time, and an end time here read as a failed attempt after every successful run, so
+// pages showed "Sync failed" for 10 minutes after each sync (fixed 25 Oct 2026).
 function recordAttempt(d, entry) {
-  const at = new Date().toISOString();
+  const at = entry.startedAt ?? new Date().toISOString();
   try {
     if (entry.request.kind === 'task') {
-      d.prepare('UPDATE assignments SET task_sync_attempted_at = ? WHERE schoology_assignment_id = ? AND course_id = ?')
-        .run(at, String(entry.request.assignmentId), Number(entry.request.courseId));
+      d.prepare(`UPDATE assignments SET task_sync_attempted_at = ? WHERE schoology_assignment_id = ? AND course_id = ?
+        AND (task_sync_attempted_at IS NULL OR task_sync_attempted_at < ?)`)
+        .run(at, String(entry.request.assignmentId), Number(entry.request.courseId), at);
     } else if (entry.covered.length) {
-      d.prepare('UPDATE courses SET sync_attempted_at = ? WHERE id IN (SELECT value FROM json_each(?))').run(at, JSON.stringify(entry.covered));
+      d.prepare(`UPDATE courses SET sync_attempted_at = ? WHERE id IN (SELECT value FROM json_each(?))
+        AND (sync_attempted_at IS NULL OR sync_attempted_at < ?)`).run(at, JSON.stringify(entry.covered), at);
     }
   } catch (err) {
     console.error('[sync] Could not record the attempt:', err.message);
@@ -445,7 +450,8 @@ async function runOne(entry) {
   }
   leaveQueue(entry);
   running = entry;
-  d.prepare(`UPDATE sync_runs SET status = 'running', started_at = ? WHERE id = ?`).run(new Date().toISOString(), runId);
+  entry.startedAt = new Date().toISOString();
+  d.prepare(`UPDATE sync_runs SET status = 'running', started_at = ? WHERE id = ?`).run(entry.startedAt, runId);
   let summary = null;
   let status = 'completed';
   const write = (evt) => {

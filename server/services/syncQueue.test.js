@@ -412,6 +412,37 @@ describe('the sync queue', () => {
       expect(ensure({ kind: 'courses', courseIds: [a] }).state).toBe('failed');
     });
 
+    // 25 Oct 2026: a run stamps synced and attempted with its own start time; the queue stamped the
+    // attempt again at the end, so every successful run read as a later failed attempt and the page
+    // showed "Sync failed" for the next 10 minutes.
+    test('a successful run leaves its courses fresh, not failed (the attempt keeps the run\'s own time)', async () => {
+      queueDeps.runUnifiedSync = vi.fn(async (options, emit) => {
+        const at = new Date().toISOString();
+        getDb().prepare('UPDATE courses SET course_synced_at = ?, sync_attempted_at = ? WHERE id = ?').run(at, at, a);
+        await tick(); // the run takes time: the queue's end is later than the run's stamp
+        emit({ type: 'summary', mastery: [] });
+      });
+      const r = enqueue({ kind: 'courses', courseIds: [a], trigger: 'page' });
+      await idle();
+      expect(status(r.runId)).toBe('completed');
+      const c = getDb().prepare('SELECT course_synced_at, sync_attempted_at FROM courses WHERE id = ?').get(a);
+      expect(Date.parse(c.sync_attempted_at)).toBeLessThanOrEqual(Date.parse(c.course_synced_at));
+      expect(ensure({ kind: 'courses', courseIds: [a] })).toEqual({ state: 'fresh' });
+    });
+
+    test('a successful task run leaves its task fresh, not failed', async () => {
+      getDb().prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title) VALUES (?, 'T1', 'T')`).run(a);
+      queueDeps.runTaskSync = vi.fn(async (request, emit) => {
+        const at = new Date().toISOString();
+        getDb().prepare(`UPDATE assignments SET task_synced_at = ?, task_sync_attempted_at = ? WHERE schoology_assignment_id = 'T1'`).run(at, at);
+        await tick();
+        emit({ type: 'summary', mastery: [] });
+      });
+      enqueue({ kind: 'task', courseId: a, assignmentId: 'T1', trigger: 'page' });
+      await idle();
+      expect(ensure({ kind: 'task', courseId: a, assignmentId: 'T1' })).toEqual({ state: 'fresh' });
+    });
+
     test('#170 item 8: a course scope\'s "Sync failed" chip ignores failed task and quiz runs', () => {
       const add = (status, o) => getDb().prepare(`INSERT INTO sync_runs (started_at, status, options_json) VALUES (datetime('now'), ?, ?)`)
         .run(status, JSON.stringify(o)).lastInsertRowid;

@@ -97,12 +97,16 @@ describe('gender pills', () => {
     expect(o.gender.map((p) => [p.key, p.count])).toEqual([['gender:F', 0], ['gender:M', 1]]);
   });
 
-  it('filters as any of, with the other pills', () => {
+  it('Gender pills are any of within the row, and the row narrows the other pills (AND)', () => {
     const ids = (sel, st = G, unread = {}) => applyRosterFilters(st, new Set(sel), unread).map((x) => x.id);
     expect(ids(['gender:F'])).toEqual([1, 2]);
     expect(ids(['gender:F', 'gender:M'])).toEqual([1, 2, 3]);
     expect(ids(['gender:none'])).toEqual([4, 5]);
-    expect(ids(['gender:M', UNREAD], G, { 5: 1 })).toEqual([3, 5]);
+    // Unread comments are any of with the alert pills, then narrowed by Gender.
+    expect(ids([UNREAD], G, { 1: 1, 3: 1, 5: 1 })).toEqual([1, 3, 5]);
+    expect(ids(['gender:F', UNREAD], G, { 1: 1, 3: 1, 5: 1 })).toEqual([1]);
+    expect(ids(['gender:F', 'gender:M', UNREAD], G, { 1: 1, 3: 1, 5: 1 })).toEqual([1, 3]);
+    expect(ids(['gender:none', UNREAD], G, { 1: 1, 3: 1, 5: 1 })).toEqual([5]);
   });
 
   it('any value other than F or M is not known', () => {

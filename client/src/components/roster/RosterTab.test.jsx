@@ -334,7 +334,7 @@ describe('RosterTab gender', () => {
     expect(within(row).getByRole('button', { name: /^Gender/ })).toHaveTextContent('Gender12');
   });
 
-  it('Female shows the two women; Female and Male together show three; it combines with Alerts as any of', () => {
+  it('Female shows the two women; Female and Male together show three; the Gender row narrows Alerts (AND)', async () => {
     renderTab();
     toggle();
     fireEvent.click(screen.getByRole('button', { name: /^Female/ }));
@@ -345,10 +345,16 @@ describe('RosterTab gender', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Not known/ }));
     expect(status()).toHaveTextContent('Showing 12 of 12 students');
     fireEvent.click(screen.getByRole('button', { name: /Clear all/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Learning plan/ })); // Annie (F) only holds a plan
+    expect(status()).toHaveTextContent('Showing 1 of 12 students');
     fireEvent.click(screen.getByRole('button', { name: /^Male/ }));
-    fireEvent.click(screen.getByRole('button', { name: /^Learning plan/ })); // Annie (F) joins Male (First2): any of
-    expect(status()).toHaveTextContent('Showing 2 of 12 students');
-    expect(order()).toEqual(['First2 Last2', 'Annie Lee']);
+    expect(status()).toHaveTextContent('Showing 0 of 12 students'); // Male AND Learning plan: nobody
+    fireEvent.click(screen.getByRole('button', { name: /^Female/ }));
+    expect(status()).toHaveTextContent('Showing 1 of 12 students'); // (Female or Male) AND Learning plan
+    expect(order()).toEqual(['Annie Lee']);
+    fireEvent.click(screen.getByRole('button', { name: /^Male/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /^Unread comments/ })); // (Learning plan or Unread) AND Female
+    expect(order()).toEqual(['First3 Last3', 'Annie Lee']);
   });
 
   it('the Gender row is not in the page with Private details off', () => {

@@ -373,7 +373,8 @@ Where the build departs from the text above, or settled what it left open (each 
 - **Gender and sort (Graham, 25 Oct 2026, after the build):** with Private details on, the card's meta line reads
   grade, gender (Female or Male; nothing when unknown), student number, Email, and the filter bar has a third row,
   **Gender** (Female, Male, Not known, each with its count; dropped students never counted). Its pills join the one
-  "any of" set, so they combine with Alerts and Follow up as those combine with each other. A "Sort by" control
+  selection set, but Gender narrows: any of the Gender pills AND any of the Alerts and Follow up pills (controller
+  ruling, 25 Oct 2026: gender is an attribute, as the assessment page's Refine pills are). A "Sort by" control
   above the Roster mode's cards offers First name, Last name (the default) and, with Private details on, Gender
   (Female, Male, unknown, then last name). The choice is remembered on this device in `localStorage`
   (`prism:roster:sort`, one key for every course); Gender with the switch off sorts by last name and leaves the stored

@@ -4,7 +4,7 @@
 //
 // Filter keys: LEARNING_PLAN (any learning alert: they share one pill), an alert key for every other
 // roster alert (health, other; family alerts never reach a roster, `forRoster`), UNREAD, and
-// `gender:F`, `gender:M`, `gender:none` (25 Oct 2026). All of them combine as "any of".
+// `gender:F`, `gender:M`, `gender:none` (25 Oct 2026). Alerts and Follow up pills combine as "any of"; the Gender row narrows that (AND).
 import { forRoster } from './psAlerts.js';
 import { genderOf, filterValueLabel } from './rosterFilters.js';
 
@@ -80,8 +80,16 @@ export function rosterFilterOptions(students, unread, selected = new Set(), labe
   };
 }
 
-// The students who match any selected pill; everyone when none is selected.
+// The students who match the selected pills; everyone when none is selected. Alerts and Follow up
+// pills combine as "any of". Gender is an attribute, so its row narrows: a student must match any
+// selected Gender pill (Female or Male) AND, when other pills are on, any of those.
 export function applyRosterFilters(students, selected, unread = null) {
   if (!selected?.size) return students;
-  return students.filter((s) => [...keysOf(s, unread)].some((k) => selected.has(k)));
+  const keys = [...selected];
+  const genders = keys.filter((k) => k.startsWith(GENDER_PREFIX));
+  const others = keys.filter((k) => !k.startsWith(GENDER_PREFIX));
+  return students.filter((s) => {
+    const mine = keysOf(s, unread);
+    return (!genders.length || genders.some((k) => mine.has(k))) && (!others.length || others.some((k) => mine.has(k)));
+  });
 }

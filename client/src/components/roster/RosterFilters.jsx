@@ -7,8 +7,9 @@ import GroupPill, { groupState } from '../GroupPill.jsx';
 //    pill per alert type some student holds (learning alerts share Learning plan).
 //  - Follow up: the muted group pill, then Unread comments.
 //  - Gender (25 Oct 2026): the group pill, then Female, Male and Not known, each while some student matches.
+//    An attribute, so the row narrows: any of the Gender pills AND any of the other pills.
 //  - The status line: "Showing 4 of 12 students" with Copy emails (N) beside it; Clear all on the right.
-// Pills combine as "any of". This component renders and reports; RosterTab owns the selection.
+// Alerts and Follow up pills combine as "any of"; Gender narrows them (AND). This component renders and reports; RosterTab owns the selection.
 // options: rosterFilterOptions (lib/rosterVitals.js). onChange(nextSelectedSet).
 
 const MailIcon = () => (

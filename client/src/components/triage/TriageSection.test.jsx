@@ -1073,7 +1073,7 @@ describe('Unfinished grading panel', () => {
     renderSection();
     const panel = await screen.findByLabelText('Unfinished grading');
     expect(within(panel).getByRole('link', { name: 'CPT 2' })).toHaveAttribute('href', '/course/5/assessment/a40?filter=draft,feedback_hidden');
-    expect(within(panel).getByText(/2 drafts not published, 1 with feedback hidden/)).toHaveTextContent('oldest draft 09/10/2026');
+    expect(within(panel).getByText(/2 drafts not published, 1 with comment hidden/)).toHaveTextContent('oldest draft 09/10/2026');
     expect(within(panel).getByRole('link', { name: 'Brick Breaker' })).toHaveAttribute('href', '/course/6/assessment/a41?filter=unread_comment');
     expect(within(panel).getByText('1 unread comment')).toBeInTheDocument();
     expect(within(panel).queryByText(/flagged/)).toBeNull();

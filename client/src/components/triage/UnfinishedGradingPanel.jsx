@@ -14,7 +14,10 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 export function unfinishedGradingText(r) {
   return [
     r.drafts > 0 && plural(r.drafts, 'draft not published', 'drafts not published'),
-    r.feedbackHidden > 0 && `${r.feedbackHidden} with feedback hidden${r.taskUnpublished ? ' (task not published)' : ''}`,
+    // Display covers the comment only (#184): on a published task the student sees the grade.
+    r.feedbackHidden > 0 && (r.taskUnpublished
+      ? `${r.feedbackHidden} with feedback hidden (task not published)`
+      : `${r.feedbackHidden} with comment hidden`),
     r.unreadComments > 0 && plural(r.unreadComments, 'unread comment', 'unread comments'),
   ].filter(Boolean).join(', ');
 }
@@ -30,7 +33,7 @@ export default function UnfinishedGradingPanel({ rows, showCourse, scope }) {
       <PanelHead title="Unfinished grading">
         <ShowAllToggle total={rows.length} showAll={showAll} onToggle={toggleShowAll} />
       </PanelHead>
-      <p className="triage-panel__sub">drafts not published, feedback hidden, unread student comments</p>
+      <p className="triage-panel__sub">drafts not published, hidden comments or tasks, unread student comments</p>
       {limitRows(rows, showAll).map((r) => (
         <div key={r.assignmentId} className="triage-row triage-row--plain">
           <div className="triage-row__text">

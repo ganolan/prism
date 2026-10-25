@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizedSubmissionState, gradingStateOf, studentMatchesPill, passesFilters,
-  countMatches, filterGroups, pillTone, TONE_VARS, studentReasons, reasonText, reasonTone, countReasons, parseFilterParam,
+  countMatches, filterGroups, pillTone, TONE_VARS, studentReasons, reasonText, reasonLabel, reasonTone, countReasons, parseFilterParam,
 } from './assessmentFilters.js';
 
 const LTI = { is_lti_submission: 1, due_date: '2026-06-01' };
@@ -180,6 +180,16 @@ describe('studentReasons (Needs action + Watch)', () => {
     expect(ids(stu({ grade_comment: 'Good', comment_status: 1 }), hiddenTask)).toContain('feedback_hidden'); // Display on
     expect(ids(stu({}), hiddenTask)).not.toContain('feedback_hidden'); // nothing graded
     expect(ids(stu({ score: 42 }))).not.toContain('feedback_hidden'); // published: a score alone is seen
+  });
+  it('labels a hidden comment "Comment hidden", and an unpublished task by the task (#184)', () => {
+    const hiddenTask = { ...ctx, assignment: { ...LTI, published: 0 } };
+    const [onTask] = studentReasons(stu({ score: 42 }), hiddenTask);
+    expect(reasonText(onTask)).toBe('Feedback hidden (task not published)');
+    const comment = studentReasons(stu({ grade_comment: 'Good', comment_status: 0 }), ctx).find((r) => r.id === 'feedback_hidden');
+    expect(reasonText(comment)).toBe('Comment hidden');
+    expect(reasonLabel('feedback_hidden', ctx)).toBe('Comment hidden');
+    expect(reasonLabel('feedback_hidden', hiddenTask)).toBe('Feedback hidden (task not published)');
+    expect(reasonLabel('to_grade', hiddenTask)).toBe('To grade');
   });
   it('exempt: no grading reasons', () => {
     expect(ids(stu({ exception: 1, attention: { handedIn: true, reasons: [] } }))).toEqual([]);

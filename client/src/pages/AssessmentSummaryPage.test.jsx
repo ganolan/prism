@@ -1789,7 +1789,7 @@ describe('AssessmentSummaryPage ?filter= links (triage)', () => {
     await waitFor(() => expect(screen.getByText('Bob M')).toBeInTheDocument());
     expect(screen.getByText('Bob M')).toBeVisible();
     expect(screen.getByText('Ada L')).not.toBeVisible();
-    expect(within(document.querySelector('.assessment-filter-bar')).getByRole('button', { name: /^Feedback hidden/ }))
+    expect(within(document.querySelector('.assessment-filter-bar')).getByRole('button', { name: /^Comment hidden/ }))
       .toHaveAttribute('aria-pressed', 'true');
   });
 
@@ -1800,8 +1800,8 @@ describe('AssessmentSummaryPage ?filter= links (triage)', () => {
     renderAt('/course/4/assessment/8?student=2&filter=action');
     await waitFor(() => expect(screen.getByText('Bob M')).toBeVisible());
     const bar = within(document.querySelector('.assessment-filter-bar'));
-    // Every Needs action reason this task has is on (Ada's To grade, Bob's Feedback hidden).
-    expect(bar.getByRole('button', { name: /^Feedback hidden/ })).toHaveAttribute('aria-pressed', 'true');
+    // Every Needs action reason this task has is on (Ada's To grade, Bob's Comment hidden).
+    expect(bar.getByRole('button', { name: /^Comment hidden/ })).toHaveAttribute('aria-pressed', 'true');
     expect(bar.getByRole('button', { name: /^To grade/ })).toHaveAttribute('aria-pressed', 'true');
     await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled());
     expect(document.getElementById('student-card-2')).toHaveClass('student-card--highlight');

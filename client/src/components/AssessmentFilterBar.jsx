@@ -13,7 +13,7 @@
 import { useState } from 'react';
 import GroupPill, { groupState } from './GroupPill.jsx';
 import {
-  filterGroups, pillTone, countMatches, TONE_VARS, REASONS, reasonIdsIn, countReasons, studentReasons,
+  filterGroups, pillTone, countMatches, TONE_VARS, REASONS, reasonIdsIn, reasonLabel, countReasons, studentReasons,
 } from '../lib/assessmentFilters.js';
 
 function FilterPill({ label, count, active, tone, onClick }) {
@@ -73,7 +73,7 @@ function ReasonRow({ label, group, counts, students, ctx, active, onToggle, onSe
         <span className="text-sm text-muted">{empty}</span>
       )}
       {ids.map(id => (
-        <FilterPill key={id} label={REASONS[id].label} count={counts[id]}
+        <FilterPill key={id} label={reasonLabel(id, ctx)} count={counts[id]}
           active={active.has(id)} tone={REASONS[id].tone} onClick={() => onToggle(id)} />
       ))}
       {children}

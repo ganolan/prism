@@ -4,7 +4,7 @@ import { unfinishedGradingText } from './UnfinishedGradingPanel.jsx';
 describe('unfinishedGradingText', () => {
   it('names each reason with its count', () => {
     expect(unfinishedGradingText({ drafts: 2, feedbackHidden: 1, unreadComments: 1 }))
-      .toBe('2 drafts not published, 1 with feedback hidden, 1 unread comment');
+      .toBe('2 drafts not published, 1 with comment hidden, 1 unread comment');
   });
 
   it('an unpublished task says why the feedback is hidden (#184)', () => {

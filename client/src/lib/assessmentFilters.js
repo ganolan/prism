@@ -157,7 +157,9 @@ export const REASONS = {
   to_grade: { group: 'action', label: 'To grade', tone: 'blue' },
   partly_graded: { group: 'action', label: 'Partly graded', tone: 'yellow' },
   draft: { group: 'action', label: 'Draft not published', tone: 'blue' },
-  feedback_hidden: { group: 'action', label: 'Feedback hidden', tone: 'neutral' },
+  // Display covers the comment only (#184): on a published task the grade shows, so the
+  // reason is "Comment hidden"; an unpublished task hides both (reasonLabel, reasonText).
+  feedback_hidden: { group: 'action', label: 'Comment hidden', tone: 'neutral' },
   resubmitted: { group: 'action', label: 'Resubmitted', tone: 'resubmit' },
   unread_comment: { group: 'action', label: 'Unread comment', tone: 'yellow' },
   referral: { group: 'action', label: 'Referral to decide', tone: 'red' },
@@ -170,6 +172,11 @@ export const REASONS = {
   resubmission_pending: { group: 'watch', label: 'Resubmission pending', tone: 'resubmit' },
 };
 export const REASON_IDS = Object.keys(REASONS);
+const TASK_HIDDEN_LABEL = 'Feedback hidden (task not published)';
+// A reason's pill label on this task's page: Comment hidden becomes the task-wide label when the
+// task is not published, since the student cannot open it at all.
+export const reasonLabel = (id, ctx) => (id === 'feedback_hidden' && Number(ctx?.assignment?.published) === 0
+  ? TASK_HIDDEN_LABEL : REASONS[id]?.label ?? id);
 export const reasonIdsIn = (group) => REASON_IDS.filter(id => REASONS[id].group === group);
 
 // Triage clock tones (green / amber / red) → pill tones.
@@ -185,6 +192,7 @@ export function reasonText(r) {
         ? `Referral to decide, submitted ${schoolDays(r.daysLate)} late`
         : `Referral to decide, ${schoolDays(r.daysLate)} late`;
     case 'late': return `Late, ${schoolDays(r.daysLate)}`;
+    case 'feedback_hidden': return r.taskHidden ? TASK_HIDDEN_LABEL : REASONS.feedback_hidden.label;
     case 'unread_comment': return r.count > 1 ? `${r.count} unread comments` : 'Unread comment';
     case 'referred_missing': return r.referredOn ? `Referred ${ddmm(r.referredOn)}, not submitted` : 'Referred, not submitted';
     case 'in_progress_late': return `In progress, ${schoolDays(r.daysLate)} late`;
@@ -221,7 +229,8 @@ export function studentReasons(student, ctx) {
     // student cannot open at all (#184, as Triage's Unfinished grading counts it).
     const taskHidden = Number(ctx.assignment?.published) === 0
       && (student.score != null || grading !== 'ungraded' || hasTeacherComment(student));
-    if (taskHidden || (hasTeacherComment(student) && student.comment_status !== 1)) out.push({ id: 'feedback_hidden' });
+    if (taskHidden) out.push({ id: 'feedback_hidden', taskHidden: true });
+    else if (hasTeacherComment(student) && student.comment_status !== 1) out.push({ id: 'feedback_hidden' });
     if (student.resubmission?.state === 'arrived' || student.resubmitted) out.push({ id: 'resubmitted' });
   }
   const unread = ctx.commentSummaryOf?.(student)?.unread || 0;

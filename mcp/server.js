@@ -3,7 +3,7 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { getAssignmentContextTool, listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, getSupportSummaryTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getTagResultsTool, getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool, getQuizResultsTool, writeQuizOverallSuggestionsTool } from './handlers.js';
+import { getAssignmentContextTool, listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, getSupportSummaryTool, getAlertDetailTool, getCategoryCheckTool, getTestDayTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getTagResultsTool, getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool, getQuizResultsTool, writeQuizOverallSuggestionsTool } from './handlers.js';
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
@@ -19,7 +19,7 @@ const ALERT_KEYS_BY_CATEGORY = ['learning', 'health', 'other', 'family']
   .map((c) => `${c}: ${ALERT_DEFS.filter((d) => d.category === c).map((d) => d.key).join(', ')}`).join('; ');
 const POWERSCHOOL_ALERTS_NOTE =
   `Each student also has \`powerschool_alerts\` [{ key, label, category }]: the PowerSchool alerts Prism keeps (${ALERT_KEYS_BY_CATEGORY}), as of \`powerschool_alerts_read_at\` (ISO, read on each sync; null = never read, so an empty list then means unknown, not none). ` +
-  'They say a plan or alert exists, not what it contains (e.g. how much extra time): for a student with support_summary, get_support_summary reads the Student Support Summary live (extra time is in its Support Notes); otherwise check PowerSchool for the detail. They are labels for the teacher only: use them for the teacher\'s decisions (who needs accommodations in a test; which guardian gets correspondence); never put them in student feedback or anything a student or parent reads. Family alerts (correspondence, divorced, employee_child, siblings) are especially private.';
+  'They say a plan or alert exists, not what it contains (e.g. how much extra time): for a student with support_summary, get_support_summary reads the Student Support Summary live (extra time is in its Support Notes); get_alert_detail reads the detail of any learning, health or other alert live; extra_time_percent is the figure the teacher confirmed in Prism. They are labels for the teacher only: use them for the teacher\'s decisions (who needs accommodations in a test; which guardian gets correspondence); never put them in student feedback or anything a student or parent reads. Family alerts (correspondence, divorced, employee_child, siblings) are especially private.';
 
 // <2KB tool-search hint (spec §3.4) so a client knows when to surface PrisMCP.
 export const INSTRUCTIONS =
@@ -37,7 +37,9 @@ export const INSTRUCTIONS =
   'tags per question; get_tag_results follows one tag across a course. FRQ marking: get_frq_responses, write_frq_suggestions, then the teacher accepts in Prism; ' +
   'the teacher publishes accepted marks with Publish all to Schoology on the Free response tab; ' +
   'list_frq_writebacks and mark_frq_writeback are the fallback when that button is absent. Overall result: get_quiz_results, then ' +
-  'write_quiz_overall_suggestions (levels and an impression; Prism builds the comment).';
+  'write_quiz_overall_suggestions (levels and an impression; Prism builds the comment). ' +
+  'Roster (teacher only): get_category_check (Prism against Schoology per reporting category), ' +
+  'get_test_day (extra time on upcoming tests), get_alert_detail (one PowerSchool alert).';
 
 // A tool that waits for a queue run tells the client it is alive: an MCP progress notification
 // (every 10 s, from gradingSync's onProgress) when the request carries a progressToken. → a
@@ -116,7 +118,7 @@ export function createServer({ devCopy = false } = {}) {
     'list_students',
     {
       description:
-        "List a course's current roster (non-dropped enrolments), independent of any assignment, e.g. to check a meeting attendance list against who's enrolled. Works for archived course ids too (list_courses include_archived). include_dropped: true appends students who left, each with dropped_at. " + POWERSCHOOL_ALERTS_NOTE,
+        "List a course's current roster (non-dropped enrolments), independent of any assignment, e.g. to check a meeting attendance list against who's enrolled. Works for archived course ids too (list_courses include_archived). include_dropped: true appends students who left, each with dropped_at. Each student has `gender` { code, value }: code is what the roster shows (F, M, NB for any other value, ? when not recorded) and value is PowerSchool's own, verbatim (null when blank); never assume what an NB value means. `extra_time_percent` is the extra time on tests the teacher confirmed in Prism (null when none): for the teacher only, never in student-facing text. " + POWERSCHOOL_ALERTS_NOTE,
       inputSchema: {
         course_id: z.union([z.number(), z.string()]).describe('Local Prism course id'),
         include_dropped: z.boolean().optional().describe('Also list students who dropped the course. Default false.'),
@@ -631,12 +633,49 @@ export function createServer({ devCopy = false } = {}) {
   server.registerTool(
     'get_support_summary',
     {
-      description: "A student's PowerSchool Student Support Summary, read live from PowerSchool (about 1 to 3 s; kept 10 minutes): rows [{ category, description, url? }] verbatim, e.g. Academic Support, SEL/Behavioral Support, Case Manager, Accommodation Plan, TLI, Intervention Plan, ILP, Support Plan URL, Support Notes. The extra time, when there is one, is in Support Notes in PowerSchool's words: quote it, never compute or infer from it. Only for a student whose powerschool_alerts include support_summary. For the teacher only: never put it in student-facing text (feedback, comments) or on a roster. Read-only.",
+      description: "A student's PowerSchool Student Support Summary, read live from PowerSchool (about 1 to 3 s; kept 10 minutes): rows [{ category, description, url? }] verbatim, e.g. Academic Support, SEL/Behavioral Support, Case Manager, Accommodation Plan, TLI, Intervention Plan, ILP, Support Plan URL, Support Notes. The extra time, when there is one, is in Support Notes in PowerSchool's words: quote it, never compute or infer from it. confirmed_extra_time_percent is the figure the teacher confirmed in Prism (null when none). Only for a student whose powerschool_alerts include support_summary. For the teacher only: never put it in student-facing text (feedback, comments) or on a roster. Read-only.",
       inputSchema: {
         student: z.union([z.string(), z.number()]).describe('Prism student id (from find_student or list_students), schoology_uid, email, or a name that matches exactly one student'),
       },
     },
     async (args) => text(() => getSupportSummaryTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'get_alert_detail',
+    {
+      description: "One PowerSchool alert's detail for a student, read live from PowerSchool (about 1 to 3 s; kept 10 minutes), as the roster's alert pop-up shows it: e.g. what an allergy is, the EpiPen or health care plan, why there is no photo, or a learning plan's notes. alert is a key from the student's powerschool_alerts (list_students): learning, health or other alerts only; family alerts are never served. Returns { kind: rows | text | none, rows? [{ category, description }], text?, suggested_extra_time_percent (Prism's reading of a learning plan, not confirmed), confirmed_extra_time_percent (the teacher's figure in Prism, learning alerts only), read_at }. kind none: PowerSchool holds no detail Prism can read. This is health and learning data, for the teacher only: never put it in student-facing text (feedback, comments) or on a roster. Read-only.",
+      inputSchema: {
+        student: z.union([z.string(), z.number()]).describe('Prism student id (from find_student or list_students), schoology_uid, email, or a name that matches exactly one student'),
+        alert: z.string().describe("The alert's key from powerschool_alerts, e.g. 'allergies', 'epipen', 'accommodation_plan', 'no_photo'"),
+      },
+    },
+    async (args) => text(() => getAlertDetailTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'get_category_check',
+    {
+      description: "The roster's Mastery check for one current course: for each student whose levels differ, Prism's level per reporting category (the flat mean of every score in its topics, with the percent) beside Schoology's (its category rollup, the override when set, which students and report cards see), and the HKIS letter grade from each. Lists only students where a category or the grade differs (Prism has a level and Schoology's is another one, or none); students_checked counts everyone. categories names each category by its short label (as the roster shows it) and full name. Read-only: setting a Schoology override is the teacher's, on the roster's Mastery mode.",
+      inputSchema: {
+        course: z.union([z.number(), z.string()]).describe('A current Prism course id, or part of its name'),
+      },
+    },
+    async (args) => text(() => getCategoryCheckTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'get_test_day',
+    {
+      description: "The roster's Test day for one current course: its Schoology tests due from today to 14 days ahead (nearest first), the chosen test (test, else the nearest), and each current student with a learning plan (PowerSchool learning alerts, never health ones) with the extra time the teacher confirmed in Prism and the minutes it gives a test of length_minutes (default 50). Everything is in minutes, because Prism holds no lesson times. A student with no confirmed figure has extra_time_percent null: get_support_summary or get_alert_detail reads the plan, and the teacher confirms the figure on the roster's Test day. For the teacher only: never in student-facing text. Read-only.",
+      inputSchema: {
+        course: z.union([z.number(), z.string()]).describe('A current Prism course id, or part of its name'),
+        test: z.union([z.string(), z.number()]).optional().describe("A test's schoology_assignment_id, or part of its title. Default: the nearest test."),
+        length_minutes: z.number().optional().describe('Test length in minutes, 1 to 600. Default 50.'),
+        today: z.string().optional().describe("'YYYY-MM-DD' to count the 14 days from. Default today (school time)."),
+      },
+    },
+    async (args) => text(() => getTestDayTool(getDb(), args))
   );
 
   server.registerTool(

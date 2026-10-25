@@ -4,6 +4,9 @@
 // mirroring the server/**/*.test.js pattern.
 
 import { readSupportSummary } from '../server/services/psSupportSummary.js';
+import { readAlertDetail } from '../server/services/psAlertDetail.js';
+import { ALERT_DEFS, ROSTER_CATEGORIES } from '../server/lib/psAlerts.js';
+import { categoryCheck, testDayForCourse, confirmedExtraTime, genderForAgents } from '../server/services/rosterForAgents.js';
 import { listRubrics, getRubricByName, saveRubric, findRubricByContentHash } from '../server/services/rubricStore.js';
 import { hashRubricContent } from '../server/services/rubricHash.js';
 import { attachRubric } from '../server/services/rubricAttach.js';
@@ -178,17 +181,23 @@ export function listStudents(db, { course_id, include_dropped = false }) {
     preferred_first_name: preferredFirstName(st),
     email: st.email ?? null,
     grad_year: st.grad_year ?? null,
+    // #195: as the roster shows it (F, M, NB, ?), with PowerSchool's own value.
+    gender: genderForAgents(st.gender),
   });
-  const gradYears = new Map(db.prepare(`
-    SELECT s.id, s.grad_year FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.course_id = ?
-  `).all(Number(course_id)).map((r) => [r.id, r.grad_year]));
-  const current = getRoster(db, Number(course_id)).map((st) => shape({ ...st, grad_year: gradYears.get(st.id) }));
+  const extra = (rows) => {
+    const confirmed = confirmedExtraTime(db, rows.map((st) => st.id));
+    return rows.map((st) => ({ ...st, extra_time_percent: confirmed.get(st.id) ?? null }));
+  };
+  const own = new Map(db.prepare(`
+    SELECT s.id, s.grad_year, s.gender FROM students s JOIN enrolments e ON e.student_id = s.id WHERE e.course_id = ?
+  `).all(Number(course_id)).map((r) => [r.id, r]));
+  const current = getRoster(db, Number(course_id)).map((st) => shape({ ...st, grad_year: own.get(st.id)?.grad_year, gender: own.get(st.id)?.gender }));
   const dropped = !include_dropped ? [] : db.prepare(`
     SELECT s.*, e.dropped_at FROM students s JOIN enrolments e ON e.student_id = s.id
     WHERE e.course_id = ? AND e.dropped_at IS NOT NULL
     ORDER BY s.last_name, s.first_name
   `).all(Number(course_id)).map((st) => ({ ...shape(st), dropped_at: st.dropped_at }));
-  const all = [...current, ...dropped];
+  const all = extra([...current, ...dropped]);
   // #117: PowerSchool alerts (labels only, never the guardian-contact fields).
   if (!getFeatures().powerschool_alerts) return all;
   const alerts = psAlertFieldsForAgents(db, all.map((st) => st.id));
@@ -216,8 +225,52 @@ export async function getSupportSummaryTool(db, { student } = {}, { read = readS
     student_id: s.id,
     rows,
     read_at: readAt,
-    note: 'For the teacher only: never put it in student-facing text or on a roster. Rows are PowerSchool\'s, verbatim; the extra time, when there is one, is in Support Notes in PowerSchool\'s own words.',
+    // #195: the figure the teacher confirmed on Test day (null when none), Prism's own record.
+    confirmed_extra_time_percent: confirmedExtraTime(db, [s.id]).get(s.id) ?? null,
+    note: 'For the teacher only: never put it in student-facing text or on a roster. Rows are PowerSchool\'s, verbatim; the extra time, when there is one, is in Support Notes in PowerSchool\'s own words. confirmed_extra_time_percent is the figure the teacher confirmed in Prism.',
   };
+}
+
+// #195: one PowerSchool alert's detail, read live (server/services/psAlertDetail.js, the roster's
+// alert pop-up). Learning, health and other alerts only; family alerts are never served.
+const ROSTER_ALERT_KEYS = ALERT_DEFS.filter((d) => ROSTER_CATEGORIES.includes(d.category)).map((d) => d.key);
+export async function getAlertDetailTool(db, { student, alert } = {}, { read = readAlertDetail, features = getFeatures() } = {}) {
+  if (!features.powerschool_alerts) throw new Error('PowerSchool alerts are off in config.yaml');
+  const def = ALERT_DEFS.find((d) => d.key === alert);
+  if (!def || !ROSTER_ALERT_KEYS.includes(alert)) {
+    throw new Error(`alert must be one of ${ROSTER_ALERT_KEYS.join(', ')} (a key from powerschool_alerts; family alerts are not served)`);
+  }
+  const s = resolveStudent(db, student);
+  const d = await read(db, s.id, alert);
+  return {
+    student_id: s.id,
+    alert: def.key,
+    label: def.label,
+    category: def.category,
+    kind: d.kind,
+    ...(d.kind === 'rows' ? { rows: d.rows } : {}),
+    ...(d.kind === 'text' ? { text: d.text } : {}),
+    suggested_extra_time_percent: d.suggestedPercent ?? null,
+    confirmed_extra_time_percent: def.category === 'learning' ? (confirmedExtraTime(db, [s.id]).get(s.id) ?? null) : null,
+    read_at: d.readAt ?? null,
+    note: 'For the teacher only: never put it in student-facing text or on a roster. The detail is PowerSchool\'s, verbatim; suggested_extra_time_percent is Prism\'s reading of it, not a confirmed figure.',
+  };
+}
+
+// #195: the roster's Mastery check, for one current course.
+export function getCategoryCheckTool(db, { course } = {}) {
+  const courseId = resolveCourseRef(db, course);
+  if (courseId == null) throw new Error('course is required: a course id or part of its name');
+  return categoryCheck(db, courseId);
+}
+
+// #195: the roster's Test day, for one current course.
+export function getTestDayTool(db, { course, test, length_minutes, today } = {}) {
+  const courseId = resolveCourseRef(db, course);
+  if (courseId == null) throw new Error('course is required: a course id or part of its name');
+  const lengthMinutes = length_minutes ?? 50;
+  if (!Number.isInteger(lengthMinutes) || lengthMinutes < 1 || lengthMinutes > 600) throw new Error('length_minutes must be a whole number from 1 to 600');
+  return testDayForCourse(db, courseId, { test, lengthMinutes, ...(today ? { today } : {}) });
 }
 
 // Portable rubric shape — ordered criteria, per-level descriptors, NO Prism ids

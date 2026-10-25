@@ -1911,3 +1911,16 @@ The roster's category labels (P, CRC, CK, CTP; #192) now replace category titles
 - **Removed:** `CompactRubric.jsx`, no longer used anywhere.
 - **PrisMCP:** unchanged; it names categories in full, never by number.
 - **Tests:** `categoryAbbr.test.js`, `CategoryTag.test.jsx` (new), `RubricDescriptorGrid.test.jsx`, `MasteryPerformanceSummary.test.jsx`, `CoursePage.feedbackModal.test.jsx` (the strip and the pop-up). Checked in a browser on a copy of prod's data (AP CSP: student page headers, a strip's popover, the pop-up's topic line).
+
+## PrisMCP: what the roster redesign added (#195, 2026-10-25)
+
+Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Schoology override write waits for #188.
+
+- **`list_students`:** `gender` { code (F, M, NB, ? as the roster shows it), value (PowerSchool's own, verbatim) } and `extra_time_percent` (the confirmed figure, `student_extra_time`).
+- **`get_support_summary`:** `confirmed_extra_time_percent` beside PowerSchool's rows.
+- **`get_alert_detail`** (new): `readAlertDetail` (`server/services/psAlertDetail.js`), the roster's alert pop-up, for learning, health and other alerts; family alerts and unknown keys are refused before any read. Returns the rows or text, Prism's suggested extra time and the confirmed one. Teacher-only note.
+- **`get_category_check`** (new): for one current course, the students whose Prism level differs from Schoology's on a reporting category or the HKIS grade, with percent, override and both grades.
+- **`get_test_day`** (new): tests in the next 14 days, the chosen one, and each learning-plan student with confirmed extra time and minutes (no live reads).
+- **Shared logic:** `server/services/rosterForAgents.js` imports `client/src/lib/masteryCompare.js`, `masteryLevels.js`, `testDay.js` and `genderTag.js` directly, so the tools and the roster cannot disagree. `courseMasteryPayload` is now the one builder of `GET /api/mastery/:courseId`'s answer (`server/routes/mastery.js` uses it).
+- **Parity:** `scripts/parity-prismcp-http.js` compares `get_category_check` and `get_test_day`, and excludes `get_alert_detail` as a live read.
+- **Tests:** `mcp/rosterTools.test.js` (11). Checked against a copy of prod's database on 25 Oct 2026: every current course answered; 0 differences (Prism and Schoology agree today, checked per student by hand on one course) and no test in the next 14 days.

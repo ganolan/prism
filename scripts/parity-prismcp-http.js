@@ -80,6 +80,7 @@ const DEV_WARNING_REASON = 'a dev server leads every tool result with the dev-co
 export const EXCLUDED_READS = [
   ['preview_status_line', 'reads the live Schoology comment thread'],
   ['get_support_summary', 'reads the live PowerSchool Student Support Summary'],
+  ['get_alert_detail', 'reads a live PowerSchool alert pop-up'],
   ['load_quiz_results', 'queues a Schoology sync run (a read from Schoology, and writes the stored results)'],
 ];
 
@@ -218,6 +219,8 @@ export function buildCases(p) {
     ['school_calendar', 'school_calendar', { date: '2026-10-20', to: '2026-11-20' }],
     ['find_student', 'find_student', needs(p.student, { query: p.student?.last_name })],
     ['get_student_history', 'get_student_history', needs(p.student, { student: p.student?.id, limit: 5 })],
+    ['get_category_check', 'get_category_check', needs(c, { course: c })],
+    ['get_test_day', 'get_test_day', needs(c, { course: c, today: '2026-10-20' })],
     ...quizCases(p),
     ['list_rubrics', 'list_rubrics', {}],
     ['read_rubric', 'read_rubric', needs(p.rubric, { name: p.rubric?.name })],

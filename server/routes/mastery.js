@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
-import { hasMasterySession, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getMasteryForCourse, getRubricScoresForStudent } from '../services/masterySync.js';
+import { courseMasteryPayload } from '../services/rosterForAgents.js';
+import { hasMasterySession, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getRubricScoresForStudent } from '../services/masterySync.js';
 import { pushGradeUpdates, getSectionGrades, getAssignmentGrades } from '../services/schoology.js';
 import { settleResubmissions, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
@@ -69,30 +70,10 @@ router.post('/sync/:courseId', async (req, res) => {
 router.get('/:courseId', (req, res) => {
   const { courseId } = req.params;
   try {
-    const data = getMasteryForCourse(courseId);
     const db = getDb();
-    const rollups = db.prepare(`
-      SELECT student_uid, objective_id, is_category, grade_percentage, grade_scaled_rounded, override_value
-      FROM mastery_rollups
-      WHERE course_id = ?
-    `).all(courseId);
-    // Authoritative assignment↔topic alignments, with topic/category metadata
-    // so the gradebook can render a mini rubric per cell (#32). Published
-    // assignments only — mirrors every other mastery query.
-    const alignments = db.prepare(`
-      SELECT ma.assignment_schoology_id, ma.topic_id,
-             mt.title              AS topic_title,
-             mt.external_id        AS topic_external_id,
-             mt.category_id        AS category_id,
-             rc.title              AS category_title,
-             rc.external_id        AS category_external_id
-      FROM mastery_alignments ma
-      JOIN measurement_topics  mt ON mt.id = ma.topic_id
-      JOIN reporting_categories rc ON rc.id = mt.category_id
-      JOIN assignments a ON a.schoology_assignment_id = ma.assignment_schoology_id
-      WHERE ma.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
-    `).all(courseId);
-    res.json({ ...data, rollups, alignments, masterySyncedAt: courseSyncedAt(db, courseId) });
+    // The same answer PrisMCP's category check reads (rosterForAgents.js, #195).
+    const data = courseMasteryPayload(db, courseId);
+    res.json({ ...data, masterySyncedAt: courseSyncedAt(db, courseId) });
   } catch (err) {
     console.error('[mastery] Error fetching mastery data:', err);
     res.status(500).json({ error: err.message });

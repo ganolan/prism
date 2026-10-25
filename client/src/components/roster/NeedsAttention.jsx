@@ -6,6 +6,7 @@ import { MailLink } from '../triage/EmailMenu.jsx';
 import ReferPanel, { canClearInSchoology } from '../ReferPanel.jsx';
 import FlagsMenu, { REFRESH_FAILED } from '../FlagsMenu.jsx';
 import { FlagDisc } from '../FlagSymbol.jsx';
+import { Tip } from '../HelpDot.jsx';
 import { useTriageActions } from '../../hooks/useTriageActions.js';
 import { studentRows, withHeld, rowWhen, flagOnRow } from '../../lib/needsAttention.js';
 import { assessmentLink } from '../../lib/triage.js';
@@ -94,16 +95,16 @@ function AttentionRow({ entry, done, gradebook, actions, onChanged, onFlagChange
   } else if (entry.kind === 'late_at_limit') {
     buttons = (
       <>
-        <button type="button" className="primary danger btn-sm" title="Mark referred" onClick={() => actions.record(r, 'referred')}>Refer</button>
-        <button type="button" className="secondary btn-sm" title="Don't refer: record why" aria-expanded={open === 'waive'}
-          onClick={() => { setNote(''); toggle('waive'); }}>Waive</button>
+        <Tip as="button" type="button" className="primary danger btn-sm" named={false} text="Mark referred" onClick={() => actions.record(r, 'referred')}>Refer</Tip>
+        <Tip as="button" type="button" className="secondary btn-sm" named={false} text="Don't refer: record why" aria-expanded={open === 'waive'}
+          onClick={() => { setNote(''); toggle('waive'); }}>Waive</Tip>
       </>
     );
   } else if (entry.kind === 'overdue' || entry.kind === 'make_up') {
     buttons = (
       <>
         {entry.kind === 'overdue' && red && (
-          <button type="button" className="primary danger btn-sm" title="Mark referred" aria-expanded={open === 'refer'} onClick={() => toggle('refer')}>Refer</button>
+          <Tip as="button" type="button" className="primary danger btn-sm" named={false} text="Mark referred" aria-expanded={open === 'refer'} onClick={() => toggle('refer')}>Refer</Tip>
         )}
         <button type="button" className="secondary btn-sm" aria-expanded={open === 'extend'} onClick={() => toggle('extend')}>Extend</button>
         {mail}
@@ -129,11 +130,11 @@ function AttentionRow({ entry, done, gradebook, actions, onChanged, onFlagChange
           <span className={`roster-attention-row__kind${red ? ' roster-attention-row__kind--red' : ''}`}>{entry.label}</span>
           {flagRow && <FlagDisc code={r.flag} />}
           {missing && (
-            <span className="roster-attention-row__flag" role="img" aria-label="Flagged Missing in Schoology" title="Flagged Missing in Schoology">
+            <Tip className="roster-attention-row__flag" text="Flagged Missing in Schoology">
               <FlagDisc code={MISSING} />
-            </span>
+            </Tip>
           )}
-          <Link className="roster-attention-row__task" to={taskLink(r)} title={r.title}>{r.title}</Link>
+          <Tip as={Link} className="roster-attention-row__task" to={taskLink(r)} named={false} text={r.title}>{r.title}</Tip>
           {r.extension && !done && <ExtensionTag extension={r.extension} />}
         </div>
         <span className="roster-attention-row__when">{rowWhen(entry)}</span>

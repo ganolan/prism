@@ -1,6 +1,6 @@
 // The Roster tab's Mastery mode (#160): Prism's levels beside Schoology's.
 import { describe, it, expect } from 'vitest';
-import { categoryTracks, studentMastery, classMastery, nextSort, sortedBy } from './masteryCompare.js';
+import { categoryTracks, studentMastery, classMastery, nextSort, sortedBy, missingCategories } from './masteryCompare.js';
 import { makeScaleHelpers } from './masteryLevels.js';
 
 const scale = makeScaleHelpers([
@@ -76,6 +76,23 @@ describe('categoryTracks', () => {
     });
     expect(tracks.map((t) => [t.number, t.name])).toEqual([['1', 'Creating'], ['2', 'Responding']]);
     expect(tracks[0].topics).toEqual([{ id: 'tx', code: '1.1', title: 'Ideas' }]);
+  });
+
+  it('gives each category a short label from its name (#192), distinct within the course', () => {
+    expect(categoryTracks(MASTERY).map((t) => t.abbr)).toEqual(['CK', 'CTP']);
+    const clash = categoryTracks({
+      categories: [{ id: 'a', external_id: 'X.1', title: 'X: Content Knowledge' }, { id: 'b', external_id: 'X.2', title: 'X: Computing Knowledge' }],
+      topics: [], alignments: [],
+    });
+    expect(clash.map((t) => t.abbr)).toEqual(['ConK', 'ComK']);
+  });
+
+  it('missingCategories names the categories with no level on a side, in order', () => {
+    const tracks = categoryTracks(MASTERY);
+    const cell = (prism, schoology) => ({ prism: { level: prism }, schoology: schoology ? { level: schoology } : null });
+    expect(missingCategories(tracks, { c1: cell(null, 'EX'), c2: cell(null, null) })).toEqual(['Content Knowledge', 'Computational Thinking Practices']);
+    expect(missingCategories(tracks, { c1: cell(null, 'EX'), c2: cell('D', null) }, 'schoology')).toEqual(['Computational Thinking Practices']);
+    expect(missingCategories(tracks, { c1: cell('EX', 'EX'), c2: cell('D', 'D') })).toEqual([]);
   });
 
   it('is empty with no mastery data', () => {

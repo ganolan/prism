@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import UrgencyRing from './UrgencyRing.jsx';
 import { APPROX_TITLE } from '../../lib/triage.js';
 
@@ -30,9 +30,13 @@ describe('UrgencyRing', () => {
     expect(len).toBeLessThan(CIRC * 0.1);
   });
 
-  it('marks an approximate count with ≈ and the weekday tooltip', () => {
-    render(<UrgencyRing day={5} limit={8} tone="amber" approx />);
-    expect(screen.getByTitle(APPROX_TITLE)).toHaveTextContent('≈');
+  it('marks an approximate count with ≈ and the weekday note in an instant popover', () => {
+    const { container } = render(<UrgencyRing day={5} limit={8} tone="amber" approx />);
+    const mark = container.querySelector('abbr');
+    expect(mark).toHaveTextContent('≈');
+    expect(mark).not.toHaveAttribute('title');
+    fireEvent.mouseEnter(mark);
+    expect(document.querySelector('.help-pop')).toHaveTextContent(APPROX_TITLE);
   });
 
   it('size shrinks the ring (28px in the triage rail), keeping the same name', () => {

@@ -9,6 +9,7 @@ import TestDay from './TestDay.jsx';
 import MasteryView from './MasteryView.jsx';
 import RosterSort from './RosterSort.jsx';
 import { usePrivateDetails } from '../../lib/privateDetails.js';
+import { PrivateHidden } from '../PrivateDetails.jsx';
 import { useStickyTab } from '../../hooks/useStickyTab.js';
 import { forRoster } from '../../lib/psAlerts.js';
 import { useRosterSort, setRosterSort, sortRoster, effectiveSort } from '../../lib/rosterSort.js';
@@ -17,11 +18,13 @@ import { getCourseCommentSummaries } from '../../services/api.js';
 
 // The course page's Roster tab (#160; docs/superpowers/specs/2026-10-25-course-roster-redesign-design.md).
 // A roster may be projected to a class, so everything private (comment counts, alerts, filters, copying
-// emails, and the Needs attention, Test day and Mastery modes) shows only with Private details on, and
-// with it off is not in the page at all. Turning it off closes any pop-up and clears the filters.
+// emails, and the Needs attention, Test day and Mastery modes) shows only with Private details on (the
+// app-wide switch in the sidebar, #197), and with it off is not in the page at all. Turning it off
+// closes any pop-up and clears the filters.
 //
-// Four modes, remembered like the course tabs (`?mode=`). With Private details off, Needs attention,
-// Test day and Mastery each show their explanation box (Test day keeps its test picker and length).
+// Four modes, remembered like the course tabs (`?mode=`; the first keeps the id `roster`, #192 renamed
+// its label). With Private details off, Needs attention, Test day and Mastery each show the shared
+// PrivateHidden box (Test day keeps its test picker and length).
 // Props: course (`linked`: a set of linked sections, where Mastery's override is disabled), students
 // (with dropped ones, `dropped_at`), mastery (getMasteryForCourse), triage (CoursePage's own getTriage
 // answer, as the rail reads it), gradebook (CoursePage's getGradebook: the flag on overdue work, Test day's tests),
@@ -30,32 +33,12 @@ import { getCourseCommentSummaries } from '../../services/api.js';
 // re-reads mastery), courseId.
 
 export const ROSTER_MODES = [
-  { id: 'roster', label: 'Roster' },
+  // "Roster" would repeat the parent tab (#192). Entering attendance on class days is #39.
+  { id: 'roster', label: 'Details and Attendance' },
   { id: 'attention', label: 'Needs attention' },
   { id: 'testday', label: 'Test day' },
   { id: 'mastery', label: 'Mastery' },
 ];
-
-// The pill beside the course name. Amber when on.
-export function PrivateDetailsSwitch() {
-  const [on, setOn] = usePrivateDetails();
-  return (
-    <button type="button" className="filter-btn private-details-switch" aria-pressed={on} onClick={() => setOn(!on)}
-      title="Shows comment counts, alerts, filters and the private modes on every roster. Remembered on this device.">
-      Private details
-    </button>
-  );
-}
-
-// What a private mode shows with Private details off.
-export function LockedBox({ title }) {
-  return (
-    <div className="roster-locked">
-      <b>{title}</b>
-      <span>Turn on Private details to see it. It stays hidden so the roster is safe to project.</span>
-    </div>
-  );
-}
 
 // Roster mode: the cards, and with Private details on the filters and Copy emails. "Sort by" sits
 // above the cards (Last name by default, remembered on this device); the dropped cards follow it too.
@@ -157,12 +140,12 @@ export default function RosterTab({ course = null, students, mastery = null, tri
       {current === 'attention' && (on
         ? <NeedsAttention triage={triage} active={active} gradebook={gradebook} archived={Boolean(course?.archived)}
           onChanged={onTriageChanged} onFlagChanged={onFlagChanged} card={card} />
-        : <LockedBox title="Overdue work, referrals and comments are private." />)}
+        : <PrivateHidden title="Overdue work, referrals and comments are private." />)}
       {current === 'testday' && (
-        <TestDay on={on} students={active} gradebook={gradebook} locked={<LockedBox title="Extra time for learning plans is private." />} />
+        <TestDay on={on} students={active} gradebook={gradebook} locked={<PrivateHidden title="Extra time for learning plans is private." />} />
       )}
       {current === 'mastery' && (
-        <MasteryView on={on} locked={<LockedBox title="Levels and grades are private." />} mastery={mastery} students={active}
+        <MasteryView on={on} locked={<PrivateHidden title="Levels and grades are private." />} mastery={mastery} students={active}
           courseId={courseId} linked={Boolean(course?.linked)} onMasteryChanged={onMasteryChanged} />
       )}
       {on && popup?.kind === 'alert' && <AlertPopover student={popup.student} alert={popup.alert} anchor={popup.anchor} onClose={closePopup} />}

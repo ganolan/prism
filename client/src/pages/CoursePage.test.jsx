@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, waitFor, screen, fireEvent, within } from '@testing-library/react';
+import { render, waitFor, screen, fireEvent, within, act } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import CoursePage from './CoursePage.jsx';
 import { DataVersionContext } from '../hooks/useDataVersion.jsx';
 import * as api from '../services/api.js';
+import { setPrivateDetails } from '../lib/privateDetails.js';
 
 vi.mock('../services/api.js');
 
@@ -29,6 +30,7 @@ function tree(version) {
 
 beforeEach(() => {
   vi.clearAllMocks(); // call counts are asserted; don't let them accumulate across tests
+  localStorage.clear(); // Private details reads as on (test-setup.js) unless a test turns it off
   vi.mocked(api.getCourse).mockReturnValue(pending());
   vi.mocked(api.getCourseStudents).mockReturnValue(pending());
   vi.mocked(api.getGradebook).mockReturnValue(pending());
@@ -154,54 +156,78 @@ describe('CoursePage triage', () => {
     expect(await screen.findByRole('complementary', { name: 'Triage' })).toBeInTheDocument();
   });
 
-  // #160: Needs attention replaces the rail on the Roster tab, in every mode. A roster may be
-  // projected: the rail is not in the page until Triage ▸ opens it, and the red count needs Private details.
-  it('on the Roster tab the rail is not in the DOM until "Triage ▸" opens it; the red count shows only with Private details on', async () => {
-    localStorage.clear();
+  // #192: on the Roster tab the rail is shown by default while Private details is on and is not in the
+  // page while it is off; Triage ▸ toggles it either way. With the switch off the rail (if opened) and
+  // the red count hold nothing private (#197).
+  it('on the Roster tab the rail follows Private details; Triage ▸ toggles it; the red count needs the switch', async () => {
+    setPrivateDetails(false);
     loaded({ archived: 0 });
     vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
-    renderAt('/course/5?tab=roster');
+    const { container } = renderAt('/course/5?tab=roster');
     const toggle = await screen.findByRole('button', { name: /^Triage/ });
     await waitFor(() => expect(api.getTriage).toHaveBeenCalledWith({ courseId: '5', includeFormative: false }));
     expect(document.querySelector('.triage-rail')).toBeNull();
     expect(toggle.querySelector('.badge-red')).toBeNull();
     expect(toggle).toHaveTextContent('Triage ▸');
+    // The main column keeps the width it has beside the rail, rail or no rail.
+    expect(container.querySelector('.triage-layout')).toHaveClass('triage-layout--fixed-main');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Private details' }));
-    await waitFor(() => expect(within(toggle).getByText('2')).toHaveClass('badge-red'));
-
+    // Opened with the switch off, the rail holds only the shared box.
     fireEvent.click(toggle);
-    expect(await screen.findByRole('complementary', { name: 'Triage' })).toBeInTheDocument();
+    const closed = await screen.findByRole('complementary', { name: 'Triage' });
+    expect(within(closed).getByText('Triage is private.')).toBeInTheDocument();
+    expect(closed).not.toHaveTextContent('Maya Chen');
+
+    // Turned on, the rail is shown by default.
+    act(() => setPrivateDetails(true));
+    expect(await screen.findByRole('complementary', { name: 'Triage' })).toHaveTextContent('Maya Chen');
     expect(toggle).toHaveTextContent('Hide triage');
     fireEvent.click(toggle);
     expect(document.querySelector('.triage-rail')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Private details' }));
+    await waitFor(() => expect(within(toggle).getByText('2')).toHaveClass('badge-red'));
+    fireEvent.click(toggle);
+    expect(await screen.findByRole('complementary', { name: 'Triage' })).toBeInTheDocument();
+
+    act(() => setPrivateDetails(false));
+    expect(document.querySelector('.triage-rail')).toBeNull();
     expect(toggle.querySelector('.badge-red')).toBeNull();
   });
 
   // The open/closed state of Triage ▸ is per visit to a tab: a rail opened on Gradebook must
   // not follow the teacher to the Roster tab, where a projected screen may show it.
   it('a rail opened on the Gradebook tab is not in the page after switching to the Roster tab', async () => {
-    localStorage.clear();
+    setPrivateDetails(false);
     loaded({ archived: 0 });
     vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
     renderAt('/course/5?tab=gradebook');
     fireEvent.click(await screen.findByRole('button', { name: /^Triage/ }));
     expect(rail()).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Roster' }));
-    await screen.findByRole('button', { name: 'Private details' });
+    await screen.findByRole('group', { name: 'Roster view' });
     expect(document.querySelector('.triage-rail')).toBeNull();
     expect(screen.getByRole('button', { name: /^Triage/ })).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('Private details sits beside the course name on the Roster tab only', async () => {
+  // #197: the switch lives in the sidebar; the course page has none of its own, and with it off the
+  // Gradebook, Assessments and Analytics tabs draw only the shared box.
+  it('with Private details off, Gradebook, Assessments and Analytics show only the PrivateHidden box', async () => {
+    setPrivateDetails(false);
     loaded({ archived: 0 });
-    const { container } = renderAt('/course/5?tab=roster');
-    const pill = await screen.findByRole('button', { name: 'Private details' });
-    expect(pill.closest('.course-header__title-row')).toContainElement(container.querySelector('.course-header__title'));
-    expect(pill).toHaveAttribute('aria-pressed', 'false');
-    fireEvent.click(screen.getByRole('button', { name: 'Gradebook' }));
+    vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
+    vi.mocked(api.getCourseAnalytics).mockResolvedValue({ distributions: [], trend: [] });
+    const { container } = renderAt('/course/5?tab=gradebook');
+    expect(await screen.findByText('Grades are private.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Private details' })).not.toBeInTheDocument();
+    expect(container.querySelector('.gradebook-table, table')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Assessments' }));
+    expect(screen.getByText('Assessments and their marking progress are private.')).toBeInTheDocument();
+    expect(within(rail()).getByText('Triage is private.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Analytics' }));
+    expect(screen.getByText('Class results are private.')).toBeInTheDocument();
+    expect(api.getCourseAnalytics).not.toHaveBeenCalled();
+    act(() => setPrivateDetails(true));
+    expect(screen.queryByText('Class results are private.')).not.toBeInTheDocument();
+    await waitFor(() => expect(api.getCourseAnalytics).toHaveBeenCalled());
   });
 
   it('shows no triage (and fetches none) on an archived course page', async () => {

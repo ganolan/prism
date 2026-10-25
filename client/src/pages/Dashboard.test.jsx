@@ -3,6 +3,7 @@ import { render, screen, fireEvent, within, waitFor, act } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom';
 import Dashboard from './Dashboard.jsx';
 import * as api from '../services/api.js';
+import { setPrivateDetails } from '../lib/privateDetails.js';
 
 vi.mock('../services/api.js', () => ({
   getCourses: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('../services/api.js', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  localStorage.clear(); // Private details reads as on (test-setup.js) unless a test turns it off
   api.getCoursesByView.mockResolvedValue([]);
   api.getCourses.mockResolvedValue([]);
   api.getSyncStatus.mockResolvedValue({});
@@ -166,6 +168,35 @@ describe('Dashboard — triage', () => {
     expect(card.querySelector('.badge-red, .badge-amber')).toBeNull(); // no chip badges on the card
     expect(await screen.findByText('Noah Park')).toBeInTheDocument();
     expect(screen.getByText('School day 35 of 164 · Day A')).toBeInTheDocument();
+  });
+
+  // #197: with Private details off the dashboard keeps the school day and the course cards, and draws
+  // no student name, triage line, tone or overdue tile: the rail holds only the shared box.
+  it('with Private details off: no name, card line, tone or tile; the school day stays', async () => {
+    setPrivateDetails(false);
+    api.getCoursesByView.mockResolvedValue([{ id: 5, course_name: 'AP CSP', grading_period: 'Semester 1: 08/14/2026 - 01/11/2027' }]);
+    api.getTriage.mockResolvedValue({
+      settings: { referralLimitDays: 8, feedbackLimitDays: 10, warnLeadDays: 3, showFormativeDefault: false, makeUpAmberDay: 2, makeUpRedDay: 4 },
+      includeFormative: false, historyCount: 0, lastSyncAt: null, makeUpsUnchecked: 0, makeUps: [], feedbackOwed: [],
+      calendar: { source: 'powerschool', totalSchoolDays: 164, today: { schoolDayNumber: 35, cycleLetter: 'A' } },
+      counts: { atReferralLimit: 1, makeUpsOverdue: 0, resubmissionsOverdue: 0, feedbackOverdue: 0 },
+      lateWork: [{ kind: 'outstanding', studentId: 1, studentName: 'Maya Chen', courseId: 5, courseName: 'AP CSP', assignmentId: 9, schoologyAssignmentId: 'a9', title: 'CP2', dueDate: '2026-10-05', daysLate: 9, day: 10, tone: 'red', approx: false }],
+    });
+    renderDashboard();
+    expect(await screen.findByText('School day 35 of 164 · Day A')).toBeInTheDocument();
+    const rail = screen.getByRole('complementary', { name: 'Triage' });
+    expect(within(rail).getByText('Triage is private.')).toBeInTheDocument();
+    expect(screen.queryByText('Maya Chen')).not.toBeInTheDocument();
+    const card = screen.getByRole('heading', { level: 3, name: 'AP CSP' }).closest('.card');
+    expect(card).not.toHaveClass('card--tone-red');
+    expect(card.querySelector('.course-card__triage')).toBeNull();
+    expect(screen.queryByRole('button', { name: /At referral limit/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Nothing overdue')).not.toBeInTheDocument();
+
+    act(() => setPrivateDetails(true));
+    expect(await screen.findByText('Maya Chen')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'AP CSP' }).closest('.card')).toHaveClass('card--tone-red');
+    expect(screen.getByRole('button', { name: /At referral limit/ })).toBeInTheDocument();
   });
 
   it('lays the course cards in the main column (2 per row) and the triage rail beside them', async () => {

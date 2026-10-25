@@ -14,6 +14,24 @@ systems as they are; never overstate.
 
 ---
 
+## One switch makes every page safe to project (#197, October 2026)
+
+**Status quo.** Schoology's gradebook and PowerSchool's student pages show grades, alerts and family
+details as soon as they open. Neither has a view that leaves private information off the screen.
+
+**The problem.** Teachers project their screen in class. Opening a gradebook or a student page in front of
+students can show one student's grades, learning plan or family details to everyone.
+
+**What Prism does.**
+- **One switch, Private details,** in the side menu, off until the teacher turns it on, and amber while on.
+- **Hidden means not drawn:** with it off, grades, levels, alerts, contacts, notes and triage are left out
+  of the page, and a short box states what is private and which switch shows it.
+- **Every page follows it:** the dashboard, the course tabs, the assessment page and the student page.
+
+**Evidence.** `client/src/components/PrivateDetails.jsx`; client tests check that nothing private is in the
+page with the switch off (`PrivateDetails.test.jsx`, `privateDetailsPages.test.jsx`, `Dashboard.test.jsx`,
+`CoursePage.test.jsx`); issue #197, 25 October 2026.
+
 ## Extra time for a test, worked out for every learning plan (#160, October 2026)
 
 **Status quo.** PowerSchool shows a learning plan as an alert symbol beside the student's name. What the

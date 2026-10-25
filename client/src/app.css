@@ -876,7 +876,17 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
   font-size: 0.75rem;
   line-height: 1.4;
   pointer-events: none;
+  /* A popover inside a heading or a chip must not take its text style: it always wraps (#192). */
+  white-space: normal;
+  text-align: left;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  overflow-wrap: anywhere;
 }
+/* A short list in a popover (HelpDot children). */
+.help-pop__list { margin: 0; padding-left: 1rem; }
+.help-pop__list li + li { margin-top: 0.25rem; }
 
 /* Number stepper: prominent −/+ controls flanking a number that reads as plain
    text until focused. Native spinners hidden. See docs/design-language.md. */
@@ -1067,6 +1077,9 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
    "Triage rail". */
 .triage-layout { display: flex; align-items: flex-start; gap: 1.1rem; }
 .triage-layout__main { flex: 1 1 0; min-width: 0; }
+/* A current course's Roster tab (#192): the main column keeps the width it has beside the 380px rail,
+   with the rail or without it, so the cards never spread across the empty space. */
+.triage-layout--fixed-main > .triage-layout__main { flex: 0 0 calc(100% - 380px - 1.1rem); }
 /* Course cards beside the rail: 2 per row, 1 when the column gets narrow. */
 .triage-layout__main .grid-2 { grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
 .triage-layout__main .grid-2 > .card { margin-bottom: 0; }
@@ -1716,6 +1729,31 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 .sync-status__chip .sync-spinner { width: 10px; height: 10px; }
 
 /* ========================================================================
+   PRIVATE DETAILS (#197): the app-wide switch in the sidebar (App.jsx), its
+   state in the phone's top bar, and the box that stands in place of private
+   content with the switch off. See docs/design-language.md "Private details".
+   ======================================================================== */
+/* The sidebar switch: a full-width row under the logo; amber while on, so a projected screen shows
+   at a glance whether it is safe. */
+button.private-details-switch { display: flex; align-items: center; gap: 0.5rem; width: 100%; margin: 0 0 0.9rem;
+  padding: 0.5rem 0.75rem; border-radius: 8px; border: 1px solid var(--sidebar-border); background: rgba(255, 255, 255, 0.04);
+  color: var(--sidebar-text); font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer; text-align: left; }
+button.private-details-switch:hover { color: var(--sidebar-text-hover); background: rgba(255, 255, 255, 0.08); }
+button.private-details-switch[aria-pressed="true"] { background: var(--badge-amber-bg); border-color: var(--warning); color: var(--badge-amber-text); }
+.private-details-switch__label { flex: 1; }
+.private-details-switch__state { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.85; }
+/* The phone's top bar: the state only (the drawer holds the switch). Hidden on desktop with the bar. */
+.private-details-state { margin-left: auto; display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.15rem 0.5rem;
+  border-radius: 999px; font-size: 0.72rem; font-weight: 600; color: var(--sidebar-text); border: 1px solid var(--sidebar-border); white-space: nowrap; }
+.private-details-state--on { background: var(--badge-amber-bg); border-color: var(--warning); color: var(--badge-amber-text); }
+/* What stands in place of private content: one calm box on every page. */
+.private-hidden { padding: 16px; border-radius: 12px; background: var(--bg-subtle); display: flex; flex-direction: column; gap: 4px; }
+.private-hidden b { display: inline-flex; align-items: center; gap: 0.4rem; }
+.private-hidden span { font-size: 0.82rem; color: var(--text-muted); }
+.private-hidden--page { margin-top: 0.75rem; }
+.triage-rail > .private-hidden { margin: 0; }
+
+/* ========================================================================
    ROSTER (#160): the course page's Roster tab (components/roster/). One card
    per student; with Private details on, fixed-width slots for the unread
    comments and the alert chips so they line up down the page. The cards
@@ -1725,9 +1763,6 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
    PHONE LAYOUT. Design: docs/superpowers/specs/2026-10-25-course-roster-redesign-design.md.
    ======================================================================== */
 .course-header__title-row { display: flex; align-items: center; gap: 0.5rem 1rem; flex-wrap: wrap; }
-/* Private details: amber while on, so a projected roster shows at a glance whether it is safe. */
-button.private-details-switch { font-weight: 600; }
-button.private-details-switch[aria-pressed="true"] { background: var(--badge-amber-bg); border-color: var(--warning); color: var(--badge-amber-text); }
 .roster-tab { container: roster / inline-size; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
 .roster-modes { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .roster-mode { display: flex; flex-direction: column; gap: 0.6rem; }
@@ -1776,9 +1811,6 @@ button.roster-copy:hover { background: var(--bg-subtle); color: var(--text); }
 button.roster-stat { cursor: pointer; }
 button.roster-stat b { text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
 button.roster-alert-chip { border: 0; cursor: pointer; white-space: nowrap; font-family: inherit; }
-/* A private mode with Private details off. */
-.roster-locked { padding: 16px; border-radius: 12px; background: var(--bg-subtle); display: flex; flex-direction: column; gap: 4px; }
-.roster-locked span { font-size: 0.82rem; color: var(--text-muted); }
 /* Filters: the assessment page's controls; a pill's count, and Copy emails beside the status count. */
 .filter-btn__n { margin-left: 0.35rem; font-weight: 700; opacity: 0.75; }
 .roster-filter-status__left { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
@@ -1854,7 +1886,7 @@ button.test-day-card__show { padding: 0; font-size: 0.78rem; color: var(--accent
 .mastery-all { display: flex; flex-direction: column; gap: 6px; --track: calc(var(--maxt) * (var(--sq) + 3px) - 3px); }
 .mastery-head, .mastery-card { display: grid; grid-template-columns: 34px minmax(120px, 220px) auto auto minmax(0, 1fr); column-gap: 12px; }
 .mastery-head { padding: 0 12px; align-items: end; }
-.mastery-head__lines { grid-column: 3; display: grid; grid-template-columns: 26px var(--track) 2px auto; column-gap: 8px; align-items: end; }
+.mastery-head__lines { grid-column: 3; display: grid; grid-template-columns: var(--catw, 26px) var(--track) 2px auto; column-gap: 8px; align-items: end; }
 .mastery-head__grades { grid-column: 4; display: grid; grid-template-columns: var(--m-p) var(--m-gs); column-gap: 6px; padding-left: 14px; align-items: end; }
 .mastery-hl { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); display: inline-flex; gap: 4px; align-items: center; justify-content: center; white-space: nowrap; }
 .mastery-hl--start { justify-content: flex-start; }
@@ -1874,8 +1906,10 @@ button.test-day-card__show { padding: 0; font-size: 0.78rem; color: var(--accent
 a.mastery-card__name:hover { color: var(--accent); }
 .mastery-card__lines { grid-area: ln; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .mastery-card__grade { grid-area: gr; align-self: stretch; display: flex; }
-.mastery-line { display: grid; grid-template-columns: 26px var(--track) 2px auto; column-gap: 8px; align-items: center; justify-content: start; }
-.mastery-cat { width: 26px; height: 24px; border-radius: 5px; background: var(--accent-light); color: var(--accent); font-size: 0.7rem; font-weight: 800; display: grid; place-items: center; cursor: help; }
+.mastery-line { display: grid; grid-template-columns: var(--catw, 26px) var(--track) 2px auto; column-gap: 8px; align-items: center; justify-content: start; }
+/* The category's short label (P, CRC, #192); --catw fits the course's longest one. */
+.mastery-cat { width: var(--catw, 26px); height: 24px; border-radius: 5px; background: var(--accent-light); color: var(--accent); font-size: 0.7rem; font-weight: 800; display: grid; place-items: center; cursor: help; }
+.mastery-cat:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mastery-topics { display: flex; gap: 3px; }
 .mastery-topic { width: var(--sq); height: 24px; border-radius: 5px; display: grid; place-items: center; font-size: 0.66rem; font-weight: 750; flex: none; cursor: default; }
 .mastery-topic--none { background: var(--card-bg); box-shadow: inset 0 0 0 1px var(--border); color: var(--text-muted); }
@@ -2048,7 +2082,7 @@ button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accen
   /* Triage: one column — the rail drops below the main column (course cards /
      tab content), full width and not sticky. */
   .triage-layout { flex-direction: column; align-items: stretch; }
-  .triage-layout__main { flex: none; }
+  .triage-layout__main, .triage-layout--fixed-main > .triage-layout__main { flex: none; }
   .triage-rail { flex: none; width: auto; position: static; max-height: none; overflow: visible; padding: 0; margin: 0; }
   .triage-wait { flex-wrap: wrap; }
 

@@ -28,6 +28,24 @@ export function useHelpPop() {
   return { handlers, popover };
 }
 
+// Any element with the instant popover in place of a native `title` (AGENTS.md: hover text is an
+// instant popover): `text` is the aria-label and the popover's text, or `pop` is richer popover
+// content (a short list). `as` is the element ('span' by default, or 'button', or a component such
+// as Link); other props go on it, and a click of its own still runs. A span is focusable and named
+// as an image (its short visible code is not what a screen reader should read). `named={false}` keeps
+// the element's own name (a button whose visible word is its name, the popover only adding to it).
+export function Tip({ as: Tag = 'span', text, pop, named = true, onClick, children, ...rest }) {
+  const { handlers, popover } = useHelpPop();
+  const own = onClick ? { ...handlers, onClick: (e) => { handlers.onClick(e); onClick(e); } } : handlers;
+  const span = Tag === 'span' ? { role: 'img', tabIndex: 0 } : {};
+  return (
+    <>
+      <Tag {...span} {...(named ? { 'aria-label': text } : {})} {...rest} {...own}>{children}</Tag>
+      {popover(pop ?? text)}
+    </>
+  );
+}
+
 // The shared "?" help affordance (docs/design-language.md, `.help-dot` + `.help-pop`):
 // an instant popover on hover/focus, placed fixed from the dot so no overflow clips
 // it. The full text is also the aria-label, so screen readers don't need the popover.

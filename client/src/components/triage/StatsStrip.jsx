@@ -7,7 +7,8 @@ import { formatDateTime } from '../../lib/formatDate.js';
 // "is anything on fire?" Only non-zero tiles render; all four at 0 shows one quiet
 // "Nothing overdue" line instead of a grid of zeroes. A tile scrolls to its triage
 // panel and focuses the panel heading; a panel that isn't rendered (an empty
-// Resubmissions panel hides itself) makes it a no-op.
+// Resubmissions panel hides itself) makes it a no-op. With Private details off (#197, `showCounts`
+// false) the strip keeps its status line and leaves out the tiles and the all-clear line.
 export const TILES = [
   { key: 'atReferralLimit', label: 'At referral limit', panel: 'triage-late' },
   { key: 'makeUpsOverdue', label: 'Make-ups overdue', panel: 'triage-makeups' },
@@ -24,7 +25,7 @@ export function jumpTo(panelId) {
   panel.querySelector('h3')?.focus({ preventScroll: true });
 }
 
-export default function StatsStrip({ triage, syncStatus }) {
+export default function StatsStrip({ triage, syncStatus, showCounts = true }) {
   const { status } = useSchoologyConnection();
   const today = triage?.calendar?.today;
   const last = syncStatus?.last;
@@ -44,7 +45,7 @@ export default function StatsStrip({ triage, syncStatus }) {
       ? <Link key="schoology" to="/settings#schoology">{text}</Link>
       : <span key="schoology">{text}</span>);
   }
-  const counts = triage?.counts;
+  const counts = showCounts ? triage?.counts : null;
   if (parts.length === 0 && !counts) return null;
 
   // #137: the strip answers "is anything on fire?" — only overdue (non-zero)

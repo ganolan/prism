@@ -17,7 +17,9 @@ import { getAlertDetail, getExtraTime, setExtraTime } from '../../services/api.j
 // the student's first learning alert (getAlertDetail, which suggests a percentage); a confirmed student
 // is read only when the teacher asks for the plan line. A refused read or an ended session stops every
 // later read, on request too, until Test day is opened again (STOPS_READS). Prism holds no lesson
-// times, so everything is in minutes ("63 minutes, 13 more"), never a clock time.
+// times, so everything is in minutes ("63 minutes, 13 more"), never a clock time. With no test chosen
+// the percentage leads ("50% extra time"), with the minutes for a test of the chosen length under it as
+// an example (#192); with a test chosen, its minutes lead.
 // Props: on (Private details), students (enrolled ones), gradebook (CoursePage's getGradebook), locked
 // (what shows in place of the list with Private details off), today (for tests; default now).
 
@@ -42,7 +44,7 @@ function PlanLine({ read, confirmed, onShow }) {
   return <span>{lineFrom(read.detail) ?? 'The plan has no notes.'}</span>;
 }
 
-function TimeControls({ student, length, confirmed, read, stopped, draft, setDraft, onSave, saving, saveError }) {
+function TimeControls({ student, length, hasTest, confirmed, read, stopped, draft, setDraft, onSave, saving, saveError }) {
   const name = studentFullName(student);
   if (draft != null) {
     return (
@@ -58,8 +60,17 @@ function TimeControls({ student, length, confirmed, read, stopped, draft, setDra
     const more = extraMinutes(length, confirmed.percent);
     return (
       <>
-        <b className="test-day-card__total">{length + more} minutes, {more ? `${more} more` : 'no extra time'}</b>
-        <span className="test-day-card__muted">{confirmed.percent}% extra</span>
+        {hasTest ? (
+          <>
+            <b className="test-day-card__total">{length + more} minutes, {more ? `${more} more` : 'no extra time'}</b>
+            <span className="test-day-card__muted">{confirmed.percent}% extra</span>
+          </>
+        ) : (
+          <>
+            <b className="test-day-card__total">{confirmed.percent ? `${confirmed.percent}% extra time` : 'No extra time'}</b>
+            <span className="test-day-card__muted">{length + more} minutes for a {length}-minute test</span>
+          </>
+        )}
         <button type="button" className="secondary test-day-card__btn" onClick={() => setDraft(confirmed.percent)}>Change</button>
       </>
     );
@@ -84,7 +95,7 @@ function TimeControls({ student, length, confirmed, read, stopped, draft, setDra
   );
 }
 
-function PlanList({ plans, length }) {
+function PlanList({ plans, length, hasTest }) {
   const [extra, setExtra] = useState(null); // { [student id]: { percent, updatedAt } } once read
   const [extraError, setExtraError] = useState(null);
   const [reads, setReads] = useState({}); // { [student id]: { loading } | { detail } | { error } }
@@ -177,7 +188,7 @@ function PlanList({ plans, length }) {
               <span className="test-day-card__plans">{planNames}</span>
             </span>
             <span className="test-day-card__time">
-              <TimeControls student={student} length={length} confirmed={extra[id]} read={reads[id]}
+              <TimeControls student={student} length={length} hasTest={hasTest} confirmed={extra[id]} read={reads[id]}
                 stopped={Boolean(stopped)} draft={drafts[id] ?? null} setDraft={setDraft(id)} onSave={(percent) => save(id, percent)}
                 saving={Boolean(saving[id])} saveError={saveErrors[id]} />
             </span>
@@ -225,10 +236,10 @@ export default function TestDay({ on, students, gradebook = null, locked = null,
       {!test && (
         <div className="test-day__none">
           <b>{tests.length ? 'No test chosen.' : 'No test is set in the next two weeks.'}</b>
-          <span>The list shows each student&apos;s extra time, in minutes for a {length}-minute test.</span>
+          <span>The list shows each student&apos;s extra time, with the minutes for a {length}-minute test as an example.</span>
         </div>
       )}
-      {on ? <PlanList plans={plans} length={length} /> : locked}
+      {on ? <PlanList plans={plans} length={length} hasTest={Boolean(test)} /> : locked}
     </div>
   );
 }

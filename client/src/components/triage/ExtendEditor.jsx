@@ -2,6 +2,7 @@ import { useState } from 'react';
 import NumberStepper from '../NumberStepper.jsx';
 import LessonHint from '../LessonHint.jsx';
 import { formatDate } from '../../lib/formatDate.js';
+import { Tip } from '../HelpDot.jsx';
 
 const DEFAULT_LESSONS = 3;
 const MAX_LESSONS = 60;
@@ -36,12 +37,12 @@ export default function ExtendEditor({ extension, onSave, onCancel, showNote = t
   );
 }
 
-// "ext +N → DD/MM/YYYY" on an extended row; the tooltip spells out the unit (+ note).
+// "ext +N → DD/MM/YYYY" on an extended row; its popover spells out the unit (+ note).
 export function ExtensionTag({ extension }) {
   const unit = `Extended to ${formatDate(`${extension.until}T00:00:00`)}`;
   return (
-    <span className="badge badge-gray triage-row__tag" title={extension.note ? `${unit}: ${extension.note}` : unit}>
+    <Tip className="badge badge-gray triage-row__tag" text={extension.note ? `${unit}: ${extension.note}` : unit}>
       ext → {formatDate(`${extension.until}T00:00:00`)}
-    </span>
+    </Tip>
   );
 }

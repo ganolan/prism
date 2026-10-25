@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import MasteryView, { LINKED_REASON } from './MasteryView.jsx';
-import { LockedBox } from './RosterTab.jsx';
+import { PrivateHidden } from '../PrivateDetails.jsx';
 import * as api from '../../services/api.js';
 
 vi.mock('../../services/api.js', () => ({
@@ -66,7 +66,7 @@ const STUDENTS = [
   student(3, 'u3', 'Cy', 'Ng'),
 ];
 
-const LOCKED = <LockedBox title="Levels and grades are private." />;
+const LOCKED = <PrivateHidden title="Levels and grades are private." />;
 function renderView(props = {}) {
   return render(
     <MemoryRouter>
@@ -75,6 +75,8 @@ function renderView(props = {}) {
   );
 }
 const cardOf = (name) => screen.getByText(name).closest('.mastery-card');
+// Hover text is the instant popover (#192), never a native title.
+const popOn = (el) => { fireEvent.mouseEnter(el); const text = document.querySelector('.help-pop')?.textContent; fireEvent.mouseLeave(el); return text; };
 const chipsOf = (name) => [...cardOf(name).querySelectorAll('.mastery-line .sgc')];
 
 beforeEach(() => {
@@ -100,11 +102,11 @@ describe('MasteryView', () => {
     expect(screen.getByText('No mastery data yet. Press Sync Course.')).toBeInTheDocument();
   });
 
-  it('names each category "1 - Content Knowledge" and lists the class average first', async () => {
+  it('names each category by its short label, "CK - Content Knowledge", and lists the class average first', async () => {
     renderView();
     const cats = await screen.findByRole('group', { name: 'Reporting categories' });
     expect(within(cats).getAllByRole('button').map((b) => b.textContent))
-      .toEqual(['All reporting categories', '1 - Content Knowledge', '2 - Computational Thinking Practices']);
+      .toEqual(['All reporting categories', 'CK - Content Knowledge', 'CTP - Computational Thinking Practices']);
     const cards = [...document.querySelectorAll('.mastery-card')];
     expect(cards[0]).toHaveTextContent('Class average');
     expect(cards.slice(1).map((c) => c.querySelector('.mastery-card__name').textContent)).toEqual(['Annie Lee', 'Bo Ma', 'Cy Ng']);
@@ -122,8 +124,49 @@ describe('MasteryView', () => {
     // A topic not assessed yet is an outlined "-", and the topic chips say what they are.
     const topics = cardOf('Annie Lee').querySelectorAll('.mastery-topic');
     expect([...topics].map((t) => t.textContent)).toEqual(['EX', 'ED', '-', 'D']);
-    expect(topics[2]).toHaveAttribute('title', '2.2 Algorithms: not assessed yet');
-    expect(topics[3]).toHaveAttribute('title', '2.3 Abstraction: Developing (50%)');
+    expect(topics[2]).not.toHaveAttribute('title');
+    expect(topics[2]).toHaveAttribute('aria-label', '2.2 Algorithms: not assessed yet');
+    expect(popOn(topics[2])).toBe('2.2 Algorithms: not assessed yet');
+    expect(popOn(topics[3])).toBe('2.3 Abstraction: Developing (50%)');
+  });
+
+  it('each line starts with the category short label (#192), its full name in an instant popover', async () => {
+    renderView();
+    await screen.findByText('Annie Lee');
+    const labels = [...cardOf('Annie Lee').querySelectorAll('.mastery-cat')];
+    expect(labels.map((l) => l.textContent)).toEqual(['CK', 'CTP']);
+    expect(labels[1]).toHaveAttribute('aria-label', 'Computational Thinking Practices');
+    expect(labels[1]).toHaveAttribute('tabindex', '0');
+    expect(labels[1]).not.toHaveAttribute('title');
+    fireEvent.focus(labels[1]);
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Computational Thinking Practices');
+    // No number is shown for a category anywhere in the view.
+    expect(document.querySelector('.mastery-all').textContent).not.toMatch(/\b[12] - /);
+  });
+
+  it('a "-" grade names the categories with no evidence in its popover (#192)', async () => {
+    const mastery = { ...MASTERY, scores: [...MASTERY.scores, { student_uid: 'u5', topic_id: 't11', points: 75 }] };
+    renderView({ mastery, students: [...STUDENTS, student(4, 'u4', 'Di', 'Oh'), student(5, 'u5', 'Ed', 'Pi')] });
+    await screen.findByText('Di Oh');
+    const prismOf = (name) => cardOf(name).querySelector('.mastery-grade__prism');
+    expect(prismOf('Di Oh')).toHaveTextContent(/^-$/);
+    expect(popOn(prismOf('Di Oh'))).toBe('No grade yet: Content Knowledge and Computational Thinking Practices have no evidence. '
+      + 'A grade needs evidence in every reporting category.');
+    expect(prismOf('Ed Pi')).toHaveAttribute('aria-label', 'No grade yet: Computational Thinking Practices has no evidence. '
+      + 'A grade needs evidence in every reporting category.');
+    expect(popOn(cardOf('Di Oh').querySelector('.mastery-grade .sgc'))).toBe('No Schoology grade yet. Schoology holds no level for '
+      + 'Content Knowledge and Computational Thinking Practices. A grade needs a level in every reporting category.');
+    // Nothing on the card itself: no icon, colour or extra line.
+    expect(cardOf('Di Oh').querySelector('.mastery-grade').textContent).toBe('--');
+  });
+
+  it("the Schoology help is a short list in a wrapped popover, not one long line", async () => {
+    renderView();
+    await screen.findByText('Annie Lee');
+    fireEvent.mouseEnter(document.querySelector('.mastery-head__sgy .help-dot'));
+    const pop = document.querySelector('.help-pop');
+    expect(pop.querySelectorAll('li')).toHaveLength(3);
+    expect(pop).toHaveTextContent(/Highlighted: it differs\. Tap it to set Schoology's override to Prism's level\./);
   });
 
   it('the help dot sits in the Schoology heading, and the grade headings read Grade and Schoology levels', async () => {
@@ -142,10 +185,10 @@ describe('MasteryView', () => {
     await screen.findByText('Annie Lee');
     const annie = cardOf('Annie Lee').querySelector('.mastery-grade .sgc');
     expect(annie).toHaveClass('off');
-    expect(annie).toHaveAttribute('title', "Schoology's levels give B; Prism's give B+");
+    expect(popOn(annie)).toBe("Schoology's levels give B; Prism's give B+");
     const bo = cardOf('Bo Ma').querySelector('.mastery-grade .sgc');
     expect(bo.className).toBe('sgc sgc--grade');
-    expect(bo).toHaveAttribute('title', "Schoology's levels give the same grade");
+    expect(popOn(bo)).toBe("Schoology's levels give the same grade: B+");
   });
 
   it("tapping a differing chip opens the override with Prism's level first; saving refreshes", async () => {
@@ -153,7 +196,7 @@ describe('MasteryView', () => {
     renderView({ onMasteryChanged });
     await screen.findByText('Annie Lee');
     fireEvent.click(chipsOf('Annie Lee')[1]);
-    expect(screen.getByText(/Annie Lee: 2 - Computational Thinking Practices/)).toBeInTheDocument();
+    expect(screen.getByText(/Annie Lee: CTP - Computational Thinking Practices/)).toBeInTheDocument();
     const first = screen.getAllByRole('button').find((b) => /Override Schoology to/.test(b.textContent));
     expect(first).toHaveTextContent('Override Schoology to EX');
     fireEvent.click(first);
@@ -171,7 +214,7 @@ describe('MasteryView', () => {
   it('one category: tapping a heading sorts highest first, lowest first, then off, with Clear sort', async () => {
     renderView();
     await screen.findByText('Annie Lee');
-    fireEvent.click(screen.getByRole('button', { name: '2 - Computational Thinking Practices' }));
+    fireEvent.click(screen.getByRole('button', { name: 'CTP - Computational Thinking Practices' }));
     const order = () => [...document.querySelectorAll('.mastery-row:not(.mastery-row--head):not(.mastery-row--class) .mastery-card__name')]
       .map((n) => n.textContent);
     expect(document.querySelector('.mastery-row:not(.mastery-row--head)')).toHaveTextContent('Class average');
@@ -203,7 +246,8 @@ describe('MasteryView', () => {
     await screen.findByText('Annie Lee');
     const differ = chipsOf('Annie Lee')[1];
     expect(differ).toBeDisabled();
-    expect(differ).toHaveAttribute('title', LINKED_REASON);
+    expect(differ).not.toHaveAttribute('title');
+    expect(differ).toHaveAttribute('aria-label', `CTP - Computational Thinking Practices, Schoology. ${LINKED_REASON}`);
     expect(screen.getByText(LINKED_REASON)).toBeInTheDocument();
     fireEvent.click(differ);
     expect(screen.queryByText(/Override Schoology/)).not.toBeInTheDocument();

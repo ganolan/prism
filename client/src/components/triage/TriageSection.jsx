@@ -8,6 +8,8 @@ import MakeUpPanel from './MakeUpPanel.jsx';
 import ResubmissionsPanel from './ResubmissionsPanel.jsx';
 import UnfinishedGradingPanel from './UnfinishedGradingPanel.jsx';
 import FlagsPanel from './FlagsPanel.jsx';
+import { PrivateHidden } from '../PrivateDetails.jsx';
+import { usePrivateDetails } from '../../lib/privateDetails.js';
 
 // The triage rail: an <aside> of stacked panels, most urgent first (orderPanels):
 // Unfinished grading on top whenever it has rows (quick fixes, a standing reminder),
@@ -20,6 +22,8 @@ import FlagsPanel from './FlagsPanel.jsx';
 // tab's "Triage" count); onMakeUpIgnored(assignmentId) tells the course page a
 // quiz was ignored; bumping `version` re-fetches in place (keeps Show formative
 // and an open history). `hidden` hides the rail but keeps it mounted (and fetching).
+// With Private details off (#197) the rail holds only the PrivateHidden box: no name, task or count is
+// in the page. It still fetches, so the pages keep what is not private (the dashboard's school day).
 // The row actions live in useTriageActions (shared with the Roster tab's Needs attention, #160):
 // those that publish a status line to the student's Schoology comment (extensions,
 // make-up extensions, resubmission Extend / Grade stands) open one StatusLineModal
@@ -40,6 +44,7 @@ export function orderPanels(panels) {
 // The page around it syncs from Schoology (background sync) and bumps `version` when a sync ends.
 export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnored, version = 0, hidden = false, id }) {
   const dataVersion = useDataVersion();
+  const [privateOn] = usePrivateDetails();
   const [data, setData] = useState(null);
   const [includeFormative, setIncludeFormative] = useState(undefined); // undefined → the Settings default
   const [showHistory, setShowHistory] = useState(false);
@@ -69,10 +74,11 @@ export default function TriageSection({ courseId = null, onLoaded, onMakeUpIgnor
     onMakeUpIgnored,
   });
 
-  if (!data && !error) return null;
   const rail = (children) => (
     <aside className="triage triage-rail" aria-label="Triage" hidden={hidden} id={id}>{children}</aside>
   );
+  if (!privateOn) return rail(<PrivateHidden title="Triage is private." />);
+  if (!data && !error) return null;
   if (!data) return rail(<div className="alert alert-warning">Triage unavailable: {error}</div>);
   const showCourse = courseId == null;
   const scope = courseId ?? 'all';

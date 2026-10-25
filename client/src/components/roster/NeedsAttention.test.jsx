@@ -3,7 +3,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useParams } from 'react-router-dom';
-import RosterTab, { PrivateDetailsSwitch } from './RosterTab.jsx';
+import RosterTab from './RosterTab.jsx';
+import { PrivateDetailsSwitch } from '../PrivateDetails.jsx';
 import { setPrivateDetails } from '../../lib/privateDetails.js';
 import * as api from '../../services/api.js';
 

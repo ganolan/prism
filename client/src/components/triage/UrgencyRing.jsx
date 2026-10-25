@@ -1,4 +1,5 @@
 import { APPROX_TITLE, meterPct } from '../../lib/triage.js';
+import { Tip } from '../HelpDot.jsx';
 
 const R = 15;
 const CIRC = 2 * Math.PI * R;
@@ -24,7 +25,7 @@ export default function UrgencyRing({ day, limit, tone, approx = false, size = 4
         />
       </svg>
       <span className="urgency-ring__days">
-        {day - 1}{approx && <abbr title={APPROX_TITLE}>≈</abbr>}
+        {day - 1}{approx && <Tip as="abbr" named={false} text={APPROX_TITLE}>≈</Tip>}
       </span>
     </span>
   );

@@ -3,8 +3,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useParams, useLocation } from 'react-router-dom';
-import RosterTab, { PrivateDetailsSwitch } from './RosterTab.jsx';
-import { setPrivateDetails } from '../../lib/privateDetails.js';
+import RosterTab from './RosterTab.jsx';
+import { PrivateDetailsSwitch } from '../PrivateDetails.jsx';
+import { setPrivateDetails, setPrivateDetailsDefault } from '../../lib/privateDetails.js';
 import { setRosterSort } from '../../lib/rosterSort.js';
 import { gradeText } from '../PersonSub.jsx';
 import * as api from '../../services/api.js';
@@ -64,9 +65,11 @@ const cardOf = (name) => screen.getByText(name).closest('.roster-card');
 const status = () => document.querySelector('.assessment-filter-status__count');
 
 let writeText;
-afterEach(() => { vi.restoreAllMocks(); });
+// The app's default (off): test-setup.js starts other tests with Private details on.
+afterEach(() => { vi.restoreAllMocks(); setPrivateDetailsDefault(true); });
 beforeEach(() => {
   vi.clearAllMocks();
+  setPrivateDetailsDefault(false);
   localStorage.clear(); setPrivateDetails(false); setRosterSort('last'); localStorage.clear();
   sessionStorage.clear();
   writeText = vi.fn().mockResolvedValue();
@@ -520,8 +523,9 @@ describe('RosterTab modes', () => {
   it('four mode tabs, remembered in the URL as ?mode=', () => {
     renderTab();
     const modes = screen.getByRole('group', { name: 'Roster view' });
-    expect(within(modes).getAllByRole('button').map((b) => b.textContent)).toEqual(['Roster', 'Needs attention', 'Test day', 'Mastery']);
-    expect(within(modes).getByRole('button', { name: 'Roster' })).toHaveClass('tab-btn', 'active');
+    // #192: the first is "Details and Attendance", since "Roster" repeated the parent tab; its id stays `roster`.
+    expect(within(modes).getAllByRole('button').map((b) => b.textContent)).toEqual(['Details and Attendance', 'Needs attention', 'Test day', 'Mastery']);
+    expect(within(modes).getByRole('button', { name: 'Details and Attendance' })).toHaveClass('tab-btn', 'active');
     fireEvent.click(within(modes).getByRole('button', { name: 'Mastery' }));
     expect(screen.getByTestId('search')).toHaveTextContent('mode=mastery');
     expect(within(modes).getByRole('button', { name: 'Mastery' })).toHaveAttribute('aria-pressed', 'true');
@@ -538,7 +542,9 @@ describe('RosterTab modes', () => {
 
   it('with the switch off, a private mode shows only its explanation', () => {
     renderTab('/course/5?mode=attention');
-    expect(screen.getByText('Turn on Private details to see it. It stays hidden so the roster is safe to project.')).toBeInTheDocument();
+    // The shared PrivateHidden box (#197), the same on every page.
+    expect(screen.getByText('Overdue work, referrals and comments are private.')).toBeInTheDocument();
+    expect(screen.getByText('Turn on Private details in the side menu to see it. It stays hidden so the page is safe to project.')).toBeInTheDocument();
     expect(screen.queryByText('Annie Lee')).not.toBeInTheDocument();
   });
 });

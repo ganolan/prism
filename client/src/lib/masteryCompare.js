@@ -1,4 +1,5 @@
 import { computeLetterGrade } from './masteryLevels.js';
+import { categoryAbbreviations } from './categoryAbbr.js';
 
 // The Roster tab's Mastery mode (#160; spec "Mastery"): Prism's reporting-category levels and grade
 // beside Schoology's, from one getMasteryForCourse answer
@@ -37,8 +38,9 @@ function topicCode(externalId, number, index) {
   return dot >= 0 && dot < s.length - 1 ? s.slice(dot + 1) : s;
 }
 
-// → [{ id, number, name, title, topics: [{ id, code, title }] }], in external id order. Topics come
-// from the alignments as well as the scored topics, so a topic not assessed yet has its place.
+// → [{ id, number, abbr, name, title, topics: [{ id, code, title }] }], in external id order. Topics come
+// from the alignments as well as the scored topics, so a topic not assessed yet has its place. `abbr`
+// is the short label the roster shows instead of the number (lib/categoryAbbr.js, #192).
 export function categoryTracks(mastery) {
   if (!mastery) return [];
   const cats = new Map();
@@ -55,7 +57,7 @@ export function categoryTracks(mastery) {
       topics.set(String(a.topic_id), { id: a.topic_id, categoryId: a.category_id, externalId: a.topic_external_id, title: a.topic_title });
     }
   }
-  return [...cats.values()]
+  const tracks = [...cats.values()]
     .sort((a, b) => byCode(a.externalId, b.externalId) || byCode(a.title, b.title))
     .map((c, i) => {
       const number = categoryNumber(c.externalId, i);
@@ -66,6 +68,17 @@ export function categoryTracks(mastery) {
         topics: own.map((t, k) => ({ id: t.id, code: topicCode(t.externalId, number, k), title: t.title })),
       };
     });
+  const abbrs = categoryAbbreviations(tracks.map((t) => t.name), tracks.map((t) => t.number));
+  return tracks.map((t, i) => ({ ...t, abbr: abbrs[i] }));
+}
+
+// The categories a grade is waiting for: those with no level on the given side ('prism' or
+// 'schoology') → their names, in track order. Empty when the grade has every level it needs.
+export function missingCategories(tracks, categories, side = 'prism') {
+  return tracks.filter((tr) => {
+    const cell = categories[tr.id];
+    return (side === 'prism' ? cell?.prism?.level : cell?.schoology?.level) == null;
+  }).map((tr) => tr.name);
 }
 
 // One index per mastery answer: the tracks, each student's points by topic and by category, and

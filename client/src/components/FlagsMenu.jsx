@@ -4,6 +4,7 @@ import FlagPanel from './FlagPanel.jsx';
 import ClearFlagPanel from './ClearFlagPanel.jsx';
 import { FLAGS, FLAG_ORDER, FLAGS_MENU_HEADING, flagGuide, flagEffect, isFlag } from '../lib/flags.js';
 import { getGradeFlags, setGradeFlag } from '../services/api.js';
+import { useHelpPop } from './HelpDot.jsx';
 
 const MENU_NOTE = 'On graded work, Schoology removes the grade while a flag is set. Prism keeps a copy and offers to restore it when you clear the flag.';
 // The page shows Prism's last read; a fresh read that differs means Schoology changed since (a sync
@@ -198,6 +199,8 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
     }
   }
 
+  // The pill's meaning on hover or focus: the instant popover, not a native title (hidden while the menu is open).
+  const pillPop = useHelpPop();
   const pillTitle = flag ? `Flag set in Schoology: ${flag.name}. ${flagEffect(current)}` : 'Flag this work in Schoology';
   const pillClass = ['flags-pill', flag && `flags-pill--${flag.key}`, size === 'sm' && 'flags-pill--sm', compact && 'flags-pill--compact', busy && 'flags-pill--busy']
     .filter(Boolean).join(' ');
@@ -207,7 +210,9 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
       <button
         type="button" ref={pillRef} className={pillClass}
         aria-haspopup="menu" aria-expanded={open} aria-busy={busy || undefined} disabled={busy}
-        title={pillTitle} aria-label={compact ? pillTitle : undefined}
+        aria-label={compact ? pillTitle : undefined}
+        onMouseEnter={pillPop.handlers.onMouseEnter} onMouseLeave={pillPop.handlers.onMouseLeave}
+        onFocus={pillPop.handlers.onFocus} onBlur={pillPop.handlers.onBlur}
         onClick={() => { if (panel) setPanel(null); else setOpen((o) => !o); }}
         onKeyDown={(e) => { if (e.key === 'ArrowDown' && !open) { e.preventDefault(); setOpen(true); } }}
       >
@@ -215,6 +220,7 @@ export default function FlagsMenu({ student, assignmentId, exception = 0, score 
         {!compact && <span>{flag ? flag.name : 'Flags'}</span>}
         <span className="flags-pill__caret" aria-hidden="true">▾</span>
       </button>
+      {!open && pillPop.popover(pillTitle)}
       {error && <span className="flags-error text-sm" role="alert">{error}</span>}
 
       {open && (

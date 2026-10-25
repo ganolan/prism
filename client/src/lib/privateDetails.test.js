@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { usePrivateDetails, getPrivateDetails, setPrivateDetails } from './privateDetails.js';
+import { usePrivateDetails, getPrivateDetails, setPrivateDetails, setPrivateDetailsDefault } from './privateDetails.js';
 
 // #160: one switch for everything private on the roster, remembered on the device, default off.
 describe('privateDetails', () => {
-  beforeEach(() => { localStorage.clear(); setPrivateDetails(false); localStorage.clear(); });
+  // The app's own default (off); test-setup.js starts the other tests with it on.
+  beforeEach(() => { setPrivateDetailsDefault(false); localStorage.clear(); setPrivateDetails(false); localStorage.clear(); });
+  afterEach(() => { setPrivateDetailsDefault(true); });
 
   it('privateDetails defaults off and survives a localStorage that throws', () => {
     expect(getPrivateDetails()).toBe(false);

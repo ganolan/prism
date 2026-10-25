@@ -12,6 +12,7 @@ import SettingsPage from './pages/SettingsPage.jsx';
 import { DataVersionContext, BumpDataVersionContext } from './hooks/useDataVersion.jsx';
 import VersionBadge from './components/VersionBadge.jsx';
 import PrismLogo from './components/PrismLogo.jsx';
+import { PrivateDetailsSwitch, PrivateDetailsState } from './components/PrivateDetails.jsx';
 import './app.css';
 
 export default function App() {
@@ -64,11 +65,15 @@ function Shell() {
         <Link to="/" className="mobile-topbar-home" onClick={() => setNavOpen(false)}>
           <PrismLogo width={110} className="mobile-topbar-logo" />
         </Link>
+        {/* #197: the drawer holds the switch; the top bar shows its state while the drawer is closed. */}
+        <PrivateDetailsState />
       </header>
       <div className="nav-backdrop" onClick={() => setNavOpen(false)} />
       <nav className="sidebar" id="sidebar-nav">
         {/* The logo is the way home: a link to the dashboard (named by the logo's "Prism"). */}
         <h1 className="logo"><Link to="/" onClick={() => setNavOpen(false)}><PrismLogo /></Link></h1>
+        {/* #197: one switch for everything private on every page, off by default. */}
+        <PrivateDetailsSwitch />
         <div className="sidebar-section-label">Navigation</div>
         <NavLink to="/" end>Dashboard</NavLink>
         <NavLink to="/search">Search Students</NavLink>

@@ -35,6 +35,8 @@ import { useHelpPop } from '../components/HelpDot.jsx';
 import { useSyncFacts } from '../hooks/useSyncFacts.js';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import SyncDialog from '../components/SyncDialog.jsx';
+import { usePrivateDetails } from '../lib/privateDetails.js';
+import { PrivateHidden } from '../components/PrivateDetails.jsx';
 
 // ── Reviewer Analysis drawer body ────────────────────────────────────────────
 
@@ -147,7 +149,23 @@ async function waitForRun(runId, wanted) {
   }
 }
 
+// #197: every part of the assessment page is private (grades, comments, submissions, results), so with
+// Private details off only the way back to the course and the PrivateHidden box are in the page. The
+// page itself unmounts: each grade card in edit mode saves its draft as it unmounts, and turning the
+// switch on again mounts a fresh page that reads the task, its drafts included.
 export default function AssessmentSummaryPage() {
+  const [privateOn] = usePrivateDetails();
+  const { id: courseId } = useParams();
+  if (privateOn) return <AssessmentSummaryBody />;
+  return (
+    <div className="fade-in">
+      <Link to={`/course/${courseId}`} className="link" style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>← Back to course</Link>
+      <PrivateHidden className="private-hidden--page" title="This assessment's grades, comments and submissions are private." />
+    </div>
+  );
+}
+
+function AssessmentSummaryBody() {
   const { id: courseId, assignmentId } = useParams();
   const dataVersion = useDataVersion();
   const [data, setData] = useState(null);

@@ -370,6 +370,15 @@ Where the build departs from the text above, or settled what it left open (each 
   were not probed (they were kept after the probe): they read as plain text or as "Prism can read only that it is
   set".
 - **Removed:** the old roster table and its per-category columns, the legal name, the roster's alerts toggle.
+
+### Changed after review (#192, #197, 25 Oct 2026)
+
+- **Private details** is one app-wide switch in the left sidebar (#197); the pill beside the course name is gone.
+- **Triage rail on the Roster tab:** shown by default while Private details is on, absent while it is off;
+  `Triage ▸` toggles it. The roster keeps the width it has beside the rail either way.
+- **First mode** renamed "Details and Attendance". **Test day** with no test chosen leads with the percentage.
+- **Mastery** shows reporting categories as short labels (P, CRC), every hover text as an instant popover, and a
+  "-" grade's popover names the categories with no evidence.
 - **Gender and sort (Graham, 25 Oct 2026, after the build):** with Private details on, the card's meta line reads
   grade, gender (Female or Male; nothing when unknown), student number, Email, and the filter bar has a third row,
   **Gender** (Female, Male, Not known, each with its count; dropped students never counted). *Superseded the same day

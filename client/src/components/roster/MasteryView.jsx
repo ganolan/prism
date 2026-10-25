@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import HelpDot from '../HelpDot.jsx';
+import HelpDot, { Tip } from '../HelpDot.jsx';
 import OverridePopup from '../OverridePopup.jsx';
 import { LetterGradePopup, LETTER_GRADE_COLORS } from '../MasteryPerformanceSummary.jsx';
 import { ClearIcon } from '../AssessmentFilterBar.jsx';
@@ -9,7 +9,7 @@ import { gradeText } from '../PersonSub.jsx';
 import { studentFullName } from '../../lib/studentNames.js';
 import { LEVEL_COLORS, CELL_TEXT } from '../../lib/masteryLevels.js';
 import { useProficiencyScale } from '../../hooks/useProficiencyScale.js';
-import { categoryTracks, studentMastery, classMastery, nextSort, sortedBy } from '../../lib/masteryCompare.js';
+import { categoryTracks, studentMastery, classMastery, nextSort, sortedBy, missingCategories } from '../../lib/masteryCompare.js';
 
 // Mastery on the Roster tab (#160; spec "Mastery"). Prism's level is the correct one; Schoology's is
 // what students and report cards see, so a difference is a signal to override Schoology. Two columns,
@@ -22,6 +22,10 @@ import { categoryTracks, studentMastery, classMastery, nextSort, sortedBy } from
 // average comes first in both. A set of linked sections (#178) refuses Schoology writes, so there the
 // chip is disabled with the reason.
 //
+// A category shows as its short label (P, CRC: lib/categoryAbbr.js, #192), never its number. Every hover
+// text here is the instant popover (Tip, HelpDot), never a native title; a "-" grade's popover names the
+// categories that have no evidence yet.
+//
 // Private: with Private details off only `locked` is rendered (no level or grade in the page, and the
 // scale is not read). The OverridePopup lives here, so it goes with the switch.
 // Props: on, locked, mastery (getMasteryForCourse), students (enrolled), courseId, linked,
@@ -30,25 +34,49 @@ import { categoryTracks, studentMastery, classMastery, nextSort, sortedBy } from
 export const LINKED_REASON = 'Prism does not write to Schoology for linked sections. Make this change in Schoology.';
 const HELP = "Schoology's level is the one students and report cards see. Faint means it matches Prism. "
   + "Highlighted means it differs: tap it to set Schoology's override to Prism's level.";
+// The same help as a short list, for the popover (#192: wrapped, never one long line).
+const HELP_POP = (
+  <ul className="help-pop__list">
+    <li><b>Schoology&apos;s level</b> is the one students and report cards see.</li>
+    <li><b>Faint:</b> it matches Prism.</li>
+    <li><b>Highlighted:</b> it differs. Tap it to set Schoology&apos;s override to Prism&apos;s level.</li>
+  </ul>
+);
 
 const fill = (level) => (level && LEVEL_COLORS[level] ? { background: LEVEL_COLORS[level].headerFill, color: CELL_TEXT } : undefined);
-const label = (t) => `${t.number} - ${t.name}`;
+const label = (t) => `${t.abbr} - ${t.name}`;
 const pctText = (pct) => `${Math.round(pct)}%`;
+// "A", "A and B", "A, B and C".
+const listNames = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
+// Why a grade is "-" (#192, item 9): the categories with no evidence on that side, named.
+export function blankGradeText(missing, { isClass = false, side = 'prism' } = {}) {
+  const verb = missing.length === 1 ? 'has' : 'have';
+  if (side === 'schoology') {
+    return `No Schoology grade yet. Schoology holds no level for ${listNames(missing)}. A grade needs a level in every reporting category.`;
+  }
+  return `No ${isClass ? 'class grade' : 'grade'} yet: ${listNames(missing)} ${verb} no evidence. A grade needs evidence in every reporting category.`;
+}
 
 function TopicChip({ topic, value, scale }) {
-  if (!value) return <span className="mastery-topic mastery-topic--none" title={`${topic.code} ${topic.title}: not assessed yet`}>-</span>;
+  if (!value) return <Tip className="mastery-topic mastery-topic--none" text={`${topic.code} ${topic.title}: not assessed yet`}>-</Tip>;
   return (
-    <span className="mastery-topic" style={fill(value.level)} title={`${topic.code} ${topic.title}: ${scale.levelLabel(value.level)} (${pctText(value.pct)})`}>
+    <Tip className="mastery-topic" style={fill(value.level)} text={`${topic.code} ${topic.title}: ${scale.levelLabel(value.level)} (${pctText(value.pct)})`}>
       {value.level}
-    </span>
+    </Tip>
   );
+}
+
+// The category's short label; its full name on hover or focus.
+function CategoryLabel({ track }) {
+  return <Tip className="mastery-cat" text={track.name}>{track.abbr}</Tip>;
 }
 
 function PrismChip({ track, prism, isClass, scale }) {
   const tip = prism.level == null
-    ? `${track.number} ${track.name}: no scores yet`
-    : `${track.number} ${track.name}: ${isClass ? 'class average' : 'Prism calculates'} ${scale.levelLabel(prism.level)} (${pctText(prism.pct)})`;
-  return <span className={`mastery-level${prism.level ? '' : ' mastery-level--none'}`} style={fill(prism.level)} title={tip}>{prism.level ?? '-'}</span>;
+    ? `${track.name}: no evidence yet`
+    : `${track.name}: ${isClass ? 'class average' : 'Prism calculates'} ${scale.levelLabel(prism.level)} (${pctText(prism.pct)})`;
+  return <Tip className={`mastery-level${prism.level ? '' : ' mastery-level--none'}`} style={fill(prism.level)} text={tip}>{prism.level ?? '-'}</Tip>;
 }
 
 function SchoologyChip({ track, cell, linked, scale, onOpen }) {
@@ -60,27 +88,32 @@ function SchoologyChip({ track, cell, linked, scale, onOpen }) {
   else if (cell.differs) tip = `Schoology holds ${held}, Prism calculates ${scale.levelLabel(p)}. Tap to override Schoology to ${p}.`;
   else tip = `Schoology holds ${held}${p ? ', the same as Prism' : ''}. Tap to override.`;
   return (
-    <button type="button" className={`sgc${cell.differs ? ' off' : ''}`} style={cell.differs ? fill(s?.level) : undefined}
-      disabled={linked} title={tip} aria-label={`${label(track)}, Schoology. ${tip}`}
+    <Tip as="button" type="button" className={`sgc${cell.differs ? ' off' : ''}`} style={cell.differs ? fill(s?.level) : undefined}
+      disabled={linked} text={tip} aria-label={`${label(track)}, Schoology. ${tip}`}
       onClick={(e) => { e.stopPropagation(); onOpen(e.currentTarget); }}>
       {s ? `${s.level}${s.isOverride ? '*' : ''}` : '-'}
-    </button>
+    </Tip>
   );
 }
 
-function GradeCell({ grade, isClass }) {
+// A "-" grade's popover names the categories it is waiting for (no icon or colour on the card).
+function GradeCell({ grade, isClass, tracks, categories }) {
   const p = grade.prism;
   const s = grade.schoology;
-  const tip = s === p ? "Schoology's levels give the same grade" : `Schoology's levels give ${s ?? 'no grade'}; Prism's give ${p ?? 'no grade'}`;
+  const prismTip = p == null
+    ? blankGradeText(missingCategories(tracks, categories, 'prism'), { isClass })
+    : isClass ? `Class average grade: ${p}` : `Prism's grade, from Prism's category levels: ${p}`;
+  let tip;
+  if (s == null) tip = blankGradeText(missingCategories(tracks, categories, 'schoology'), { side: 'schoology' });
+  else tip = s === p ? `Schoology's levels give the same grade: ${s}` : `Schoology's levels give ${s}; Prism's give ${p ?? 'no grade yet'}`;
   return (
     <span className="mastery-grade">
-      <span className="mastery-grade__prism" style={p ? { color: LETTER_GRADE_COLORS[p] } : undefined}
-        title={isClass ? 'Class average grade' : "Prism's grade, from Prism's category levels"}>
+      <Tip className="mastery-grade__prism" style={p ? { color: LETTER_GRADE_COLORS[p] } : undefined} text={prismTip}>
         {p ?? '-'}
-      </span>
+      </Tip>
       {isClass
         ? <span className="mastery-blank" aria-hidden="true" />
-        : <span className={`sgc sgc--grade${grade.differs ? ' off' : ''}`} style={grade.differs && s ? { color: LETTER_GRADE_COLORS[s] } : undefined} title={tip}>{s ?? '-'}</span>}
+        : <Tip className={`sgc sgc--grade${grade.differs ? ' off' : ''}`} style={grade.differs && s ? { color: LETTER_GRADE_COLORS[s] } : undefined} text={tip}>{s ?? '-'}</Tip>}
     </span>
   );
 }
@@ -97,7 +130,7 @@ function Pair({ track, cell, isClass, linked, scale, onOverride }) {
 }
 
 function SchoologyHeading() {
-  return <span className="mastery-hl mastery-head__sgy"><span>Schoology</span><HelpDot text={HELP} /></span>;
+  return <span className="mastery-hl mastery-head__sgy"><span>Schoology</span><HelpDot text={HELP}>{HELP_POP}</HelpDot></span>;
 }
 
 // Who: the photo, the name (a link to the student page) and the grade and number line; or the class.
@@ -142,13 +175,15 @@ function useOpenStudent() {
 function AllCategories({ tracks, rows, classRow, count, linked, scale, onOverride, onScale }) {
   const open = useOpenStudent();
   const maxTopics = Math.max(1, ...tracks.map((t) => t.topics.length));
+  // The label column fits the longest short label (about 8px a letter at its size).
+  const catWidth = Math.max(26, 10 + 8 * Math.max(1, ...tracks.map((t) => t.abbr.length)));
   const card = (student, m) => (
     <div key={student ? student.id : 'class'} className={`mastery-card${student ? '' : ' mastery-card--class'}`} onClick={open(student)}>
       <Who student={student} count={count} />
       <span className="mastery-card__lines">
         {tracks.map((t) => (
           <span key={t.id} className="mastery-line">
-            <span className="mastery-cat" title={label(t)}>{t.number}</span>
+            <CategoryLabel track={t} />
             <span className="mastery-topics">
               {t.topics.map((tp) => <TopicChip key={tp.id} topic={tp} value={m.topics[tp.id]} scale={scale} />)}
             </span>
@@ -158,11 +193,11 @@ function AllCategories({ tracks, rows, classRow, count, linked, scale, onOverrid
           </span>
         ))}
       </span>
-      <span className="mastery-card__grade"><GradeCell grade={m.grade} isClass={!student} /></span>
+      <span className="mastery-card__grade"><GradeCell grade={m.grade} isClass={!student} tracks={tracks} categories={m.categories} /></span>
     </div>
   );
   return (
-    <div className="mastery-all" style={{ '--maxt': maxTopics }}>
+    <div className="mastery-all" style={{ '--maxt': maxTopics, '--catw': `${catWidth}px` }}>
       <div className="mastery-head">
         <span className="mastery-head__lines">
           <span />
@@ -175,11 +210,11 @@ function AllCategories({ tracks, rows, classRow, count, linked, scale, onOverrid
             <span>Grade</span>
             <button type="button" className="filter-btn-link" onClick={onScale}>Scale</button>
           </span>
-          <span className="mastery-hl" title="The grade Schoology's levels give">Schoology levels</span>
+          <Tip className="mastery-hl" text="The grade Schoology's levels give">Schoology levels</Tip>
         </span>
       </div>
       <div className="mastery-phone-help">
-        <span><b>Left:</b> Prism</span><span><b>Right:</b> Schoology</span><HelpDot text={HELP} />
+        <span><b>Left:</b> Prism</span><span><b>Right:</b> Schoology</span><HelpDot text={HELP}>{HELP_POP}</HelpDot>
         <button type="button" className="filter-btn-link" onClick={onScale}>Scale</button>
       </div>
       {card(null, classRow)}
@@ -225,10 +260,10 @@ function OneCategory({ track, rows, classRow, linked, scale, onOverride }) {
       <div className="mastery-row mastery-row--head">
         <span className="mastery-row__who"><span /><b className="mastery-row__title">{label(track)}</b></span>
         {track.topics.map((tp) => (
-          <button key={tp.id} type="button" className={th(tp.id)} aria-pressed={sort?.key === tp.id} title={tp.title}
-            onClick={() => setSort((cur) => nextSort(cur, tp.id))}>
+          <Tip as="button" key={tp.id} type="button" className={th(tp.id)} aria-pressed={sort?.key === tp.id} text={tp.title}
+            aria-label={`${tp.code} ${tp.title}`} onClick={() => setSort((cur) => nextSort(cur, tp.id))}>
             <b>{tp.code}{arrow(tp.id)}</b><span className="mastery-th__name">{tp.title}</span>
-          </button>
+          </Tip>
         ))}
         <span />
         <span className="mastery-pair">

@@ -6,6 +6,7 @@ import { preferredFirstName, studentFullName } from '../../lib/studentNames.js';
 import { formatDate } from '../../lib/formatDate.js';
 import { alertChipLabel } from '../../lib/rosterVitals.js';
 import StudentTags from './StudentTags.jsx';
+import { Tip } from '../HelpDot.jsx';
 
 // One student on the Roster tab (#160). Left: the photo, then the name line: the one name the student
 // goes by, and (Private details only) a small group of tags right after it, today the gender code
@@ -14,7 +15,8 @@ import StudentTags from './StudentTags.jsx';
 // Private details on: the unread comments count and the alert chips, in fixed-width slots so they line
 // up down the page. With Private details off those slots are not drawn at all.
 //
-// Tapping the card opens the student page; a button or link inside it does its own job only.
+// Tapping the card opens the student page; a button or link inside it does its own job only. Hover text
+// is the instant popover (Tip), never a native title.
 // `children` (Needs attention's rows) sit under the card's top line, and a tap among them stays.
 //  - unread: the student's unread comment count, or null when Prism has none to show (slot left empty).
 //  - alerts: the student's roster alerts (forRoster).
@@ -34,13 +36,13 @@ function CopyEmail({ email }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // No clipboard here: the address is in the button's title.
+      // No clipboard here: the address is in the button's popover.
     }
   }
   return (
-    <button type="button" className="roster-copy" aria-label={`Copy email ${email}`} title={`Copy ${email}`} onClick={copy}>
+    <Tip as="button" type="button" className="roster-copy" aria-label={`Copy email ${email}`} text={`Copy ${email}`} onClick={copy}>
       <CopyIcon />{copied ? 'Copied' : 'Email'}
-    </button>
+    </Tip>
   );
 }
 
@@ -57,13 +59,14 @@ function Comments({ count, onOpen }) {
   if (count == null) return null;
   const word = count === 1 ? 'comment' : 'comments';
   if (count === 0) {
-    return <span className="roster-stat roster-stat--zero" title="Unread student comments on submissions"><b>0</b> <span>{word}</span></span>;
+    return <Tip className="roster-stat roster-stat--zero" text="No unread student comments on submissions"><b>0</b> <span>{word}</span></Tip>;
   }
   return (
-    <button type="button" className="roster-stat" aria-haspopup="dialog" title="Unread student comments on submissions. Tap to read them."
+    <Tip as="button" type="button" className="roster-stat" aria-haspopup="dialog" named={false}
+      text="Unread student comments on submissions. Tap to read them."
       onClick={(e) => { e.stopPropagation(); onOpen(e.currentTarget); }}>
       <b>{count}</b> <span>{word}</span>
-    </button>
+    </Tip>
   );
 }
 
@@ -97,11 +100,11 @@ export default function RosterCard({ student, showPrivate, unread = null, alerts
       {showPrivate && (
         <span className="roster-card__alerts">
           {alerts.map((a) => (
-            <button key={a.key} type="button" className={`badge ${TONE[a.category] || 'badge-gray'} roster-alert-chip`}
-              aria-haspopup="dialog" aria-label={a.title || a.label} title={`${a.title || a.label}. Tap to read it from PowerSchool.`}
+            <Tip as="button" key={a.key} type="button" className={`badge ${TONE[a.category] || 'badge-gray'} roster-alert-chip`}
+              aria-haspopup="dialog" aria-label={a.title || a.label} text={`${a.title || a.label}. Tap to read it from PowerSchool.`}
               onClick={(e) => { e.stopPropagation(); onOpenAlert(a, e.currentTarget); }}>
               {alertChipLabel(a)}
-            </button>
+            </Tip>
           ))}
         </span>
       )}

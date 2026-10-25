@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildEmailMenu, uniqueAddresses, copiedMessage, mailtoFor } from '../../lib/emailLists.js';
+import { Tip } from '../HelpDot.jsx';
 
 // "@ ▾" in a triage panel header (#137): copies the addresses of students who still
 // owe something, by urgency tier or by assessment, as "a@x; b@x" for Outlook's To or
@@ -119,5 +120,5 @@ export function MailLink({ row, kind, className = 'triage-row__mail', children =
   const href = mailtoFor(row, kind);
   if (!href) return null;
   const label = `Email ${row.studentName}`;
-  return <a className={className} href={href} aria-label={label} title={label}>{children}</a>;
+  return <Tip as="a" className={className} href={href} text={label}>{children}</Tip>;
 }

@@ -204,13 +204,15 @@ describe('Test day', () => {
     expect(within(card).getByText('69 minutes, 14 more')).toBeInTheDocument();
   });
 
-  it('with no test in the next two weeks: the dashed box, and extra minutes still show', async () => {
+  it('with no test in the next two weeks: the dashed box, the percentage first and the minutes as an example (#192)', async () => {
     renderTab({ gradebook: { assignments: [test('t0', 'Old test', inDays(-3)), test('t9', 'Far test', inDays(20))] } });
     expect(screen.getByText('No test is set in the next two weeks.')).toBeInTheDocument();
     const picker = screen.getByRole('combobox', { name: 'Test' });
     expect(within(picker).getAllByRole('option').map((o) => o.textContent)).toEqual(['No test (plans only)']);
     const card = (await screen.findByRole('link', { name: 'Maya Chen' })).closest('.test-day-card');
-    expect(within(card).getByText('63 minutes, 13 more')).toBeInTheDocument();
+    expect(within(card).getByText('25% extra time')).toHaveClass('test-day-card__total');
+    expect(within(card).getByText('63 minutes for a 50-minute test')).toHaveClass('test-day-card__muted');
+    expect(within(card).queryByText('63 minutes, 13 more')).toBeNull();
   });
 
   it('choosing No test while tests exist says so, without claiming none is set', () => {

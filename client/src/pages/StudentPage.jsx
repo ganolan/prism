@@ -22,6 +22,8 @@ import { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
 import { useDataVersion, useBumpDataVersion } from '../hooks/useDataVersion.jsx';
 import { formatGradeBadge } from '../lib/gradeLevel.js';
 import { preferredFirstName } from '../lib/studentNames.js';
+import { usePrivateDetails } from '../lib/privateDetails.js';
+import { PrivateHidden } from '../components/PrivateDetails.jsx';
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
@@ -393,6 +395,10 @@ function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
 export default function StudentPage() {
   const { id } = useParams();
   const dataVersion = useDataVersion();
+  // #197: with Private details off the page shows who the student is (photo, name, grade, ID, email)
+  // and one PrivateHidden box; alerts, family contacts, notes and the courses are not in the page.
+  // A grade card in edit mode saves its draft when it unmounts, so turning the switch off loses no work.
+  const [privateOn] = usePrivateDetails();
   const [student, setStudent] = useState(null);
   const [editing, setEditing] = useState(false);
   const [preferredVal, setPreferredVal] = useState('');
@@ -555,7 +561,7 @@ export default function StudentPage() {
                     <span className="text-sm text-muted" title="Student ID">ID: {student.email.split('@')[0]}</span>
                   )}
                 </div>
-                {(student.ps_alerts?.length || 0) + revealOnlyCount > 0 && (
+                {privateOn && (student.ps_alerts?.length || 0) + revealOnlyCount > 0 && (
                   <div style={{ marginTop: '0.35rem' }}>
                     {/* Hidden until clicked, never remembered (the reveal belongs to this student id). */}
                     <PsAlertReveal
@@ -610,7 +616,9 @@ export default function StudentPage() {
             </div>
           </div>
 
+          {!privateOn && <PrivateHidden title="Alerts, family contacts, notes and grades are private." />}
           {/* Family Contacts */}
+          {privateOn && (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
               <h3 style={{ margin: 0 }}>Family Contacts</h3>
@@ -639,8 +647,11 @@ export default function StudentPage() {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
+
+      {privateOn && (<>
 
       {/* Notes */}
       <div className="card">
@@ -758,6 +769,7 @@ export default function StudentPage() {
       {student.grades.length === 0 && (
         <div className="card"><p className="text-muted">No grades yet.</p></div>
       )}
+      </>)}
 
       {photoEnlarged && student.picture_url && (
         <div

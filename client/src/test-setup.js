@@ -1,4 +1,10 @@
 import '@testing-library/jest-dom';
+import { setPrivateDetailsDefault } from './lib/privateDetails.js';
+
+// Private details (#197) hides every page's private content until it is on. The page tests are about
+// that content, so with nothing stored it reads as on here; a test about the switch stores its value
+// (setPrivateDetails(false)) or calls setPrivateDetailsDefault(false).
+setPrivateDetailsDefault(true);
 
 // Node 25 ships a built-in `localStorage` global that lacks the full Web
 // Storage API (no `.clear()`), and it shadows jsdom's implementation. Install

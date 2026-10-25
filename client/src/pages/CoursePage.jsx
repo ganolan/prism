@@ -25,7 +25,8 @@ import { cardInputs, cardReasons } from '../lib/cardInputs.js';
 import { useGradeCards } from '../hooks/useGradeCards.js';
 import { useCardEditing } from '../hooks/useCardEditing.js';
 import { buildDescriptorRows } from '../lib/rubricDescriptorRows.js';
-import RosterTab, { PrivateDetailsSwitch } from '../components/roster/RosterTab.jsx';
+import RosterTab from '../components/roster/RosterTab.jsx';
+import { PrivateHidden } from '../components/PrivateDetails.jsx';
 import { usePrivateDetails } from '../lib/privateDetails.js';
 import { useStickyTypeFilter } from '../hooks/useStickyTypeFilter.js';
 import SchoologyLink from '../components/SchoologyLink.jsx';
@@ -58,16 +59,18 @@ export default function CoursePage() {
   const bumpDataVersion = useBumpDataVersion();
   const [triageWaits, setTriageWaits] = useState({ waits: {}, feedbackLimit: 10 });
   const [triageVersion, setTriageVersion] = useState(0); // bump → the triage panels re-fetch
-  // The triage rail is hidden on the Gradebook tab (it needs the width) and is not drawn on the
-  // Roster tab (its Needs attention mode replaces it, and a roster may be projected, #160);
-  // "Triage ▸" brings it in. On the Roster tab the button's red count needs Private details.
-  const [railShown, setRailShown] = useState(false);
-  // Every tab starts with the rail closed: a rail opened on Gradebook must not follow the
-  // teacher to the Roster tab, which may be projected with Private details off.
-  const setView = (next) => { setRailShown(false); setStickyView(next); };
+  // The triage rail is hidden on the Gradebook tab (it needs the width). On the Roster tab it is shown
+  // by default while Private details is on and left out of the page while it is off (#192); "Triage ▸"
+  // toggles it on both. Other tabs always show it. With Private details off the rail draws only the
+  // shared PrivateHidden box, and the button's red count is hidden on every tab (#197).
+  const [privateOn] = usePrivateDetails();
+  const [railChoice, setRailChoice] = useState(null); // null: the tab's default
+  // Every tab starts from its default: a rail opened on Gradebook must not follow the teacher to the
+  // Roster tab. Turning Private details on or off returns to the default as well.
+  const setView = (next) => { setRailChoice(null); setStickyView(next); };
+  useEffect(() => { setRailChoice(null); }, [privateOn]);
   const [triage, setTriage] = useState(null); // this course's triage, for the Roster tab (Needs attention)
   const [triageRed, setTriageRed] = useState(0);
-  const [privateOn] = usePrivateDetails();
   // Gradebook tab's compact Summative / Formative / Unpublished filter (lives in the tab row).
   // Remembered across visits, one setting for all courses (#144).
   const [gradebookFilter, setGradebookFilter] = useStickyTypeFilter('gradebook');
@@ -162,9 +165,10 @@ export default function CoursePage() {
   if (!course) return <div className="error-msg">Course not found</div>;
 
   const railHiddenHere = view === 'gradebook' || view === 'roster';
-  // On the Roster tab the rail is not in the page until Triage ▸ opens it.
+  const railShown = railChoice ?? (view === 'roster' && privateOn);
+  // On the Roster tab the rail is in the page only while shown.
   const railMounted = courseLive && (view !== 'roster' || railShown);
-  const showRed = triageRed > 0 && (view !== 'roster' || privateOn);
+  const showRed = triageRed > 0 && privateOn;
 
   // Course meta collapses to a single dot-separated muted line (section ·
   // students · school code) so the header is two tight rows, not four stacked
@@ -182,8 +186,6 @@ export default function CoursePage() {
       <header className="course-header">
         <div className="course-header__title-row">
           <h2 className="course-header__title">{course.course_name}</h2>
-          {/* #160: one switch for everything private on the Roster tab, off by default. */}
-          {view === 'roster' && <PrivateDetailsSwitch />}
         </div>
 
         <div className="course-header__meta-row">
@@ -231,7 +233,7 @@ export default function CoursePage() {
           <button className={`tab-btn ${view === 'analytics' ? 'active' : ''}`} onClick={() => setView('analytics')}>
             Analytics
           </button>
-          {view === 'gradebook' && gradebook?.assignments?.length > 0 && (
+          {view === 'gradebook' && privateOn && gradebook?.assignments?.length > 0 && (
             <TypeFilterBar
               compact assignments={gradebook.assignments} filter={gradebookFilter}
               onChange={setGradebookFilter}
@@ -240,7 +242,7 @@ export default function CoursePage() {
           {courseLive && railHiddenHere && (
             <button
               className="secondary btn-sm triage-rail-toggle" aria-expanded={railShown} aria-controls="course-triage"
-              onClick={() => setRailShown((v) => !v)}
+              onClick={() => setRailChoice(!railShown)}
             >
               {railShown ? 'Hide triage' : (
                 <>Triage {showRed && <span className="badge badge-red">{triageRed}</span>} <span aria-hidden="true">▸</span></>
@@ -251,9 +253,10 @@ export default function CoursePage() {
       </header>
 
       {/* Tab content in the main column, the triage rail beside it (below it on a phone). */}
-      <div className="triage-layout">
+      {/* On a current course's Roster tab the main column keeps the width it has beside the rail, shown or not (#192). */}
+      <div className={`triage-layout${view === 'roster' && courseLive ? ' triage-layout--fixed-main' : ''}`}>
         <div className="triage-layout__main">
-          {(view === 'gradebook' || view === 'analytics') && <LargerScreenNote />}
+          {privateOn && (view === 'gradebook' || view === 'analytics') && <LargerScreenNote />}
           {view === 'roster' && (
             <RosterTab
               key={id}
@@ -269,18 +272,22 @@ export default function CoursePage() {
             />
           )}
 
-          {view === 'gradebook' && (
+          {/* #197: the gradebook, the assessments and the analytics are private (hidden means not rendered). */}
+          {!privateOn && view === 'gradebook' && <PrivateHidden title="Grades are private." />}
+          {!privateOn && view === 'assessments' && <PrivateHidden title="Assessments and their marking progress are private." />}
+          {!privateOn && view === 'analytics' && <PrivateHidden title="Class results are private." />}
+          {privateOn && view === 'gradebook' && (
             <GradebookView data={gradebook} courseId={id} mastery={mastery} filter={gradebookFilter}
               onFlagChange={!course.archived && !course.excluded ? refreshAfterFlag : null} />
           )}
-          {view === 'assessments' && (
+          {privateOn && view === 'assessments' && (
             <AssessmentsView
               data={gradebook} courseId={id} waits={triageWaits.waits} feedbackLimit={triageWaits.feedbackLimit}
               onToggleMakeUp={courseLive ? toggleMakeUp : undefined}
               onSetPublished={courseLive ? setPublished : undefined}
             />
           )}
-          {view === 'analytics' && <AnalyticsView id={id} />}
+          {privateOn && view === 'analytics' && <AnalyticsView id={id} />}
         </div>
         {railMounted && (
           <TriageSection

@@ -10,6 +10,7 @@
 // Shell checks (fail → exit 1):
 //   desktop  sidebar visible, no top bar, content clear of the sidebar
 //   phone    sidebar hidden, menu opens it, a link closes it, Escape closes it
+//   both     the Private details switch (#197) in the sidebar; on a phone its state in the top bar
 // Quick-lookup page checks (#134, fail → exit 1), at phone width:
 //   Dashboard, Search, Directory, a course page and a student page don't
 //   scroll sideways; Search/Directory tables fit their card; Search folds
@@ -19,7 +20,8 @@
 //   reply (page.route), so no Schoology search runs. Desktop keeps its columns.
 // Roster tab checks (#160, fail → exit 1): a course's Roster tab, with Private details on, in all
 //   four modes (and Mastery's one-category layout) at 390px and 1100px: the page is never wider
-//   than the window. Reads only, but not only Prism's database: the Test day step makes the page
+//   than the window. At 1100px the roster keeps the width it has beside the triage rail, with the
+//   rail shown and hidden (#192). Reads only, but not only Prism's database: the Test day step makes the page
 //   read each unconfirmed learning plan's text from PowerSchool, through the dev server
 //   (GET /api/students/:id/alert-detail/:key, one after another; the server keeps each answer
 //   for 10 minutes, so the second width reads nothing new).
@@ -61,6 +63,7 @@ try {
   check(!(await inViewport(desktop, '.mobile-topbar')), 'desktop: no phone top bar');
   const contentLeft = await desktop.$eval('.content', (el) => el.getBoundingClientRect().left);
   check(contentLeft === 240, `desktop: content starts at 240px (got ${contentLeft})`);
+  check(await inViewport(desktop, '.sidebar .private-details-switch'), 'desktop: the Private details switch is in the sidebar');
   await desktop.screenshot({ path: join(shotDir, 'desktop-dashboard.png') });
 
   // ---- Phone: drawer behaviour. ----
@@ -71,6 +74,8 @@ try {
   check(await inViewport(phone, '.menu-btn'), 'phone: menu button visible');
   const phoneLeft = await phone.$eval('.content', (el) => el.getBoundingClientRect().left);
   check(phoneLeft === 0, `phone: content uses the full width (left ${phoneLeft})`);
+  check(await inViewport(phone, '.mobile-topbar .private-details-state'), 'phone: the top bar shows the Private details state');
+  check(await phone.$eval('.mobile-topbar', (b) => b.scrollWidth <= b.clientWidth + 1), 'phone: the top bar fits the screen');
   await phone.screenshot({ path: join(shotDir, 'phone-dashboard.png') });
 
   await phone.tap('.menu-btn');
@@ -171,12 +176,38 @@ try {
       } else {
         console.log(`SKIP  ${label} roster mastery: one-category Mastery (course has one category)`);
       }
+      // #192: beside the rail or not, the roster keeps one width (desktop only; a phone stacks them).
+      if (!mobile) {
+        await page.goto(`${base}${course}?tab=roster&mode=roster`);
+        await settle(page);
+        const widths = () => page.evaluate(() => {
+          const main = document.querySelector('.triage-layout__main');
+          return { main: Math.round(main.getBoundingClientRect().width), rail: !!document.querySelector('.triage-rail:not([hidden])') };
+        });
+        const withRail = await widths();
+        const toggle = await page.$('.triage-rail-toggle');
+        if (toggle && withRail.rail) {
+          await toggle.click();
+          await page.waitForTimeout(200);
+          const without = await widths();
+          check(!without.rail && without.main === withRail.main, `${label} roster: one width with the rail and without it (${withRail.main}px, ${without.main}px)`);
+        } else {
+          console.log(`SKIP  ${label} roster width: no triage rail on this course`);
+        }
+      }
       await ctx.close();
     }
   }
 
   const student = routes.find((r) => r.startsWith('/student/'));
   if (student) {
+    // #197: with Private details off (this page's default) the student page holds only the box.
+    await phone.evaluate(() => localStorage.removeItem('prism:private-details'));
+    await phone.goto(`${base}${student}`);
+    await settle(phone);
+    check(await visible('.private-hidden') && !(await phone.$('button[aria-label="Add new note"]')),
+      `phone ${student}: with Private details off, the box and no notes`);
+    await phone.evaluate(() => localStorage.setItem('prism:private-details', 'true'));
     await phone.goto(`${base}${student}`);
     await settle(phone);
     check(await fitsSideways(), `phone ${student}: no sideways scroll`);

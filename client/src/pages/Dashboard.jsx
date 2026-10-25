@@ -13,6 +13,7 @@ import { useStickyTab } from '../hooks/useStickyTab.js';
 import TriageSection from '../components/triage/TriageSection.jsx';
 import StatsStrip from '../components/triage/StatsStrip.jsx';
 import { courseTriageSummary, courseRedLine } from '../lib/triage.js';
+import { usePrivateDetails } from '../lib/privateDetails.js';
 
 // The first run (#171): a course whose first read has not finished yet is 'pending', and stays off
 // the dashboard while a run reads it (one whose read failed is shown, with a "Sync failed" badge).
@@ -45,6 +46,8 @@ export default function Dashboard() {
   // editingBlock: courseId currently being edited, blockDraft: current input value
   const [settingsCard, setSettingsCard] = useState(null);
   const [triage, setTriage] = useState(null);
+  // #197: with Private details off the triage counts (course cards, the strip's tiles) are not drawn.
+  const [privateOn] = usePrivateDetails();
   const bumpDataVersion = useBumpDataVersion();
   // Background sync: every current course, in full, when one was last synced over 10 minutes ago;
   // when that run ends every open page reloads. Sync Courses (Current tab) is one click: it asks for
@@ -176,7 +179,7 @@ export default function Dashboard() {
     // Current tab only (#137): one worst-tone edge + one muted red-only line per
     // card, replacing the three chips that used to repeat the same red/amber
     // signal already shown on the strip and in the triage rail.
-    const summary = !showSemester && triage ? courseTriageSummary(triage, c.id) : null;
+    const summary = !showSemester && triage && privateOn ? courseTriageSummary(triage, c.id) : null;
     const toneClass = summary?.worstTone === 'red' ? ' card--tone-red' : summary?.worstTone === 'amber' ? ' card--tone-amber' : '';
     const redLine = summary ? courseRedLine(summary) : '';
 
@@ -314,7 +317,7 @@ export default function Dashboard() {
 
       {/* Current tab: course cards in the main column, the triage rail beside them
           (below them on a phone). */}
-      {activeTab === 'current' && <StatsStrip triage={triage} syncStatus={syncStatus} />}
+      {activeTab === 'current' && <StatsStrip triage={triage} syncStatus={syncStatus} showCounts={privateOn} />}
       {activeTab === 'current' && (
         <div className="triage-layout">
           <div className="triage-layout__main">

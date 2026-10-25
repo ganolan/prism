@@ -1,5 +1,5 @@
 import { computeLetterGrade } from './masteryLevels.js';
-import { categoryAbbreviations } from './categoryAbbr.js';
+import { categoryAbbreviations, categoryName, topicNumber } from './categoryAbbr.js';
 
 // The Roster tab's Mastery mode (#160; spec "Mastery"): Prism's reporting-category levels and grade
 // beside Schoology's, from one getMasteryForCourse answer
@@ -24,18 +24,10 @@ function categoryNumber(externalId, index) {
   return dot >= 0 && dot < s.length - 1 ? s.slice(dot + 1) : String(index + 1);
 }
 
-// "AP CS: Content Knowledge" → "Content Knowledge".
-function categoryName(title) {
-  const m = /^[^:]*:\s+(.+)$/.exec(String(title ?? ''));
-  return m ? m[1] : String(title ?? '');
-}
 
 // "APCS.2.3" → "2.3"; an id with no dot as it is; no id: the category number and the topic's place.
 function topicCode(externalId, number, index) {
-  const s = String(externalId ?? '');
-  if (!s) return `${number}.${index + 1}`;
-  const dot = s.indexOf('.');
-  return dot >= 0 && dot < s.length - 1 ? s.slice(dot + 1) : s;
+  return externalId ? topicNumber(externalId) : `${number}.${index + 1}`;
 }
 
 // → [{ id, number, abbr, name, title, topics: [{ id, code, title }] }], in external id order. Topics come

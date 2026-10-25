@@ -6,6 +6,9 @@ import { LEVEL_COLORS, CELL_TEXT, LETTER_GRADE_COLORS, computeLetterGrade } from
 import { GradeScaleHelp } from './GradeScale.jsx';
 import { chartCovers } from '../lib/hkisLetterGrade.js';
 import { useProficiencyScale } from '../hooks/useProficiencyScale.js';
+import { categoryLabels } from '../lib/categoryAbbr.js';
+import CategoryTag from './CategoryTag.jsx';
+import { Tip } from './HelpDot.jsx';
 
 
 function modeOf(arr) {
@@ -23,6 +26,11 @@ function average(arr) {
   const nums = arr.filter(v => v != null);
   if (!nums.length) return null;
   return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+// A cell's value with its hint as the instant popover (AGENTS.md: hover text is never a `title`).
+function Hinted({ value, hint }) {
+  return hint ? <Tip text={`${value}. ${hint}`} pop={hint}>{value}</Tip> : value;
 }
 
 function sentenceCase(str) {
@@ -112,6 +120,8 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
     categoryMap[t.category_id].topics.push(t);
   }
   const categories = categoryOrder.map(id => categoryMap[id]);
+  // Each category as its short label (P, CRC), full name on hover: a category may span one narrow topic column (#196).
+  const catLabels = categoryLabels(categories.map(cat => cat.title));
 
   // Show every aligned assignment (with or without scores), ordered by the
   // server-side gradebook order in `alignments`. Any score-only assignments
@@ -209,7 +219,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                   color: 'var(--accent)', borderBottom: '2px solid var(--accent)',
                 }}
               >
-                {cat.title}
+                {catLabels.get(cat.title) ? <CategoryTag label={catLabels.get(cat.title)} /> : cat.title}
               </th>
             ))}
           </tr>
@@ -220,7 +230,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
             {categories.flatMap(cat =>
               cat.topics.map(t => (
                 <th key={t.id} style={{ ...thStyle, maxWidth: 120, minWidth: 60, whiteSpace: 'normal', lineHeight: 1.2, fontSize: '0.65rem', fontWeight: 500 }}>
-                  <span title={t.title}>{t.external_id} {sentenceCase(t.title)}</span>
+                  <span>{t.external_id} {sentenceCase(t.title)}</span>
                 </th>
               ))
             )}
@@ -380,7 +390,6 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                   const c = lvl ? LEVEL_COLORS[lvl] : null;
                   return (
                     <td key={t.id}
-                        title={override ? 'Teacher override set in Schoology' : undefined}
                         style={{
                       textAlign: 'center', fontWeight: 600, fontSize: '0.75rem',
                       padding: '0.25rem',
@@ -389,7 +398,8 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                       border: '1px solid var(--border)',
                       borderTop: '2px solid var(--accent)',
                     }}>
-                      {lvl || '-'}{pct != null ? ` (${Math.round(pct)})` : ''}{override ? '*' : ''}
+                      <Hinted value={`${lvl || '-'}${pct != null ? ` (${Math.round(pct)})` : ''}${override ? '*' : ''}`}
+                        hint={override ? 'Teacher override set in Schoology' : null} />
                     </td>
                   );
                 })
@@ -424,7 +434,6 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                 <td key={cat.id} colSpan={cat.topics.length}
                     className="schoology-cell"
                     onClick={() => setOverrideTarget({ category: cat, currentLevel: lvl, hasOverride: override })}
-                    title={override ? 'Teacher override set in Schoology, click to change or clear' : 'Click to set a teacher override in Schoology'}
                     style={{
                   textAlign: 'center', fontWeight: 700, fontSize: '0.85rem',
                   padding: '0.35rem',
@@ -436,7 +445,8 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                   borderRight: isLast ? '3px solid var(--accent)' : '1px solid var(--border)',
                   cursor: 'pointer',
                 }}>
-                  {lvl || '-'}{pct != null ? ` (${pct.toFixed(1)})` : ''}{override ? '*' : ''}
+                  <Hinted value={`${lvl || '-'}${pct != null ? ` (${pct.toFixed(1)})` : ''}${override ? '*' : ''}`}
+                    hint={override ? 'Teacher override set in Schoology, click to change or clear' : 'Click to set a teacher override in Schoology'} />
                 </td>
               );
             })}
@@ -451,14 +461,17 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
         <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600 }}>Mastery Performance Summary</h4>
-        <button
+        <Tip
+          as="button"
+          type="button"
+          named={false}
+          text="Expand table to full screen"
           className="ghost"
           onClick={() => setExpanded(true)}
           style={{ fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}
-          title="Expand table to full screen"
         >
           Expand ↗
-        </button>
+        </Tip>
       </div>
 
 

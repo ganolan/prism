@@ -54,3 +54,26 @@ export function categoryAbbreviations(names, fallbacks = []) {
   for (const l of labels) counts.set(l.toLowerCase(), (counts.get(l.toLowerCase()) || 0) + 1);
   return labels.map((l, i) => (!l || counts.get(l.toLowerCase()) > 1 ? `${l}${fallbacks[i] ?? i + 1}` : l));
 }
+
+// "AP CS: Content Knowledge" → "Content Knowledge": inside one course the prefix adds nothing.
+export function categoryName(title) {
+  const m = /^[^:]*:\s+(.+)$/.exec(String(title ?? ''));
+  return m ? m[1] : String(title ?? '');
+}
+
+// For a view that holds topics rather than the course's categories (#196): each distinct category
+// title in `titles` (repeats and blanks allowed) → { abbr, name }. The labels are distinct among
+// these titles; they match the roster's unless two of the course's other categories collide.
+export function categoryLabels(titles) {
+  const distinct = [...new Set(titles.filter(Boolean))];
+  const abbrs = categoryAbbreviations(distinct.map(categoryName));
+  return new Map(distinct.map((t, i) => [t, { abbr: abbrs[i], name: categoryName(t) }]));
+}
+
+// A topic's number without the course prefix, as the roster shows it: "APCS.2.3" → "2.3"; an id
+// with no dot as it is.
+export function topicNumber(externalId) {
+  const s = String(externalId ?? '');
+  const dot = s.indexOf('.');
+  return dot >= 0 && dot < s.length - 1 ? s.slice(dot + 1) : s;
+}

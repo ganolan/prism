@@ -1771,6 +1771,13 @@ Prism's level is the correct one; Schoology's is what students and report cards 
 - **Wrapping:** a long help text wraps in a rectangular popover with a sensible max width; it never runs off the screen on one line (#192). `.help-pop` resets the text style it would inherit (`white-space: normal`, weight, case), since it sits inside headings and chips; a short list goes in `.help-pop__list`.
 - **`Tip`** (`client/src/components/HelpDot.jsx`, #192) puts the popover on any element: `text` is the aria-label and popover, `as` picks the element (`button`, `a`, `Link`), and `named={false}` keeps a button's visible word as its name. Every hover text on the Roster tab uses it, including the shared chips it draws (group pills, flag pill, email link, extension tag, the ≈ on the urgency ring).
 
+## Category short labels across Prism (#196, 25 Oct 2026)
+
+- **Everywhere a category is tight:** the short label of the roster (P, CRC, CK, CTP) replaces a category number or a long title "HS Art: Creating, Responding, Connecting" in a narrow space. The full name, without the course prefix, is the instant popover.
+- **Where:** the student page's mastery table (the category header over its topic columns); the line under each topic's title in the grade card's rubric (the assessment page, the gradebook pop-up and the student page), which reads "CTP 2.3" (the label and the topic number without its course prefix); the gradebook's rubric strip, whose popover lists "CTP 2.3 Abstraction: EX" for each topic (it was a native `title`).
+- **One shared piece:** `CategoryTag` and `TopicSource` (`client/src/components/CategoryTag.jsx`, class `.category-tag`, bold, the color of the text around it), with `categoryLabels(titles)` and `topicNumber` in `client/src/lib/categoryAbbr.js`. A view labels the categories it holds, so its labels match the roster's unless two of the course's other categories collide.
+- **PrisMCP keeps full names:** its answers already name categories in full (never by number), which an agent reads better than an abbreviation.
+
 ## Display covers the comment only (#184, 25 Oct 2026)
 
 - **Finding:** Schoology's Display to student shows or hides the comment; the grade shows either way. A student's view (Schoology's View as tool) showed the score on a task whose records hold no comment and `comment_status` null.

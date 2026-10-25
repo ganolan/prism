@@ -58,3 +58,16 @@ describe('MasteryPerformanceSummary letter grade', () => {
       .toBeInTheDocument();
   });
 });
+
+describe('MasteryPerformanceSummary category headers (#196)', () => {
+  it('names each category by its short label, the full name on hover', async () => {
+    const m = mastery([100, 75]);
+    m.topics[0].category_title = 'HS Art: Producing';
+    m.topics[1].category_title = 'HS Art: Creating, Responding, Connecting';
+    api.getMasteryForStudent.mockResolvedValue(m);
+    renderSummary();
+    expect(await screen.findByRole('img', { name: 'Producing' })).toHaveTextContent('P');
+    expect(screen.getByRole('img', { name: 'Creating, Responding, Connecting' })).toHaveTextContent('CRC');
+    expect(screen.queryByText('HS Art: Producing')).toBeNull();
+  });
+});

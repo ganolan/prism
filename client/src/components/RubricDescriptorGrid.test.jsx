@@ -72,6 +72,14 @@ function renderGrid(cellState = () => ({}), onSelect = vi.fn()) {
 }
 
 describe('RubricDescriptorGrid', () => {
+  it('names the topic\'s category by its short label, the full name on hover (#196)', () => {
+    renderGrid();
+    const tag = screen.getByRole('img', { name: 'Produce' });
+    expect(tag).toHaveTextContent('P');
+    expect(tag.parentElement).toHaveTextContent(/^P 5\.1$/);
+    expect(screen.queryByText(/HS Art: Produce/)).toBeNull();
+  });
+
   it('renders full-word level headers (no abbreviations)', () => {
     renderGrid();
     expect(screen.getByText('Exhibiting Depth')).toBeInTheDocument();

@@ -321,6 +321,19 @@ describe('GradebookView: flagged cells on an aligned task (#40)', () => {
     expect(within(dialog).getByText(/Shown as IE because the work is marked Missing/)).toBeInTheDocument();
   });
 
+  it('#196: the rubric strip lists each topic with its category\'s short label; the pop-up\'s topic line uses it too', async () => {
+    serve(makeCard({ student: { exception: null, score: 75, grade_comment: '' } }));
+    render(<MemoryRouter><GradebookView data={dataWith(null)} courseId="5" mastery={mastery} /></MemoryRouter>);
+    const strip = await screen.findByRole('button', { name: 'Show rubric detail. P 5.1 Select, analyze: EX' });
+    fireEvent.mouseEnter(strip);
+    expect(document.querySelector('.help-pop')).toHaveTextContent('P 5.1 Select, analyze: EX');
+    fireEvent.click(strip);
+    const dialog = await screen.findByRole('dialog');
+    const row = (await within(dialog).findByText('Select, analyze')).closest('tr');
+    expect(within(row).getByRole('img', { name: 'Producing' })).toHaveTextContent('P');
+    expect(row).not.toHaveTextContent('HS Art: Producing');
+  });
+
   it('a final flag (Exempt): the pop-up shows the card\'s locked rubric', async () => {
     serve(makeCard({ student: { exception: 1, score: null, grade_comment: '' } }));
     render(<MemoryRouter><GradebookView data={dataWith(1)} courseId="5" mastery={mastery} /></MemoryRouter>);

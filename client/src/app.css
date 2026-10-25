@@ -887,6 +887,10 @@ button.filter-btn-link { background: none; border: none; padding: 0; color: var(
 /* A short list in a popover (HelpDot children). */
 .help-pop__list { margin: 0; padding-left: 1rem; }
 .help-pop__list li + li { margin-top: 0.25rem; }
+/* #196: a reporting category as its short label (P, CRC) wherever space is tight; the full name is the
+   instant popover (CategoryTag.jsx). It keeps the color of the text around it. */
+.category-tag { font-weight: 700; cursor: help; }
+.category-tag:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
 /* The wide popover (HelpDot `wide`): a small table, the grade scale's (#193). */
 .help-pop--wide { max-width: 340px; overflow-wrap: normal; }
 

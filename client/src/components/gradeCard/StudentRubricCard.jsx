@@ -39,6 +39,8 @@ import { receivedLine, composeComment, lineDate } from '../../lib/statusLines.js
 import { FLAGS, isFlag, isExempt, isFinalFlag, isMarker, flagEffect } from '../../lib/flags.js';
 import { GRADE_WRITTEN_PATCH, resubmissionFieldsPatch, flagClearedPatch, shownCommentStatus } from '../../lib/cardPatches.js';
 import { canEditPoints, parsePoints } from '../../lib/pointsTask.js';
+import { categoryLabels } from '../../lib/categoryAbbr.js';
+import { TopicSource } from '../CategoryTag.jsx';
 
 // The rubric-locked badge takes the flag's color (#40). Only the final flags lock the rubric:
 // Exempt green, Missing red.
@@ -104,6 +106,8 @@ export default function StudentRubricCard(props) {
 // `meeting` (a student conference, #176): the card is shown to the student, so it hides the photo and
 // every AI suggestion (reviewer notes, suggested cells and levels, the suggested narrative).
 function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, feedbackRow: feedbackRowGiven, mode, heading, hasDraft = false, onEdit = null, onDone = null, meeting = false, draftRow = null, rubric = null, viewMode = 'descriptors', rubricPalette = {}, submissionLink = null, attemptLink = null, quizResult = null, onRebuildQuiz = null, commentsEnabled = false, commentSummary = null, onCommentSummary = null, filesEnabled = false, fileSummary = null, onFileSummary = null, scoreScale = null, scales = null, showDue = false, resubmitLessonsDefault = 3, resubmitEnabled = true, highlight = false, reasons = [], onSaved, onRefreshPair = null, onPendingChange, onDisplayChange, registerCard, unregisterCard }) {
+  // The category of each topic row as its short label, full name on hover (#196).
+  const topicLabels = categoryLabels((topics || []).map((t) => t.category_title));
   const scale = useProficiencyScale();
   const isView = mode === 'view';
   // A meeting shows no AI suggestion: with no feedback row there is nothing to suggest from.
@@ -1514,7 +1518,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
                     fontSize: '0.78rem', color: 'var(--text)',
                   }}>
                     {t.title}
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}>{[t.category_title, t.external_id].filter(Boolean).join(' · ')}</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', opacity: 0.7 }}><TopicSource topic={t} labels={topicLabels} /></div>
                   </td>
                   {LEVELS.map(l => {
                     const c = LEVEL_COLORS[l];

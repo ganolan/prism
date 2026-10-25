@@ -7,6 +7,8 @@ import TriageSection from '../components/triage/TriageSection.jsx';
 import UrgencyRing from '../components/triage/UrgencyRing.jsx';
 import { waitsByAssignment, redCount } from '../lib/triage.js';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
+import { Tip } from '../components/HelpDot.jsx';
+import { categoryLabels, topicNumber } from '../lib/categoryAbbr.js';
 import SyncStatus from '../components/SyncStatus.jsx';
 import SyncHelp from '../components/SyncHelp.jsx';
 import { useSyncFacts } from '../hooks/useSyncFacts.js';
@@ -305,17 +307,28 @@ export default function CoursePage() {
 // ─── Gradebook mini rubric (#32) ─────────────────────────────────────────────
 
 // A segmented strip — one segment per aligned measurement topic, colored by
-// the student's earned level. Grey segment = topic not yet scored. Clickable.
-function MiniRubricStrip({ topics, onClick }) {
-  const summary = topics
-    .map(t => `${t.external_id || t.title}: ${t.grade || 'not graded'}`)
-    .join('\n');
+// the student's earned level. Grey segment = topic not yet scored. Clickable. Hover, focus or tap
+// lists each topic's level, its category as the short label (P, CRC; #196), in the instant popover.
+// `labels` is categoryLabels() over the course's topics.
+function MiniRubricStrip({ topics, labels, onClick }) {
+  const line = (t) => {
+    const label = labels.get(t.category_title);
+    const number = t.external_id ? topicNumber(t.external_id) : '';
+    return { key: t.topic_id, source: [label?.abbr, number].filter(Boolean).join(' '), title: t.title, grade: t.grade || 'not graded' };
+  };
+  const lines = topics.map(line);
+  const summary = lines.map((l) => `${[l.source, l.title].filter(Boolean).join(' ')}: ${l.grade}`).join('. ');
   return (
-    <button
+    <Tip
+      as="button"
       type="button"
       onClick={onClick}
-      title={summary}
-      aria-label="Show rubric detail"
+      text={`Show rubric detail. ${summary}`}
+      pop={(
+        <ul className="help-pop__list">
+          {lines.map((l) => <li key={l.key}>{l.source && <b>{l.source} </b>}{l.title}: {l.grade}</li>)}
+        </ul>
+      )}
       style={{
         display: 'flex', width: 64, height: 16, padding: 0, margin: '0 auto',
         border: '1px solid var(--border)', borderRadius: 3,
@@ -331,7 +344,7 @@ function MiniRubricStrip({ topics, onClick }) {
           />
         );
       })}
-    </button>
+    </Tip>
   );
 }
 
@@ -597,6 +610,7 @@ const TYPE_LEGEND = (
 
 export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_FILTER, onFlagChange = null }) {
   const indexed = useMemo(() => indexMastery(mastery), [mastery]);
+  const categoryLabelMap = useMemo(() => categoryLabels(Object.values(indexed.topicMeta).map((m) => m.category_title)), [indexed]);
   const [rubricModal, setRubricModal] = useState(null);
   // The pop-up for one cell, built from the current data: the student, the task and the
   // gradebook's grade row. The grade card inside reads its own data.
@@ -947,7 +961,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 // scale level) opens the same modal: comment + timeline, no rubric.
                 const opensModal = !showStrip && (lbl.kind === 'numeric' || lbl.kind === 'scale' || lbl.kind === 'mismatch' || lbl.kind === 'exception');
                 const inner = showStrip
-                  ? <MiniRubricStrip topics={rubricTopics} onClick={openModal} />
+                  ? <MiniRubricStrip topics={rubricTopics} labels={categoryLabelMap} onClick={openModal} />
                   : opensModal
                     ? <button type="button" className="cell-open" onClick={openModal}
                         aria-label={`${lbl.text}: show feedback`} title="Show the comment and submission detail">{scoreText}</button>

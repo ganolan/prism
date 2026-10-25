@@ -1,6 +1,8 @@
 import AiSparkle from './AiSparkle.jsx';
 import { categoryColor } from '../lib/rubricColors.js';
 import { LEVEL_LABELS } from '../lib/masteryLevels.js';
+import { categoryLabels } from '../lib/categoryAbbr.js';
+import { TopicSource } from './CategoryTag.jsx';
 
 // Without `onSelect` the grid is read-only (the grade card's view mode, #176): no
 // click, no pointer, no "Set ... to ..." hint; the awarded cell keeps its fill.
@@ -12,6 +14,8 @@ export default function RubricDescriptorGrid({
   rows, levels, cellState, onSelect, palette, levelHeaderColors, levelBorderColors, levelDraftColors,
   firstColumnLabel = 'Measurement Topic', awardedMark = null,
 }) {
+  // Each row's category as its short label, full name on hover (#196).
+  const labels = categoryLabels(rows.map(({ topic }) => topic.category_title));
   return (
     <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: '0.8rem' }}>
       <thead>
@@ -41,7 +45,7 @@ export default function RubricDescriptorGrid({
                 return second ? <div style={{ fontSize: '0.72rem', fontWeight: 600 }}>{second}</div> : null;
               })()}
               <div style={{ fontSize: '0.62rem', color: '#3a3a3a' }}>
-                {[topic.category_title, topic.external_id].filter(Boolean).join(' · ')}</div>
+                <TopicSource topic={topic} labels={labels} /></div>
             </td>
             {levels.map(l => {
               const st = cellState(topic.id, l) || {};

@@ -122,7 +122,7 @@ describe('StudentRubricCard draft persistence', () => {
     // Build a valid baseline for the student so the draft isn't treated as stale.
     // (draftBaseline is synchronously available from the non-mocked module.)
     const base = draftBaseline(makeStudent(), TOPICS);
-    renderCard({ draftRow: { pending: {}, comment: '', display: true, displayTouched: true, base } });
+    renderCard({ draftRow: { pending: {}, comment: 'Draft comment', display: true, displayTouched: true, base } });
     expect(
       screen.getByRole('switch', { name: /display to student/i })
     ).toHaveAttribute('aria-checked', 'true');
@@ -405,7 +405,7 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
 
   it('clicking it turns Display-to-student on — a status line must be visible', () => {
     renderCard({ student: { ...makeStudent(), comment_status: 0, resubmission: { state: 'arrived', request: null }, arrived_on: '2026-10-03' } });
-    expect(screen.getByRole('switch', { name: 'Display to student' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('No comment')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /insert "resubmission received" line/i }));
     expect(screen.getByRole('switch', { name: 'Display to student' })).toHaveAttribute('aria-checked', 'true');
   });
@@ -888,6 +888,11 @@ describe('AssessmentSummaryPage — score-scale class tools (#41)', () => {
 });
 
 describe('AssessmentSummaryPage — Send all bar (#51)', () => {
+  // Each student with a hidden comment, so each card has a Display switch (#184).
+  function withComments(data) {
+    return { ...data, students: data.students.map(st => ({ ...st, grade_comment: 'Draft feedback', comment_status: 0 })) };
+  }
+
   function makeData() {
     return {
       assignment: { id: 50, schoology_assignment_id: '8', title: 'Quiz', mastery_grading_period_id: 1, mastery_grading_category_id: 2 },
@@ -989,17 +994,34 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
   });
 
   it('renders a bulk show-all toggle on the whole-class bar', async () => {
+    getMasteryForAssignment.mockResolvedValue(withComments(makeData()));
+    renderPage();
+    const bulk = await screen.findByRole('switch', { name: /comment visibility for all students/i });
+    expect(bulk).toBeInTheDocument();
+    expect(bulk).toHaveTextContent('All hidden'); // both comments start hidden
+  });
+
+  it('with no comments the bulk toggle reads No comments and is disabled (#184)', async () => {
     getMasteryForAssignment.mockResolvedValue(makeData());
     renderPage();
-    const bulk = await screen.findByRole('switch', { name: /grade visibility for all students/i });
-    expect(bulk).toBeInTheDocument();
-    expect(bulk).toHaveTextContent('All hidden'); // both students start hidden
+    const bulk = await screen.findByRole('switch', { name: /comment visibility for all students/i });
+    await waitFor(() => expect(bulk).toHaveTextContent('No comments'));
+    expect(bulk).toBeDisabled();
+  });
+
+  it('the bulk toggle leaves out students with no comment', async () => {
+    const data = makeData();
+    data.students[0] = { ...data.students[0], grade_comment: 'Good work', comment_status: 1 };
+    getMasteryForAssignment.mockResolvedValue(data);
+    renderPage();
+    const bulk = await screen.findByRole('switch', { name: /comment visibility for all students/i });
+    await waitFor(() => expect(bulk).toHaveTextContent('All shown'));
   });
 
   it('bulk show-all sets every card visible and marks them pending', async () => {
-    getMasteryForAssignment.mockResolvedValue(makeData()); // both students start hidden
+    getMasteryForAssignment.mockResolvedValue(withComments(makeData())); // both comments start hidden
     renderPage();
-    const bulkToggle = await screen.findByRole('switch', { name: /grade visibility for all students/i });
+    const bulkToggle = await screen.findByRole('switch', { name: /comment visibility for all students/i });
     expect(bulkToggle).toHaveAttribute('aria-checked', 'false');
     expect(screen.getAllByRole('switch', { name: /^display to student$/i })).toHaveLength(2);
 
@@ -1009,7 +1031,7 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
       screen.getAllByRole('switch', { name: /^display to student$/i })
         .forEach(sw => expect(sw).toHaveAttribute('aria-checked', 'true'))
     );
-    expect(screen.getByRole('switch', { name: /grade visibility for all students/i }))
+    expect(screen.getByRole('switch', { name: /comment visibility for all students/i }))
       .toHaveAttribute('aria-checked', 'true');
     expect(screen.getAllByText(/pending change/)).toHaveLength(2);
   });
@@ -1073,7 +1095,7 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
   });
 
   it('shows the display toggle as an eye-icon switch with no text label', () => {
-    renderCard();
+    renderCard({ student: { ...makeStudent(), grade_comment: 'Good work', comment_status: 1 } });
     const toggle = screen.getByRole('switch', { name: /display to student/i });
     expect(toggle).toBeInTheDocument();
     expect(screen.queryByText('Display to student')).not.toBeInTheDocument();
@@ -1081,13 +1103,20 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
 
   it('a topic pick on a new student turns the comment visible (aligned auto-flip)', () => {
     renderCard();
-    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('No comment')).toBeInTheDocument();
     fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment for this student/), { target: { value: 'Well done' } });
     expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('counts a visibility toggle as a pending change', () => {
+  it('with no comment the card shows No comment, not a Display switch (#184)', () => {
     renderCard();
+    expect(screen.getByText('No comment')).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /display to student/i })).not.toBeInTheDocument();
+  });
+
+  it('counts a visibility toggle as a pending change', () => {
+    renderCard({ student: { ...makeStudent(), grade_comment: 'Good work', comment_status: 1 } });
     fireEvent.click(screen.getByRole('switch', { name: /display to student/i }));
     expect(screen.getByText('1 pending change')).toBeInTheDocument();
   });
@@ -2395,7 +2424,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
   it('a row pick on a new student does not turn the comment visible, so Save in Prism saves rows in Prism only', async () => {
     card(); // makeStudent(): comment_status 0, grade_comment '' (auto-flip armed)
     fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
-    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('No comment')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save in Prism' }));
     await waitFor(() => expect(saveRowLevels).toHaveBeenCalledWith('8', 'uid-1', { Playtesting: 'D' }));
     expect(writeMasteryComment).not.toHaveBeenCalled();
@@ -2413,6 +2442,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
   it('the overall pick on a new student still turns the comment visible', () => {
     card();
     fireEvent.click(screen.getByRole('button', { name: /^exhibiting$/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Teacher comment for this student/), { target: { value: 'Well done' } });
     expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'true');
   });
 
@@ -2435,7 +2465,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     card();
     fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
     fireEvent.click(screen.getByTitle('Set Playtesting to Exhibiting'));
-    expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('No comment')).toBeInTheDocument();
     expect(screen.getByText('3 pending changes')).toBeInTheDocument(); // two rows + the staged overall
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(writeMasteryComment).toHaveBeenCalledTimes(1));

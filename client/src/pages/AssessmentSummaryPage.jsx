@@ -31,6 +31,7 @@ import { FLAGS, isFinalFlag } from '../lib/flags.js';
 import { afterRefresh } from '../lib/assessmentFreshness.js';
 import SyncStatus from '../components/SyncStatus.jsx';
 import SyncHelp from '../components/SyncHelp.jsx';
+import { useHelpPop } from '../components/HelpDot.jsx';
 import { useSyncFacts } from '../hooks/useSyncFacts.js';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import SyncDialog from '../components/SyncDialog.jsx';
@@ -273,6 +274,7 @@ export default function AssessmentSummaryPage() {
   // Per-card visibility (display-to-student) reported up so the bulk bar's
   // "show all" toggle can reflect the class-wide aggregate.
   const [displayByUid, setDisplayByUid] = useState({});
+  const visibilityPop = useHelpPop();
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkResult, setBulkResult] = useState(null);
   // "Discard all" is destructive across every student, so it requires a second
@@ -360,8 +362,10 @@ export default function AssessmentSummaryPage() {
   const totalPending = Object.keys(pendingByUid).filter(isShown).filter(u => pendingByUid[u] === 'publish').length;
   const totalUnsaved = Object.keys(pendingByUid).filter(isShown).length;
 
-  // Class-wide visibility aggregate for the bulk "show all to students" toggle.
-  const visUids = Object.keys(displayByUid).filter(isShown);
+  // Class-wide visibility aggregate for the bulk "show all to students" toggle. A card with no
+  // comment reports null (it has no Display, #184) and is left out.
+  const visUids = Object.keys(displayByUid).filter(isShown).filter(u => displayByUid[u] !== null);
+  const noComments = visUids.length === 0;
   const visibleCount = visUids.filter(u => displayByUid[u]).length;
   const allVisible = visUids.length > 0 && visibleCount === visUids.length;
   const noneVisible = visibleCount === 0;
@@ -922,16 +926,19 @@ export default function AssessmentSummaryPage() {
               type="button"
               role="switch"
               aria-checked={allVisible ? 'true' : mixedVisible ? 'mixed' : 'false'}
-              aria-label="Grade visibility for all students"
-              title="Toggle whether every student sees their grade & comment in Schoology"
+              aria-label="Comment visibility for all students"
+              onMouseEnter={visibilityPop.handlers.onMouseEnter}
+              onMouseLeave={visibilityPop.handlers.onMouseLeave}
+              onFocus={visibilityPop.handlers.onFocus}
+              onBlur={visibilityPop.handlers.onBlur}
               onClick={() => handleSetAllVisible(!allVisible)}
-              disabled={bulkSaving}
+              disabled={bulkSaving || noComments}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
                 boxSizing: 'border-box', height: '2rem',
                 border: '1px solid var(--border)', borderRadius: 7,
                 padding: '0 0.6rem', background: 'var(--card-bg)',
-                color: 'var(--text-muted)', cursor: bulkSaving ? 'default' : 'pointer',
+                color: 'var(--text-muted)', cursor: bulkSaving || noComments ? 'default' : 'pointer',
                 userSelect: 'none', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'inherit',
               }}
             >
@@ -952,10 +959,11 @@ export default function AssessmentSummaryPage() {
               {/* Status label — describes the CURRENT class-wide visibility state
                   (the switch position carries the on/off meaning). Fixed width so
                   switching text never shifts neighbours. */}
-              <span style={{ display: 'inline-block', width: '4.6rem', textAlign: 'left', whiteSpace: 'nowrap' }}>
-                {allVisible ? 'All shown' : noneVisible ? 'All hidden' : 'Mixed'}
+              <span style={{ display: 'inline-block', width: '5.6rem', textAlign: 'left', whiteSpace: 'nowrap' }}>
+                {noComments ? 'No comments' : allVisible ? 'All shown' : noneVisible ? 'All hidden' : 'Mixed'}
               </span>
             </button>
+            {visibilityPop.popover('Show or hide every comment. This switch does not hide grades.')}
 
             {openScaleSuggestions > 0 && (
               <button

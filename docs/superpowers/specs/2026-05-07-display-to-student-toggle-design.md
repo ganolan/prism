@@ -94,6 +94,7 @@ Manual, in a real Schoology section with an aligned rubric assignment:
 
 1. Fresh student + virgin record: comment field empty, toggle OFF. Type a character → toggle auto-flips ON. Save → confirm in Schoology UI the comment is visible to the student.
 2. Same fresh student, virgin record: instead of typing, click a rubric cell → toggle auto-flips ON. Save → confirm in Schoology that proficiencies are visible to the student.
+   *(Superseded 25 Oct 2026, #184: Display covers the comment only, and Schoology keeps no Display for an empty comment, so the card now shows "No comment" until a comment is typed.)*
 3. Existing student with synced `comment_status: null`: load the assessment page → toggle is OFF. Type a fresh comment → toggle stays OFF (Schoology's state respected). Save → student still cannot see the feedback.
 4. Existing student with synced `comment_status: 1`: load → toggle ON. Manual flip OFF → Save → confirm Schoology UI shows comment hidden from student. Refresh from Schoology → local toggle reflects new OFF state.
 5. Locked rubric (active exception): toggle disabled and does not flip on any interaction.

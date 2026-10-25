@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useHelpPop } from '../HelpDot.jsx';
 import { Link } from 'react-router-dom';
 import { setSuggestionState, writeMasteryScores, writeMasteryComment, getDraftsForAssignment, getTriagePair, saveRowLevels, setGradeFlag } from '../../services/api.js';
 import { draftBaseline } from '../../lib/assessmentDraft.js';
@@ -233,6 +234,11 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
   );
   const comment = commentHistory.value;
   const setComment = commentHistory.reset;
+  // Display to student covers the comment only, never the grade (#184, a student's view checked
+  // 25 Oct 2026), and Schoology keeps no Display for an empty comment (#183). So with no comment
+  // the card shows "No comment", and Display neither changes nor counts as a pending change.
+  const hasComment = comment !== '';
+  const displayPop = useHelpPop();
   // The exact "resubmission received" line last inserted by the chip (triage
   // resubmissions, Amendment B Task 7), or null until the chip is clicked. Save
   // sends statusLine only while this is still (verbatim) the draft's first line —
@@ -360,7 +366,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
     Object.keys(pending).length +
     (autoScale ? 1 : 0) +
     (commentDirty ? 1 : 0) +
-    ((displayTouched && display !== loadedDisplay) ? 1 : 0)
+    ((displayTouched && hasComment && display !== loadedDisplay) ? 1 : 0)
   );
   const hasPendingChanges = pendingCount > 0;
   // Under a final flag, staged levels (topics, rows, the overall) wait for the flag to be cleared,
@@ -474,10 +480,11 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
 
   // Report this card's current visibility up so the page bar's "show all to
   // students" toggle can reflect the class-wide aggregate (all / none / mixed).
+  // null: no comment, so this card has no Display and is left out of the aggregate.
   useEffect(() => {
     if (isView) return;
-    onDisplayChange?.(student.schoology_uid, display);
-  }, [isView, display, student.schoology_uid, onDisplayChange]);
+    onDisplayChange?.(student.schoology_uid, hasComment ? display : null);
+  }, [isView, display, hasComment, student.schoology_uid, onDisplayChange]);
 
   useEffect(() => {
     if (isView) return undefined;
@@ -813,6 +820,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
   // page-level "show/hide all". Marks it a manual change so it counts as pending
   // (the pendingCount guard ignores it when value already equals the synced one).
   function applyDisplay(value) {
+    if (!hasComment) return;
     flushNextRef.current = true;
     setDisplay(value);
     setDisplayTouched(true);
@@ -1950,13 +1958,18 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
 
         {/* Control band — directly under the comment (creates the focus boundary) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.6rem' }}>
-          {/* Display-to-student: eye icon + switch, no text label */}
+          {/* Display-to-student: eye icon + switch, no text label. With no comment there is
+              nothing to display, so the card names that instead (#184). */}
+          {hasComment ? (<>
           <button
             type="button"
             role="switch"
             aria-checked={display}
             aria-label="Display to student"
-            title="Display to student"
+            onMouseEnter={displayPop.handlers.onMouseEnter}
+            onMouseLeave={displayPop.handlers.onMouseLeave}
+            onFocus={displayPop.handlers.onFocus}
+            onBlur={displayPop.handlers.onBlur}
             onClick={() => applyDisplay(!display)}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
@@ -1982,6 +1995,18 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
               }} />
             </span>
           </button>
+          {displayPop.popover('Show this comment to the student. This switch does not hide the grade.')}
+          </>) : (
+            <span
+              style={{
+                display: 'inline-flex', alignItems: 'center', alignSelf: 'stretch',
+                boxSizing: 'border-box', border: '1px dashed var(--border)', borderRadius: 7,
+                padding: '0 0.55rem', color: 'var(--text-muted)', fontSize: '0.78rem', whiteSpace: 'nowrap',
+              }}
+            >
+              No comment
+            </span>
+          )}
 
           <button
             className="primary"

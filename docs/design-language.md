@@ -29,7 +29,8 @@ to make it enforceable rather than copy-pasted.
    control's own position carries the affordance. Don't label a toggle with an
    imperative that fights its position.
    - Bulk visibility toggle reads `All shown` / `All hidden` / `Mixed` (state),
-     not `Display all` / `Hide all` (command). The switch position says on/off.
+     not `Display all` / `Hide all` (command), or `No comments` (disabled) when
+     no shown card has a comment (#184). The switch position says on/off.
    - Comment border: green = published, amber = draft. The colour *is* the state.
 
 2. **No layout shift on state change.** Any control whose content varies between
@@ -1741,3 +1742,10 @@ Prism's level is the correct one; Schoology's is what students and report cards 
 - **Rule (Graham, every UI build from now on):** text a user needs on mouseover opens immediately on hover, focus or tap through `useHelpPop` / `.help-pop`, never a native `title` tooltip (too slow). The element keeps an `aria-label` with the same text for screen readers and agents.
 - **Meaningful short labels:** a code or abbreviation stands for something a teacher recognizes (reporting categories as P, CRC, not their numbers), and its popover gives the full name.
 - **Wrapping:** a long help text wraps in a rectangular popover with a sensible max width; it never runs off the screen on one line (#192).
+
+## Display covers the comment only (#184, 25 Oct 2026)
+
+- **Finding:** Schoology's Display to student shows or hides the comment; the grade shows either way. A student's view (Schoology's View as tool) showed the score on a task whose records hold no comment and `comment_status` null.
+- **Grade card:** with an empty comment the card shows a dashed **No comment** label where the Display switch was. Schoology keeps no Display for an empty comment (#183), so a switch there had no effect. Typing a comment brings the switch back, already on for a new record (the auto-flip), as Schoology's own default for a new comment.
+- **Class switch:** renamed **Comment visibility for all students**. It counts only cards with a comment, and reads **No comments** (disabled) when there are none.
+- **Hover text:** both switches use the instant popover (`useHelpPop`), not a `title`: "Show this comment to the student. This switch does not hide the grade." and "Show or hide every comment. This switch does not hide grades."

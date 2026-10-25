@@ -272,7 +272,7 @@ describe('StudentRubricCard: Display with an empty comment (#183)', () => {
     const registerCard = vi.fn();
     vi.mocked(writeMasteryComment).mockResolvedValue({ score: 30 });
     const { rerender } = renderCard({ topics: [], assignmentRow: POINTS_ROW, student: studentWith({ score: null }), onSaved, registerCard, unregisterCard: vi.fn() });
-    // The class switch turns Display on, then points are typed.
+    // The class switch tries to turn Display on (a card with no comment ignores it), then points are typed.
     act(() => { registerCard.mock.calls.at(-1)[1].setDisplay(true); });
     fireEvent.change(screen.getByRole('textbox', { name: 'Score:' }), { target: { value: '30' } });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' })); });
@@ -282,7 +282,7 @@ describe('StudentRubricCard: Display with an empty comment (#183)', () => {
       student: studentWith({ score: 30, ...patch }), topics: [], courseId: '4', assignmentId: '8', assignmentRow: POINTS_ROW,
       onSaved, registerCard, unregisterCard: vi.fn(),
     })));
-    expect(screen.getByRole('switch', { name: 'Display to student' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('No comment')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeDisabled();
   });
 

@@ -5,6 +5,7 @@ import { render, screen, fireEvent, within, waitFor } from '@testing-library/rea
 import { MemoryRouter, Routes, Route, useParams, useLocation } from 'react-router-dom';
 import RosterTab, { PrivateDetailsSwitch } from './RosterTab.jsx';
 import { setPrivateDetails } from '../../lib/privateDetails.js';
+import { setRosterSort } from '../../lib/rosterSort.js';
 import { gradeText } from '../PersonSub.jsx';
 import * as api from '../../services/api.js';
 
@@ -26,10 +27,12 @@ const student = (id, extra = {}) => ({
   ps_alerts: [], dropped_at: null, ...extra,
 });
 const STUDENTS = [
-  student(1, { first_name: 'Ana', preferred_name: 'Annie', last_name: 'Lee', ps_alerts: [A.plan, A.epipen] }),
-  ...Array.from({ length: 10 }, (_, i) => student(i + 2)),
+  student(1, { first_name: 'Ana', preferred_name: 'Annie', last_name: 'Lee', gender: 'F', ps_alerts: [A.plan, A.epipen] }),
+  student(2, { gender: 'M' }),
+  student(3, { gender: 'F' }),
+  ...Array.from({ length: 8 }, (_, i) => student(i + 4)),
   student(12, { email: null, ps_alerts: [A.noPhoto] }),
-  student(13, { first_name: 'Dee', last_name: 'Parted', dropped_at: '2026-08-13T00:00:00Z', ps_alerts: [A.mobility] }),
+  student(13, { first_name: 'Dee', last_name: 'Parted', dropped_at: '2026-08-13T00:00:00Z', gender: 'M', ps_alerts: [A.mobility] }),
 ];
 // Unread comments: Annie 2, student 3 one; the dropped student 5 (never counted).
 const SUMMARIES = { assignments: {
@@ -63,7 +66,7 @@ const status = () => document.querySelector('.assessment-filter-status__count');
 let writeText;
 beforeEach(() => {
   vi.clearAllMocks();
-  localStorage.clear(); setPrivateDetails(false); localStorage.clear();
+  localStorage.clear(); setPrivateDetails(false); setRosterSort('last'); localStorage.clear();
   sessionStorage.clear();
   writeText = vi.fn().mockResolvedValue();
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
@@ -290,6 +293,142 @@ describe('RosterTab pop-ups', () => {
     await screen.findByRole('dialog');
     fireEvent.mouseDown(document.body);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+// Gender on the card, the Gender filter row and the sort (25 Oct 2026, #160).
+const SORTABLE = [
+  student(1, { first_name: 'Ben', last_name: 'Cole', gender: 'M' }),
+  student(2, { first_name: 'Amy', last_name: 'Dunn', gender: 'F' }),
+  student(3, { first_name: 'Cal', last_name: 'Aston', gender: null }),
+  student(4, { first_name: 'Dee', last_name: 'Bell', gender: 'F' }),
+  student(5, { first_name: 'Eve', last_name: 'Zed', gender: 'F', dropped_at: '2026-08-13T00:00:00Z' }),
+];
+const order = () => [...document.querySelectorAll('.roster-mode > .roster-cards .roster-card__name')].map((a) => a.textContent);
+const sortGroup = () => screen.getByRole('group', { name: 'Sort by' });
+const sortBtn = (name) => within(sortGroup()).getByRole('button', { name });
+
+describe('RosterTab gender', () => {
+  it('with Private details on, the card reads grade, gender, student number, Email; an unknown gender shows nothing', () => {
+    renderTab();
+    toggle();
+    expect(cardOf('Annie Lee').querySelector('.roster-card__meta').textContent).toBe(`${gradeText(2027)}Female27001Email`);
+    expect(cardOf('First2 Last2').querySelector('.roster-card__meta').textContent).toBe(`${gradeText(2027)}Male27002Email`);
+    expect(cardOf('First4 Last4').querySelector('.roster-card__meta').textContent).toBe(`${gradeText(2027)}27004Email`);
+  });
+
+  it('with Private details off, no gender is in the DOM', () => {
+    const { container } = renderTab();
+    expect(container).not.toHaveTextContent(/Female|Male/);
+    toggle();
+    expect(screen.getAllByText(/Female/).length).toBeGreaterThan(0);
+    toggle();
+    expect(container).not.toHaveTextContent(/Female|Male|Not known/);
+  });
+
+  it('the Gender row lists Female, Male and Not known with counts; the dropped student is never counted', () => {
+    renderTab();
+    toggle();
+    const row = screen.getByRole('group', { name: 'Gender' });
+    expect([...row.querySelectorAll('.filter-btn')].map((b) => b.textContent)).toEqual(['Female2', 'Male1', 'Not known9']);
+    expect(within(row).getByRole('button', { name: /^Gender/ })).toHaveTextContent('Gender12');
+  });
+
+  it('Female shows the two women; Female and Male together show three; it combines with Alerts as any of', () => {
+    renderTab();
+    toggle();
+    fireEvent.click(screen.getByRole('button', { name: /^Female/ }));
+    expect(status()).toHaveTextContent('Showing 2 of 12 students');
+    expect(order()).toEqual(['First3 Last3', 'Annie Lee']); // by last name: Last3, Lee
+    fireEvent.click(screen.getByRole('button', { name: /^Male/ }));
+    expect(status()).toHaveTextContent('Showing 3 of 12 students');
+    fireEvent.click(screen.getByRole('button', { name: /^Not known/ }));
+    expect(status()).toHaveTextContent('Showing 12 of 12 students');
+    fireEvent.click(screen.getByRole('button', { name: /Clear all/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Male/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Learning plan/ })); // Annie (F) joins Male (First2): any of
+    expect(status()).toHaveTextContent('Showing 2 of 12 students');
+    expect(order()).toEqual(['First2 Last2', 'Annie Lee']);
+  });
+
+  it('the Gender row is not in the page with Private details off', () => {
+    renderTab();
+    expect(screen.queryByRole('group', { name: 'Gender' })).not.toBeInTheDocument();
+  });
+});
+
+describe('RosterTab sort', () => {
+  it('Sort by offers First name and Last name; the default is Last name', () => {
+    renderTab('/course/5', { students: SORTABLE });
+    expect([...sortGroup().querySelectorAll('button')].map((b) => b.textContent)).toEqual(['First name', 'Last name']);
+    expect(sortBtn('Last name')).toHaveAttribute('aria-pressed', 'true');
+    expect(sortBtn('First name')).toHaveAttribute('aria-pressed', 'false');
+    expect(order()).toEqual(['Cal Aston', 'Dee Bell', 'Ben Cole', 'Amy Dunn']);
+  });
+
+  it('First name sorts by the name the card shows', () => {
+    renderTab('/course/5', { students: SORTABLE });
+    fireEvent.click(sortBtn('First name'));
+    expect(sortBtn('First name')).toHaveAttribute('aria-pressed', 'true');
+    expect(order()).toEqual(['Amy Dunn', 'Ben Cole', 'Cal Aston', 'Dee Bell']);
+  });
+
+  it('Gender is offered only with Private details on: Female, Male, then unknown, each by last name', () => {
+    renderTab('/course/5', { students: SORTABLE });
+    expect(within(sortGroup()).queryByRole('button', { name: 'Gender' })).not.toBeInTheDocument();
+    toggle();
+    expect([...sortGroup().querySelectorAll('button')].map((b) => b.textContent)).toEqual(['First name', 'Last name', 'Gender']);
+    fireEvent.click(sortBtn('Gender'));
+    expect(order()).toEqual(['Dee Bell', 'Amy Dunn', 'Ben Cole', 'Cal Aston']);
+  });
+
+  it('a stored Gender sort reads as Last name while Private details is off, and the stored value stays', () => {
+    localStorage.setItem('prism:roster:sort', 'gender');
+    renderTab('/course/5', { students: SORTABLE });
+    expect(order()).toEqual(['Cal Aston', 'Dee Bell', 'Ben Cole', 'Amy Dunn']);
+    expect(sortBtn('Last name')).toHaveAttribute('aria-pressed', 'true');
+    expect(localStorage.getItem('prism:roster:sort')).toBe('gender');
+    toggle();
+    expect(sortBtn('Gender')).toHaveAttribute('aria-pressed', 'true');
+    expect(order()).toEqual(['Dee Bell', 'Amy Dunn', 'Ben Cole', 'Cal Aston']);
+  });
+
+  it('is remembered on this device, for every course', () => {
+    const first = renderTab('/course/5', { students: SORTABLE });
+    fireEvent.click(sortBtn('First name'));
+    first.unmount();
+    renderTab('/course/5', { students: SORTABLE });
+    expect(sortBtn('First name')).toHaveAttribute('aria-pressed', 'true');
+    expect(order()).toEqual(['Amy Dunn', 'Ben Cole', 'Cal Aston', 'Dee Bell']);
+    expect(localStorage.getItem('prism:roster:sort')).toBe('first');
+  });
+
+  it('works when storage throws, holding the choice for the page', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });
+    const first = renderTab('/course/5', { students: SORTABLE });
+    expect(order()).toEqual(['Cal Aston', 'Dee Bell', 'Ben Cole', 'Amy Dunn']);
+    fireEvent.click(sortBtn('First name'));
+    expect(order()).toEqual(['Amy Dunn', 'Ben Cole', 'Cal Aston', 'Dee Bell']);
+    first.unmount();
+    renderTab('/course/5', { students: SORTABLE });
+    expect(order()).toEqual(['Amy Dunn', 'Ben Cole', 'Cal Aston', 'Dee Bell']);
+    vi.restoreAllMocks();
+  });
+
+  it('applies to the Roster mode only: Needs attention and Mastery do not show the control', () => {
+    renderTab('/course/5?mode=mastery', { students: SORTABLE });
+    expect(screen.queryByRole('group', { name: 'Sort by' })).not.toBeInTheDocument();
+  });
+
+  it('sorts the dropped students too, and filters leave the sort as it was', () => {
+    renderTab('/course/5', { students: SORTABLE });
+    toggle();
+    fireEvent.click(sortBtn('Gender'));
+    fireEvent.click(screen.getByRole('button', { name: /^Female/ }));
+    expect(order()).toEqual(['Dee Bell', 'Amy Dunn']);
+    fireEvent.click(screen.getByRole('button', { name: '1 dropped (show)' }));
+    expect(screen.getByText('Eve Zed')).toBeInTheDocument();
   });
 });
 

@@ -8,7 +8,13 @@ export const FILTER_TYPES = [
   { id: 'level', label: 'Overall proficiency' },
 ];
 
-const GENDER_LABELS = { F: 'Female', M: 'Male' };
+export const GENDER_LABELS = { F: 'Female', M: 'Male' };
+
+// A student's gender as the roster knows it: 'F', 'M', or 'none' (blank, missing, or any other value).
+export function genderOf(student) {
+  const g = typeof student?.gender === 'string' ? student.gender.trim().toUpperCase() : '';
+  return GENDER_LABELS[g] ? g : 'none';
+}
 const NONE_LABELS = { gender: 'Not known', grade: 'No grade', level: 'No levels yet' };
 
 export function filterValueLabel(type, value) {

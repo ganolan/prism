@@ -1731,6 +1731,8 @@ button.private-details-switch[aria-pressed="true"] { background: var(--badge-amb
 .roster-tab { container: roster / inline-size; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
 .roster-modes { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .roster-mode { display: flex; flex-direction: column; gap: 0.6rem; }
+.roster-sort { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
+.roster-sort__label { font-size: 0.78rem; color: var(--text-muted); margin-right: 0.2rem; }
 .roster-cards { display: flex; flex-direction: column; gap: 6px; }
 .roster-card { display: grid; grid-template-columns: 48px minmax(0, 1fr); grid-template-areas: "av id" ". it";
   column-gap: 12px; row-gap: 8px; align-items: center; padding: 10px 12px; background: var(--card-bg);
@@ -1745,7 +1747,7 @@ button.private-details-switch[aria-pressed="true"] { background: var(--badge-amb
 .roster-card__name { font-size: 1.14rem; font-weight: 650; letter-spacing: -0.01em; color: var(--text); text-decoration: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .roster-card__name:hover { color: var(--accent); }
-/* One line: grade, number, Email. The dot trails each part (the timeline's pattern), so a wrapped
+/* One line: grade, gender (Private details), number, Email. The dot trails each part (the timeline's pattern), so a wrapped
    line never starts with one; it is drawn, not a character. */
 .roster-card__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 8px; font-size: 0.78rem; color: var(--text-muted); min-width: 0; }
 .roster-card__meta > * { display: inline-flex; align-items: center; }

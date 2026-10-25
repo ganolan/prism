@@ -75,3 +75,37 @@ describe('alertChipLabel', () => {
     expect(alertChipLabel(epipen)).toBe('EpiPen');
   });
 });
+
+describe('gender pills', () => {
+  const G = [
+    { id: 1, gender: 'F' }, { id: 2, gender: 'F' }, { id: 3, gender: 'M' }, { id: 4, gender: null }, { id: 5 },
+  ];
+
+  it('Female, Male, Not known, each with its count, only while someone matches', () => {
+    const o = rosterFilterOptions(G, null);
+    expect(o.gender).toEqual([
+      { key: 'gender:F', label: 'Female', count: 2 },
+      { key: 'gender:M', label: 'Male', count: 1 },
+      { key: 'gender:none', label: 'Not known', count: 2 },
+    ]);
+    expect(o.genderStudents).toBe(5);
+    expect(rosterFilterOptions([{ id: 1, gender: 'M' }], null).gender).toEqual([{ key: 'gender:M', label: 'Male', count: 1 }]);
+  });
+
+  it('a pill that is on stays at 0 while nobody matches it', () => {
+    const o = rosterFilterOptions([{ id: 1, gender: 'M' }], null, new Set(['gender:F']));
+    expect(o.gender.map((p) => [p.key, p.count])).toEqual([['gender:F', 0], ['gender:M', 1]]);
+  });
+
+  it('filters as any of, with the other pills', () => {
+    const ids = (sel, st = G, unread = {}) => applyRosterFilters(st, new Set(sel), unread).map((x) => x.id);
+    expect(ids(['gender:F'])).toEqual([1, 2]);
+    expect(ids(['gender:F', 'gender:M'])).toEqual([1, 2, 3]);
+    expect(ids(['gender:none'])).toEqual([4, 5]);
+    expect(ids(['gender:M', UNREAD], G, { 5: 1 })).toEqual([3, 5]);
+  });
+
+  it('any value other than F or M is not known', () => {
+    expect(rosterFilterOptions([{ id: 1, gender: 'X' }], null).gender).toEqual([{ key: 'gender:none', label: 'Not known', count: 1 }]);
+  });
+});

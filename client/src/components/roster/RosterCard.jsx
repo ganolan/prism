@@ -5,9 +5,11 @@ import { gradeText } from '../PersonSub.jsx';
 import { preferredFirstName, studentFullName } from '../../lib/studentNames.js';
 import { formatDate } from '../../lib/formatDate.js';
 import { alertChipLabel } from '../../lib/rosterVitals.js';
+import { GENDER_LABELS, genderOf } from '../../lib/rosterFilters.js';
 
 // One student on the Roster tab (#160). Left: the photo, the one name the student goes by, then one
-// line: grade, student number (the email's local part) and an Email copy button. Right, only with
+// line: grade, the gender (Private details only, none when unknown), student number (the email's
+// local part) and an Email copy button. Right, only with
 // Private details on: the unread comments count and the alert chips, in fixed-width slots so they line
 // up down the page. With Private details off those slots are not drawn at all.
 //
@@ -68,6 +70,7 @@ export default function RosterCard({ student, showPrivate, unread = null, alerts
   const navigate = useNavigate();
   const number = student.email ? student.email.split('@')[0] : null;
   const grade = gradeText(student.grad_year);
+  const gender = showPrivate ? GENDER_LABELS[genderOf(student)] : null; // not in the DOM with Private details off
   const open = (e) => {
     // Needs attention's rows hold editors and panels: a tap there never leaves the page.
     if (e.target.closest('a, button, input, select, textarea, label, .roster-card__items')) return;
@@ -80,6 +83,7 @@ export default function RosterCard({ student, showPrivate, unread = null, alerts
         <Link className="roster-card__name" to={`/student/${student.id}`}>{studentFullName(student)}</Link>
         <span className="roster-card__meta">
           {grade && <span>{grade}</span>}
+          {gender && <span className="roster-card__gender">{gender}</span>}
           {number && <span className="roster-card__number">{number}</span>}
           {student.email && <span><CopyEmail email={student.email} /></span>}
           {student.dropped_at && <span>dropped {formatDate(student.dropped_at)}</span>}

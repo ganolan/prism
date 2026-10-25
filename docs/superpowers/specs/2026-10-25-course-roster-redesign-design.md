@@ -370,6 +370,15 @@ Where the build departs from the text above, or settled what it left open (each 
   were not probed (they were kept after the probe): they read as plain text or as "Prism can read only that it is
   set".
 - **Removed:** the old roster table and its per-category columns, the legal name, the roster's alerts toggle.
+- **Gender and sort (Graham, 25 Oct 2026, after the build):** with Private details on, the card's meta line reads
+  grade, gender (Female or Male; nothing when unknown), student number, Email, and the filter bar has a third row,
+  **Gender** (Female, Male, Not known, each with its count; dropped students never counted). Its pills join the one
+  "any of" set, so they combine with Alerts and Follow up as those combine with each other. A "Sort by" control
+  above the Roster mode's cards offers First name, Last name (the default) and, with Private details on, Gender
+  (Female, Male, unknown, then last name). The choice is remembered on this device in `localStorage`
+  (`prism:roster:sort`, one key for every course); Gender with the switch off sorts by last name and leaves the stored
+  value. It applies to the Roster mode only. Code: `lib/rosterSort.js`, `components/roster/RosterSort.jsx`,
+  `rosterVitals.js` (`gender` options and keys), `rosterFilters.js` (`genderOf`, `GENDER_LABELS`).
 
 ## Left to the builder
 

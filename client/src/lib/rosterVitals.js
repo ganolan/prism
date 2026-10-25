@@ -3,12 +3,16 @@
 // student is never counted or matched.
 //
 // Filter keys: LEARNING_PLAN (any learning alert: they share one pill), an alert key for every other
-// roster alert (health, other; family alerts never reach a roster, `forRoster`), and UNREAD.
+// roster alert (health, other; family alerts never reach a roster, `forRoster`), UNREAD, and
+// `gender:F`, `gender:M`, `gender:none` (25 Oct 2026). All of them combine as "any of".
 import { forRoster } from './psAlerts.js';
+import { genderOf, filterValueLabel } from './rosterFilters.js';
 
 export const LEARNING_PLAN = 'learning';
 export const UNREAD = 'unread';
 const FIXED_LABELS = { [LEARNING_PLAN]: 'Learning plan', [UNREAD]: 'Unread comments' };
+const GENDER_PREFIX = 'gender:';
+const GENDER_ORDER = ['F', 'M', 'none'];
 const CATEGORY_ORDER = { health: 0, other: 1 };
 
 // The course's comment summaries ({ [schoology aid]: { [student id]: summary } }) → { [student id]: unread }.
@@ -31,10 +35,11 @@ function keysOf(student, unread) {
   const keys = new Set();
   for (const a of forRoster(student.ps_alerts)) keys.add(a.category === 'learning' ? LEARNING_PLAN : a.key);
   if (unread?.[student.id] > 0) keys.add(UNREAD);
+  keys.add(GENDER_PREFIX + genderOf(student));
   return keys;
 }
 
-// → { alerts: [{ key, label, count }], followUp: [...], alertStudents, followUpStudents }.
+// → { alerts: [{ key, label, count }], followUp: [...], gender: [...], alertStudents, followUpStudents, genderStudents }.
 // A pill is listed while some student matches it, or while it is on (`selected`; `labels` names an
 // alert pill nobody holds any more). Alerts: Learning plan first, then health, then other, by label.
 // `unread` null (comments unavailable) lists no Unread comments pill.
@@ -42,6 +47,7 @@ export function rosterFilterOptions(students, unread, selected = new Set(), labe
   const alerts = new Map(); // key → { key, label, count, rank }
   let alertStudents = 0;
   let followUpStudents = 0;
+  const genders = { F: 0, M: 0, none: 0 };
   for (const s of students) {
     const roster = forRoster(s.ps_alerts);
     if (roster.length) alertStudents += 1;
@@ -52,18 +58,25 @@ export function rosterFilterOptions(students, unread, selected = new Set(), labe
       if (!counted.has(key)) { alerts.get(key).count += 1; counted.add(key); }
     }
     if (unread?.[s.id] > 0) followUpStudents += 1;
+    genders[genderOf(s)] += 1;
   }
   for (const key of selected) {
-    if (key === UNREAD || alerts.has(key)) continue;
+    if (key === UNREAD || key.startsWith(GENDER_PREFIX) || alerts.has(key)) continue;
     alerts.set(key, { key, label: FIXED_LABELS[key] || labels[key] || key, count: 0, rank: key === LEARNING_PLAN ? -1 : 3 });
   }
   const followUp = followUpStudents > 0 || selected.has(UNREAD)
     ? [{ key: UNREAD, label: FIXED_LABELS[UNREAD], count: followUpStudents }] : [];
+  // Female, Male, Not known: listed while some student matches or the pill is on.
+  const gender = GENDER_ORDER
+    .filter((g) => genders[g] > 0 || selected.has(GENDER_PREFIX + g))
+    .map((g) => ({ key: GENDER_PREFIX + g, label: filterValueLabel('gender', g), count: genders[g] }));
   return {
     alerts: [...alerts.values()].sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label)).map(({ key, label, count }) => ({ key, label, count })),
     followUp,
+    gender,
     alertStudents,
     followUpStudents,
+    genderStudents: students.length,
   };
 }
 

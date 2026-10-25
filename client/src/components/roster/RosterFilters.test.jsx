@@ -94,3 +94,36 @@ describe('RosterFilters', () => {
     expect(onCopyEmails).toHaveBeenCalledWith(copy);
   });
 });
+
+describe('RosterFilters Gender row', () => {
+  const PEOPLE = [
+    { id: 1, gender: 'F', ps_alerts: [] }, { id: 2, gender: 'F', ps_alerts: [] },
+    { id: 3, gender: 'M', ps_alerts: [] }, { id: 4, ps_alerts: [] },
+  ];
+  function GenderHarness({ people = PEOPLE }) {
+    const [selected, setSelected] = useState(new Set());
+    const options = rosterFilterOptions(people, null, selected);
+    const shown = applyRosterFilters(people, selected, null);
+    return <RosterFilters options={options} selected={selected} onChange={setSelected}
+      shown={shown.length} total={people.length} onCopyEmails={() => {}} />;
+  }
+
+  it('is a group pill with Female, Male and Not known, built from the same pills as Alerts', () => {
+    render(<GenderHarness />);
+    const row = screen.getByRole('group', { name: 'Gender' });
+    expect(row.querySelector('.group-pill')).toHaveTextContent('Gender4');
+    expect([...row.querySelectorAll('.filter-btn')].map((b) => b.textContent)).toEqual(['Female2', 'Male1', 'Not known1']);
+    fireEvent.click(screen.getByRole('button', { name: /^Female/ }));
+    expect(screen.getByRole('button', { name: /^Gender/ })).toHaveAttribute('data-state', 'some');
+    expect(status()).toHaveTextContent('Showing 2 of 4 students');
+    fireEvent.click(screen.getByRole('button', { name: /^Gender/ }));
+    expect(screen.getByRole('button', { name: /^Gender/ })).toHaveAttribute('data-state', 'all');
+    expect(status()).toHaveTextContent('Showing 4 of 4 students');
+  });
+
+  it('lists only the pills someone matches', () => {
+    render(<GenderHarness people={[{ id: 1, gender: 'M', ps_alerts: [] }]} />);
+    const row = screen.getByRole('group', { name: 'Gender' });
+    expect([...row.querySelectorAll('.filter-btn')].map((b) => b.textContent)).toEqual(['Male1']);
+  });
+});

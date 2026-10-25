@@ -6,6 +6,7 @@ import GroupPill, { groupState } from '../GroupPill.jsx';
 //  - Alerts: a group pill (none / some / all, counting students who hold any alert), a divider, then one
 //    pill per alert type some student holds (learning alerts share Learning plan).
 //  - Follow up: the muted group pill, then Unread comments.
+//  - Gender (25 Oct 2026): the group pill, then Female, Male and Not known, each while some student matches.
 //  - The status line: "Showing 4 of 12 students" with Copy emails (N) beside it; Clear all on the right.
 // Pills combine as "any of". This component renders and reports; RosterTab owns the selection.
 // options: rosterFilterOptions (lib/rosterVitals.js). onChange(nextSelectedSet).
@@ -48,6 +49,7 @@ export default function RosterFilters({ options, selected, onChange, shown, tota
     <div className="assessment-filter-bar roster-filters">
       <Row label="Alerts" pills={options.alerts} students={options.alertStudents} selected={selected} onChange={onChange} />
       <Row label="Follow up" watch pills={options.followUp} students={options.followUpStudents} selected={selected} onChange={onChange} />
+      <Row label="Gender" pills={options.gender} students={options.genderStudents} selected={selected} onChange={onChange} />
       <div className="assessment-filter-status">
         <span className="roster-filter-status__left">
           <span className="assessment-filter-status__count">

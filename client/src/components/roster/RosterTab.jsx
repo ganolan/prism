@@ -7,9 +7,11 @@ import CopyEmailsPopover from './CopyEmailsPopover.jsx';
 import NeedsAttention from './NeedsAttention.jsx';
 import TestDay from './TestDay.jsx';
 import MasteryView from './MasteryView.jsx';
+import RosterSort from './RosterSort.jsx';
 import { usePrivateDetails } from '../../lib/privateDetails.js';
 import { useStickyTab } from '../../hooks/useStickyTab.js';
 import { forRoster } from '../../lib/psAlerts.js';
+import { useRosterSort, setRosterSort, sortRoster, effectiveSort } from '../../lib/rosterSort.js';
 import { unreadCounts, rosterFilterOptions, applyRosterFilters } from '../../lib/rosterVitals.js';
 import { getCourseCommentSummaries } from '../../services/api.js';
 
@@ -55,13 +57,17 @@ export function LockedBox({ title }) {
   );
 }
 
-// Roster mode: the cards, and with Private details on the filters and Copy emails.
+// Roster mode: the cards, and with Private details on the filters and Copy emails. "Sort by" sits
+// above the cards (Last name by default, remembered on this device); the dropped cards follow it too.
 function RosterMode({ on, courseId, active, dropped, unread, filters, setFilters, labels, card, popup, openPopup, closePopup }) {
   const [showDropped, setShowDropped] = useState(false);
+  const [stored] = useRosterSort();
+  const sort = effectiveSort(stored, on);
 
   const options = rosterFilterOptions(active, unread, filters, labels.current);
   for (const o of options.alerts) labels.current[o.key] = o.label;
-  const shown = on ? applyRosterFilters(active, filters, unread) : active;
+  const shown = sortRoster(on ? applyRosterFilters(active, filters, unread) : active, sort);
+  const droppedSorted = sortRoster(dropped, sort);
 
   return (
     <div className="roster-mode">
@@ -69,6 +75,7 @@ function RosterMode({ on, courseId, active, dropped, unread, filters, setFilters
         <RosterFilters options={options} selected={filters} onChange={setFilters} shown={shown.length} total={active.length}
           onCopyEmails={(anchor) => openPopup({ kind: 'emails', anchor })} />
       )}
+      <RosterSort sort={sort} onChange={setRosterSort} showPrivate={on} />
       <div className="roster-cards">
         {shown.map((s) => card(s))}
         {active.length === 0 && <p className="text-sm text-muted">No students are enrolled.</p>}
@@ -80,7 +87,7 @@ function RosterMode({ on, courseId, active, dropped, unread, filters, setFilters
           <button type="button" className="ghost" aria-expanded={showDropped} onClick={() => setShowDropped((v) => !v)}>
             {dropped.length} dropped {showDropped ? '(hide)' : '(show)'}
           </button>
-          {showDropped && <div className="roster-cards">{dropped.map((s) => card(s, { isDropped: true }))}</div>}
+          {showDropped && <div className="roster-cards">{droppedSorted.map((s) => card(s, { isDropped: true }))}</div>}
         </div>
       )}
       {on && popup?.kind === 'emails' && (

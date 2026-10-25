@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, within, waitFor } from '@testing-library/react';
+import { render, screen, within, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ToolsPage from './ToolsPage.jsx';
 import * as api from '../services/api.js';
+import { setPrivateDetails } from '../lib/privateDetails.js';
 
 vi.mock('../services/api.js', () => ({
   getCourses: vi.fn(),
@@ -21,6 +22,7 @@ const FACETS = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear(); // Private details reads as on (test-setup.js) unless a test turns it off
   api.getCourses.mockResolvedValue([
     { id: 7, course_name: 'AP CSP', student_count: 3, excluded: 0, hidden: 0, archived: 0 },
     { id: 8, course_name: 'Robotics', student_count: 2, excluded: 0, hidden: 0, archived: 0 },
@@ -103,5 +105,42 @@ describe('Class Tools: roster filters (#73)', () => {
     expect(await within(tool).findByRole('textbox')).toHaveValue('Zoe Adams');
     await user.click(within(card).getByRole('button', { name: 'Male (1)' }));
     await waitFor(() => expect(within(tool).queryByRole('textbox')).toBeNull());
+  });
+});
+
+// #197 (Graham, 25 Oct 2026): with Private details off the filters are private: not drawn, and none applies.
+describe('Class Tools with Private details off', () => {
+  it('hides the filter card, drops a chosen filter, and shows the box in its place', async () => {
+    const user = userEvent.setup();
+    render(<ToolsPage />);
+    await user.click(await screen.findByRole('checkbox', { name: /AP CSP/ }));
+    const card = screen.getByTestId('roster-filters');
+    await within(card).findByText('4 students');
+    await user.click(within(card).getByRole('button', { name: /Filter students/ }));
+    await user.click(within(card).getByRole('button', { name: 'Female (2)' }));
+    expect(await within(card).findByText('Showing 2 of 4 students')).toBeInTheDocument();
+
+    act(() => setPrivateDetails(false));
+    expect(screen.queryByTestId('roster-filters')).toBeNull();
+    expect(screen.getByText('Filters by gender, grade and proficiency are private.')).toBeInTheDocument();
+    await user.click(within(screen.getByTestId('class-list-tool')).getByRole('button', { name: /generate/i }));
+    expect(api.getRoster).toHaveBeenLastCalledWith([7], '');
+
+    act(() => setPrivateDetails(true));
+    expect(await within(screen.getByTestId('roster-filters')).findByText('4 students')).toBeInTheDocument();
+  });
+
+  it('a balanced group shows each percentage only with Private details on', async () => {
+    const user = userEvent.setup();
+    api.getGroups.mockResolvedValue({ groups: [[{ id: 1, first_name: 'Zoe', last_name: 'Adams', avg_pct: 81 }]] });
+    render(<ToolsPage />);
+    await user.click(await screen.findByRole('checkbox', { name: /AP CSP/ }));
+    await user.click(screen.getByRole('checkbox', { name: /Balance by overall proficiency/ }));
+    const groupTool = screen.getByRole('heading', { name: 'Group Generator' }).closest('.card');
+    await user.click(within(groupTool).getByRole('button', { name: 'Generate' }));
+    expect(await screen.findByText('(81%)')).toBeInTheDocument();
+    act(() => setPrivateDetails(false));
+    expect(screen.getByText('Zoe Adams')).toBeInTheDocument();
+    expect(screen.queryByText('(81%)')).toBeNull();
   });
 });

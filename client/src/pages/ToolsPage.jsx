@@ -5,6 +5,8 @@ import { NAME_FORMATS, SEPARATORS, SAMPLE_STUDENT, formatName, formatClassList }
 import { groupByYearAndSemester } from '../lib/courseDisplay.js';
 import { EMAIL_FORMATS, emailText } from '../lib/emailFormats.js';
 import { FILTER_TYPES, filterValueLabel, filterValueTitle, rosterFilterQuery, keepHeldValues } from '../lib/rosterFilters.js';
+import { usePrivateDetails } from '../lib/privateDetails.js';
+import { PrivateHidden } from '../components/PrivateDetails.jsx';
 
 const GROUP_COLORS = [
   'var(--badge-blue-bg)', 'var(--badge-green-bg)', 'var(--warning-light)',
@@ -17,7 +19,12 @@ export default function ToolsPage() {
   const [selectedCourses, setSelectedCourses] = useState([]);
   const [showPast, setShowPast] = useState(false);
   const [filters, setFilters] = useState({});
-  const filterQuery = rosterFilterQuery(filters);
+  // #197 (Graham, 25 Oct 2026): the tools are made to be projected, but their filters (gender, grade,
+  // overall proficiency) and the Balance percentages are private. With Private details off the filter
+  // card is not drawn and no filter applies, so a hidden filter never shapes a projected list.
+  const [privateOn] = usePrivateDetails();
+  useEffect(() => { if (!privateOn) setFilters({}); }, [privateOn]);
+  const filterQuery = privateOn ? rosterFilterQuery(filters) : '';
 
   useEffect(() => {
     // Current, hidden and past (archived) courses: past ones are listed under their own toggle (#73)
@@ -85,11 +92,13 @@ export default function ToolsPage() {
 
       {selectedCourses.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <RosterFilters courseIds={selectedCourses} filters={filters} setFilters={setFilters} />
+          {privateOn
+            ? <RosterFilters courseIds={selectedCourses} filters={filters} setFilters={setFilters} />
+            : <PrivateHidden title="Filters by gender, grade and proficiency are private." />}
           <ClassListTool courseIds={selectedCourses} filters={filterQuery} />
           <EmailTool courseIds={selectedCourses} filters={filterQuery} />
           <RandomPicker courseIds={selectedCourses} filters={filterQuery} />
-          <GroupGenerator courseIds={selectedCourses} filters={filterQuery} />
+          <GroupGenerator courseIds={selectedCourses} filters={filterQuery} showPercent={privateOn} />
         </div>
       )}
     </div>
@@ -391,7 +400,8 @@ function RandomPicker({ courseIds, filters }) {
   );
 }
 
-function GroupGenerator({ courseIds, filters }) {
+// showPercent: each student's proficiency percentage beside the name in a balanced group (Private details).
+function GroupGenerator({ courseIds, filters, showPercent = false }) {
   const [groupCount, setGroupCount] = useState(4);
   const [balanced, setBalanced] = useState(false);
   const [groups, setGroups] = useState(null);
@@ -443,7 +453,7 @@ function GroupGenerator({ courseIds, filters }) {
                 {g.map(s => (
                   <li key={s.id} className="text-sm" style={{ padding: '0.15rem 0' }}>
                     {displayName(s)}
-                    {balanced && s.avg_pct != null && <span className="text-muted" style={{ fontSize: '0.75rem', marginLeft: '0.3rem' }}>({s.avg_pct}%)</span>}
+                    {showPercent && balanced && s.avg_pct != null && <span className="text-muted" style={{ fontSize: '0.75rem', marginLeft: '0.3rem' }}>({s.avg_pct}%)</span>}
                   </li>
                 ))}
               </ul>

@@ -1700,7 +1700,7 @@ Graham decided on 25 Oct 2026 that one switch covers the whole app: any page may
   - **Assessment page:** the way back to the course and the box; the page itself unmounts (each grade card in edit mode saves its draft as it unmounts) and turning the switch on mounts a fresh page that reads the task again.
   - **Student page:** photo, name, grade, ID and email stay; alerts, family contacts, notes and courses are replaced by one box in the contacts column.
   - **Roster tab:** below.
-- **Class Tools and Search are unchanged:** they show names and the filters a teacher chooses.
+- **Class Tools (Graham, 25 Oct 2026):** the tools stay, since they are made to be projected; the filter card (gender, grade, overall proficiency) is replaced by the box and no filter applies, and a balanced group leaves out each student's percentage. Search and the Directory are unchanged.
 
 ## Roster tab: Private details and projection safety (#160, 25 Oct 2026)
 

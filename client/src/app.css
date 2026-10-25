@@ -1903,16 +1903,19 @@ button.test-day-card__btn { padding: 0.3rem 0.75rem; font-size: 0.78rem; }
 .test-day-card__line:empty { display: none; }
 button.test-day-card__show { padding: 0; font-size: 0.78rem; color: var(--accent); }
 .test-day-card__error { color: var(--badge-amber-text); }
-/* Mastery: Prism's level beside Schoology's. Fixed column widths (--m-p Prism, --m-s Schoology, --m-gs the
-   grade Schoology's levels give) and a topic track as wide as the longest category (--maxt chips of --sq),
+/* Mastery: Prism's level beside Schoology's. Fixed column widths (--m-p Prism, --m-s Schoology, --m-g the
+   translated grade) and a topic track as wide as the longest category (--maxt chips of --sq),
    so the levels line up in one column down the page. Level fills come from LEVEL_COLORS. */
-.mastery { --sq: 30px; --m-p: 46px; --m-s: 88px; --m-gs: 108px; display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+.mastery { --sq: 30px; --m-p: 46px; --m-s: 88px; --m-g: 80px; display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
 .mastery-cats { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .mastery-all { display: flex; flex-direction: column; gap: 6px; --track: calc(var(--maxt) * (var(--sq) + 3px) - 3px); }
 .mastery-head, .mastery-card { display: grid; grid-template-columns: 34px minmax(120px, 220px) auto auto minmax(0, 1fr); column-gap: 12px; }
 .mastery-head { padding: 0 12px; align-items: end; }
 .mastery-head__lines { grid-column: 3; display: grid; grid-template-columns: var(--catw, 26px) var(--track) 2px auto; column-gap: 8px; align-items: end; }
-.mastery-head__grades { grid-column: 4; display: grid; grid-template-columns: var(--m-p) var(--m-gs); column-gap: 6px; padding-left: 14px; align-items: end; }
+.mastery-head__grades { grid-column: 4; display: grid; grid-template-columns: var(--m-g); padding-left: 14px; align-items: end; }
+/* "Translated grade" stays on one line, centred over the narrow grade column (it extends into the gaps
+   either side); the "?" keeps its size. */
+.mastery-head__grade .help-dot { flex: none; }
 .mastery-hl { font-size: 0.7rem; font-weight: 700; color: var(--text-muted); display: inline-flex; gap: 4px; align-items: center; justify-content: center; white-space: nowrap; }
 .mastery-hl--start { justify-content: flex-start; }
 .mastery-phone-help { display: none; font-size: 0.76rem; color: var(--text-muted); gap: 10px; flex-wrap: wrap; align-items: center; }
@@ -1928,7 +1931,9 @@ button.test-day-card__show { padding: 0; font-size: 0.78rem; color: var(--accent
 .mastery-card__id { grid-area: id; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .mastery-card__name { font-size: 0.95rem; font-weight: 650; color: var(--text); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 a.mastery-card__name:hover { color: var(--accent); }
-.mastery-card__lines { grid-area: ln; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+/* Never narrower than its chips in the wide layout (a shrunk track overflowed into the grade column and
+   left the header out of line, #193 follow-up); the narrow layouts below let it shrink. */
+.mastery-card__lines { grid-area: ln; display: flex; flex-direction: column; gap: 6px; }
 .mastery-card__grade { grid-area: gr; align-self: stretch; display: flex; }
 .mastery-line { display: grid; grid-template-columns: var(--catw, 26px) var(--track) 2px auto; column-gap: 8px; align-items: center; justify-content: start; }
 /* The category's short label (P, CRC, #192); --catw fits the course's longest one. */
@@ -1950,10 +1955,14 @@ a.mastery-card__name:hover { color: var(--accent); }
 button.sgc:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .sgc.off { border: 0; box-shadow: 0 0 0 2.5px var(--warning); color: var(--text); }
 button.sgc:disabled { cursor: not-allowed; }
-.sgc--grade { cursor: default; font-size: 0.82rem; }
-.mastery-grade { display: grid; grid-template-columns: var(--m-p) var(--m-gs); column-gap: 6px; align-items: center; justify-items: center;
-  padding-left: 12px; border-left: 2px solid var(--border); align-self: stretch; align-content: center; }
-.mastery-grade__prism { font-size: 1.3rem; font-weight: 800; line-height: 1; cursor: default; }
+/* The letter stays centred down the column; the warning sits in the right-hand track beside it. */
+.mastery-grade { width: var(--m-g); box-sizing: content-box; display: grid; grid-template-columns: 1fr auto 1fr; column-gap: 6px;
+  align-items: center; padding-left: 12px; border-left: 2px solid var(--border); align-self: stretch; }
+.mastery-grade__prism { grid-column: 2; font-size: 1.3rem; font-weight: 800; line-height: 1; cursor: default; }
+/* Schoology's levels translate to another grade: the amber of a differing Schoology chip. */
+.mastery-grade__warn { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; flex: none;
+  grid-column: 3; justify-self: start;
+  background: var(--warning-light); color: var(--badge-amber-text); box-shadow: 0 0 0 1.5px var(--warning); font-size: 0.72rem; font-weight: 800; cursor: help; }
 /* One category: a short row per student under a header that stays on screen. Sticky works only with
    no overflow container around it, so nothing here sets overflow; the columns shrink instead. */
 .mastery-one { display: flex; flex-direction: column; gap: 4px; }
@@ -1978,6 +1987,7 @@ button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accen
   .mastery-card { grid-template-columns: 34px auto auto minmax(0, 1fr); grid-template-areas: "av id id id" "ln ln gr ."; }
   .mastery-head { display: none; }
   .mastery-phone-help { display: flex; }
+  .mastery-card__lines { min-width: 0; }
 }
 @container roster (max-width: 640px) {
   .mastery-row { grid-template-columns: repeat(var(--n), minmax(0, 1fr)) 2px auto; row-gap: 6px; }
@@ -1988,7 +1998,7 @@ button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accen
   .mastery-row--head .mastery-hl, .mastery-row--head button.mastery-th b { font-size: 0.64rem; }
 }
 @container roster (max-width: 480px) {
-  .mastery { --sq: 26px; --m-p: 40px; --m-s: 46px; --m-gs: 46px; }
+  .mastery { --sq: 26px; --m-p: 40px; --m-s: 46px; --m-g: 72px; }
   .mastery-card { grid-template-columns: 34px minmax(0, 1fr) auto; grid-template-areas: "av id gr" "ln ln ln"; }
   .mastery-pair, .mastery-grade { column-gap: 4px; }
   .mastery-grade { padding-left: 8px; }

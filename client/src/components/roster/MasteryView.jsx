@@ -51,11 +51,8 @@ const pctText = (pct) => `${Math.round(pct)}%`;
 const listNames = (names) => (names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 
 // Why a grade is "-" (#192, item 9): the categories with no evidence on that side, named.
-export function blankGradeText(missing, { isClass = false, side = 'prism' } = {}) {
+export function blankGradeText(missing, { isClass = false } = {}) {
   const verb = missing.length === 1 ? 'has' : 'have';
-  if (side === 'schoology') {
-    return `No Schoology grade yet. Schoology holds no level for ${listNames(missing)}. A grade needs a level in every reporting category.`;
-  }
   return `No ${isClass ? 'class grade' : 'grade'} yet: ${listNames(missing)} ${verb} no evidence. A grade needs evidence in every reporting category.`;
 }
 
@@ -97,26 +94,32 @@ function SchoologyChip({ track, cell, linked, scale, onOpen }) {
   );
 }
 
-// A "-" grade's popover names the categories it is waiting for (no icon or colour on the card).
-function GradeCell({ grade, isClass, tracks, categories }) {
+// The translated grade (HKIS's chart on Prism's levels). A "-" grade's popover names the categories it is
+// waiting for. When Schoology's levels, the ones students see, translate to another grade (or none), an
+// amber "!" says so and how to correct it: override Schoology's level (#193 follow-up, Graham 25 Oct 2026).
+export function mismatchText({ prism, schoology }, missing, linked) {
+  const fix = linked ? LINKED_REASON : "To correct it, override Schoology's level: click a highlighted Schoology level.";
+  const seen = schoology == null
+    ? `Schoology holds no level for ${listNames(missing)}, so students see a blank grade.`
+    : `Students see Schoology's levels, so their grade translates to ${schoology}, not ${prism}.`;
+  return `Schoology's levels differ from Prism's. ${seen} ${fix}`;
+}
+
+function GradeCell({ grade, isClass, tracks, categories, linked }) {
   const p = grade.prism;
-  const s = grade.schoology;
   const covered = chartCovers(tracks.length);
-  const prismTip = !covered ? uncoveredText(tracks.length)
+  const tip = !covered ? uncoveredText(tracks.length)
     : p == null ? blankGradeText(missingCategories(tracks, categories, 'prism'), { isClass })
-    : isClass ? `Class average grade: ${p}` : `Prism's grade, from Prism's category levels: ${p}`;
-  let tip;
-  if (!covered) tip = uncoveredText(tracks.length);
-  else if (s == null) tip = blankGradeText(missingCategories(tracks, categories, 'schoology'), { side: 'schoology' });
-  else tip = s === p ? `Schoology's levels give the same grade: ${s}` : `Schoology's levels give ${s}; Prism's give ${p ?? 'no grade yet'}`;
+    : isClass ? `Class average translated grade: ${p}` : `Translated grade from Prism's levels: ${p}`;
+  const warn = covered && !isClass && grade.differs;
   return (
     <span className="mastery-grade">
-      <Tip className="mastery-grade__prism" style={p ? { color: LETTER_GRADE_COLORS[p] } : undefined} text={prismTip}>
+      <Tip className="mastery-grade__prism" style={p ? { color: LETTER_GRADE_COLORS[p] } : undefined} text={tip}>
         {p ?? '-'}
       </Tip>
-      {isClass
-        ? <span className="mastery-blank" aria-hidden="true" />
-        : <Tip className={`sgc sgc--grade${grade.differs ? ' off' : ''}`} style={grade.differs && s ? { color: LETTER_GRADE_COLORS[s] } : undefined} text={tip}>{s ?? '-'}</Tip>}
+      {warn && (
+        <Tip className="mastery-grade__warn" text={mismatchText(grade, missingCategories(tracks, categories, 'schoology'), linked)}>!</Tip>
+      )}
     </span>
   );
 }
@@ -196,7 +199,7 @@ function AllCategories({ tracks, rows, classRow, count, linked, scale, onOverrid
           </span>
         ))}
       </span>
-      <span className="mastery-card__grade"><GradeCell grade={m.grade} isClass={!student} tracks={tracks} categories={m.categories} /></span>
+      <span className="mastery-card__grade"><GradeCell grade={m.grade} isClass={!student} tracks={tracks} categories={m.categories} linked={linked} /></span>
     </div>
   );
   return (
@@ -210,15 +213,14 @@ function AllCategories({ tracks, rows, classRow, count, linked, scale, onOverrid
         </span>
         <span className="mastery-head__grades">
           <span className="mastery-hl mastery-head__grade">
-            <span>Grade</span>
+            <span>Translated grade</span>
             <GradeScaleHelp numCategories={tracks.length} />
           </span>
-          <Tip className="mastery-hl" text="The grade Schoology's levels give">Schoology levels</Tip>
         </span>
       </div>
       <div className="mastery-phone-help">
         <span><b>Left:</b> Prism</span><span><b>Right:</b> Schoology</span><HelpDot text={HELP}>{HELP_POP}</HelpDot>
-        <span className="mastery-phone-help__grade">Grade <GradeScaleHelp numCategories={tracks.length} /></span>
+        <span className="mastery-phone-help__grade">Translated grade <GradeScaleHelp numCategories={tracks.length} /></span>
       </div>
       {card(null, classRow)}
       {rows.map(({ student, m }) => card(student, m))}

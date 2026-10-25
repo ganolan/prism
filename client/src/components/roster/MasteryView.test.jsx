@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import MasteryView, { LINKED_REASON } from './MasteryView.jsx';
+import MasteryView, { LINKED_REASON, mismatchText } from './MasteryView.jsx';
 import { PrivateHidden } from '../PrivateDetails.jsx';
 import * as api from '../../services/api.js';
 
@@ -154,10 +154,8 @@ describe('MasteryView', () => {
       + 'A grade needs evidence in every reporting category.');
     expect(prismOf('Ed Pi')).toHaveAttribute('aria-label', 'No grade yet: Computational Thinking Practices has no evidence. '
       + 'A grade needs evidence in every reporting category.');
-    expect(popOn(cardOf('Di Oh').querySelector('.mastery-grade .sgc'))).toBe('No Schoology grade yet. Schoology holds no level for '
-      + 'Content Knowledge and Computational Thinking Practices. A grade needs a level in every reporting category.');
-    // Nothing on the card itself: no icon, colour or extra line.
-    expect(cardOf('Di Oh').querySelector('.mastery-grade').textContent).toBe('--');
+    // Nothing on the card itself: no icon, colour or extra line (no Prism grade, so no mismatch either).
+    expect(cardOf('Di Oh').querySelector('.mastery-grade').textContent).toBe('-');
   });
 
   it("the Schoology help is a short list in a wrapped popover, not one long line", async () => {
@@ -169,26 +167,34 @@ describe('MasteryView', () => {
     expect(pop).toHaveTextContent(/Highlighted: it differs\. Tap it to set Schoology's override to Prism's level\./);
   });
 
-  it('the help dot sits in the Schoology heading, and the grade headings read Grade and Schoology levels', async () => {
+  it('the help dot sits in the Schoology heading; one grade column, headed Translated grade', async () => {
     renderView();
     await screen.findByText('Annie Lee');
     const head = document.querySelector('.mastery-head');
     const sgy = head.querySelector('.mastery-head__sgy');
     expect(sgy.firstChild.textContent.trim()).toBe('Schoology');
     expect(sgy.querySelector('.help-dot')).toHaveAttribute('aria-label', expect.stringMatching(/^Schoology's level is the one students and report cards see\./));
-    expect(within(head).getByText('Grade')).toBeInTheDocument();
-    expect(within(head).getByText('Schoology levels')).toBeInTheDocument();
+    expect(within(head).getByText('Translated grade')).toBeInTheDocument();
+    expect(within(head).queryByText('Schoology levels')).toBeNull();
+    expect(document.querySelector('.mastery-grade .sgc')).toBeNull();
   });
 
-  it("the grade's Schoology chip states both grades when they differ", async () => {
+  it("a warning sits on the translated grade when Schoology's levels translate to another grade, with how to correct it", async () => {
     renderView();
     await screen.findByText('Annie Lee');
-    const annie = cardOf('Annie Lee').querySelector('.mastery-grade .sgc');
-    expect(annie).toHaveClass('off');
-    expect(popOn(annie)).toBe("Schoology's levels give B-; Prism's give B+");
-    const bo = cardOf('Bo Ma').querySelector('.mastery-grade .sgc');
-    expect(bo.className).toBe('sgc sgc--grade');
-    expect(popOn(bo)).toBe("Schoology's levels give the same grade: B");
+    const warn = cardOf('Annie Lee').querySelector('.mastery-grade__warn');
+    expect(popOn(warn)).toBe("Schoology's levels differ from Prism's. Students see Schoology's levels, so their grade translates to B-, not B+. "
+      + "To correct it, override Schoology's level: click a highlighted Schoology level.");
+    expect(popOn(cardOf('Annie Lee').querySelector('.mastery-grade__prism'))).toBe("Translated grade from Prism's levels: B+");
+    expect(cardOf('Bo Ma').querySelector('.mastery-grade__warn')).toBeNull();
+    // The class row has no Schoology levels, so no warning.
+    expect(document.querySelector('.mastery-card--class .mastery-grade__warn')).toBeNull();
+  });
+
+  it('the warning names the categories Schoology holds no level for, and on a linked section sends the teacher to Schoology', () => {
+    expect(mismatchText({ prism: 'B', schoology: null }, ['Producing'], false)).toBe("Schoology's levels differ from Prism's. "
+      + "Schoology holds no level for Producing, so students see a blank grade. To correct it, override Schoology's level: click a highlighted Schoology level.");
+    expect(mismatchText({ prism: 'B', schoology: 'C' }, [], true)).toMatch(/translates to C, not B\. Prism does not write to Schoology for linked sections\./);
   });
 
   it('a course with one reporting category has no letter grade, and the grade states why', async () => {
@@ -205,7 +211,7 @@ describe('MasteryView', () => {
     const prism = cardOf('Annie Lee').querySelector('.mastery-grade__prism');
     expect(prism).toHaveTextContent('-');
     expect(popOn(prism)).toBe(why);
-    expect(popOn(cardOf('Annie Lee').querySelector('.mastery-grade .sgc'))).toBe(why);
+    expect(cardOf('Annie Lee').querySelector('.mastery-grade__warn')).toBeNull();
   });
 
   it("tapping a differing chip opens the override with Prism's level first; saving refreshes", async () => {

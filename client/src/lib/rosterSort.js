@@ -1,13 +1,13 @@
 // The Roster tab's sort (25 Oct 2026, #160): First name, Last name, or (Private details only) Gender.
 // Names are the ones the card shows (preferredFirstName + last_name); ties break on the other name.
-// Gender: Female, then Male, then unknown, then last name.
+// Gender: F, M, NB, ?, then last name.
 //
 // The choice is remembered on this device, one key for every course, in the same way as Private
 // details (lib/privateDetails.js): storage can be unavailable or throw, so a read that throws means
 // the default and a write that throws is held in memory for this page.
 import { useSyncExternalStore } from 'react';
 import { preferredFirstName } from './studentNames.js';
-import { genderOf } from './rosterFilters.js';
+import { genderOf } from './genderTag.js';
 
 export const ROSTER_SORTS = [
   { id: 'first', label: 'First name' },
@@ -16,7 +16,7 @@ export const ROSTER_SORTS = [
 ];
 const DEFAULT = 'last';
 const KEY = 'prism:roster:sort';
-const GENDER_RANK = { F: 0, M: 1, none: 2 };
+const GENDER_RANK = { F: 0, M: 1, NB: 2, none: 3 };
 
 const collator = new Intl.Collator(undefined, { sensitivity: 'base' });
 const byText = (a, b) => collator.compare(a || '', b || '');

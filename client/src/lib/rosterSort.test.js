@@ -20,7 +20,7 @@ describe('sortRoster', () => {
     expect(ids(sortRoster(list, 'first'))).toEqual([2, 4, 3, 1]);
   });
 
-  it('gender: Female, then Male, then unknown, then last name', () => {
+  it('gender: F, M, NB, ?, then last name', () => {
     const g = [
       s(1, 'A', 'Zulu', { gender: 'M' }),
       s(2, 'B', 'Yankee', { gender: null }),
@@ -28,8 +28,11 @@ describe('sortRoster', () => {
       s(4, 'D', 'Alpha', { gender: 'M' }),
       s(5, 'E', 'Beta', { gender: 'F' }),
       s(6, 'F', 'Gamma', { gender: 'X' }),
+      s(7, 'G', 'Delta', { gender: 'N' }),
+      s(8, 'H', 'Omega', {}),
     ];
-    expect(ids(sortRoster(g, 'gender'))).toEqual([5, 3, 4, 1, 6, 2]);
+    // F (Beta, Xray), M (Alpha, Zulu), NB (Delta, Gamma), ? (Omega, Yankee)
+    expect(ids(sortRoster(g, 'gender'))).toEqual([5, 3, 4, 1, 7, 6, 8, 2]);
   });
 
   it('does not change the list it is given', () => {

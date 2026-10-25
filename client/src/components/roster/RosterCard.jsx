@@ -5,11 +5,12 @@ import { gradeText } from '../PersonSub.jsx';
 import { preferredFirstName, studentFullName } from '../../lib/studentNames.js';
 import { formatDate } from '../../lib/formatDate.js';
 import { alertChipLabel } from '../../lib/rosterVitals.js';
-import { GENDER_LABELS, genderOf } from '../../lib/rosterFilters.js';
+import StudentTags from './StudentTags.jsx';
 
-// One student on the Roster tab (#160). Left: the photo, the one name the student goes by, then one
-// line: grade, the gender (Private details only, none when unknown), student number (the email's
-// local part) and an Email copy button. Right, only with
+// One student on the Roster tab (#160). Left: the photo, then the name line: the one name the student
+// goes by, and (Private details only) a small group of tags right after it, today the gender code
+// (F, M, NB or ?, full label on hover; see StudentTags), kept on the same line so the card gains none.
+// Under it one line: grade, student number (the email's local part) and an Email copy button. Right, only with
 // Private details on: the unread comments count and the alert chips, in fixed-width slots so they line
 // up down the page. With Private details off those slots are not drawn at all.
 //
@@ -70,20 +71,21 @@ export default function RosterCard({ student, showPrivate, unread = null, alerts
   const navigate = useNavigate();
   const number = student.email ? student.email.split('@')[0] : null;
   const grade = gradeText(student.grad_year);
-  const gender = showPrivate ? GENDER_LABELS[genderOf(student)] : null; // not in the DOM with Private details off
   const open = (e) => {
     // Needs attention's rows hold editors and panels: a tap there never leaves the page.
-    if (e.target.closest('a, button, input, select, textarea, label, .roster-card__items')) return;
+    if (e.target.closest('a, button, input, select, textarea, label, .roster-tag, .roster-card__items')) return;
     navigate(`/student/${student.id}`);
   };
   return (
     <div className={`roster-card${showPrivate ? ' roster-card--private' : ''}${student.dropped_at ? ' roster-card--dropped' : ''}`} onClick={open}>
       <span className="roster-card__avatar"><Photo student={student} /></span>
       <span className="roster-card__id">
-        <Link className="roster-card__name" to={`/student/${student.id}`}>{studentFullName(student)}</Link>
+        <span className="roster-card__nameline">
+          <Link className="roster-card__name" to={`/student/${student.id}`}>{studentFullName(student)}</Link>
+          {showPrivate && <StudentTags student={student} />}{/* not in the DOM with Private details off */}
+        </span>
         <span className="roster-card__meta">
           {grade && <span>{grade}</span>}
-          {gender && <span className="roster-card__gender">{gender}</span>}
           {number && <span className="roster-card__number">{number}</span>}
           {student.email && <span><CopyEmail email={student.email} /></span>}
           {student.dropped_at && <span>dropped {formatDate(student.dropped_at)}</span>}

@@ -81,15 +81,17 @@ describe('gender pills', () => {
     { id: 1, gender: 'F' }, { id: 2, gender: 'F' }, { id: 3, gender: 'M' }, { id: 4, gender: null }, { id: 5 },
   ];
 
-  it('Female, Male, Not known, each with its count, only while someone matches', () => {
-    const o = rosterFilterOptions(G, null);
+  it('F, M, NB, ? codes with the full label as the tip, each with its count, only while someone matches', () => {
+    const o = rosterFilterOptions([...G, { id: 6, gender: 'X' }], null);
     expect(o.gender).toEqual([
-      { key: 'gender:F', label: 'Female', count: 2 },
-      { key: 'gender:M', label: 'Male', count: 1 },
-      { key: 'gender:none', label: 'Not known', count: 2 },
+      { key: 'gender:F', label: 'F', tip: 'Female', count: 2 },
+      { key: 'gender:M', label: 'M', tip: 'Male', count: 1 },
+      { key: 'gender:NB', label: 'NB', tip: 'Non-binary', count: 1 },
+      { key: 'gender:none', label: '?', tip: 'Not recorded in PowerSchool', count: 2 },
     ]);
-    expect(o.genderStudents).toBe(5);
-    expect(rosterFilterOptions([{ id: 1, gender: 'M' }], null).gender).toEqual([{ key: 'gender:M', label: 'Male', count: 1 }]);
+    expect(o.genderStudents).toBe(6);
+    expect(rosterFilterOptions(G, null).gender.map((p) => p.label)).toEqual(['F', 'M', '?']); // nobody is NB
+    expect(rosterFilterOptions([{ id: 1, gender: 'M' }], null).gender).toEqual([{ key: 'gender:M', label: 'M', tip: 'Male', count: 1 }]);
   });
 
   it('a pill that is on stays at 0 while nobody matches it', () => {
@@ -102,6 +104,8 @@ describe('gender pills', () => {
     expect(ids(['gender:F'])).toEqual([1, 2]);
     expect(ids(['gender:F', 'gender:M'])).toEqual([1, 2, 3]);
     expect(ids(['gender:none'])).toEqual([4, 5]);
+    expect(ids(['gender:NB'], [...G, { id: 6, gender: 'X' }])).toEqual([6]);
+    expect(ids(['gender:NB', 'gender:none'], [...G, { id: 6, gender: 'X' }])).toEqual([4, 5, 6]);
     // Unread comments are any of with the alert pills, then narrowed by Gender.
     expect(ids([UNREAD], G, { 1: 1, 3: 1, 5: 1 })).toEqual([1, 3, 5]);
     expect(ids(['gender:F', UNREAD], G, { 1: 1, 3: 1, 5: 1 })).toEqual([1]);
@@ -109,7 +113,7 @@ describe('gender pills', () => {
     expect(ids(['gender:none', UNREAD], G, { 1: 1, 3: 1, 5: 1 })).toEqual([5]);
   });
 
-  it('any value other than F or M is not known', () => {
-    expect(rosterFilterOptions([{ id: 1, gender: 'X' }], null).gender).toEqual([{ key: 'gender:none', label: 'Not known', count: 1 }]);
+  it('any value other than F or M is NB; only a blank or missing value is ?', () => {
+    expect(rosterFilterOptions([{ id: 1, gender: 'X' }], null).gender).toEqual([{ key: 'gender:NB', label: 'NB', tip: 'Non-binary', count: 1 }]);
   });
 });

@@ -1,12 +1,14 @@
 import { ClearIcon } from '../AssessmentFilterBar.jsx';
 import GroupPill, { groupState } from '../GroupPill.jsx';
+import { useHelpPop } from '../HelpDot.jsx';
 
 // The Roster tab's filters (#160), shown only with Private details on, built from the assessment
 // page's controls (docs/design-language.md, "Assessment page filter controls"):
 //  - Alerts: a group pill (none / some / all, counting students who hold any alert), a divider, then one
 //    pill per alert type some student holds (learning alerts share Learning plan).
 //  - Follow up: the muted group pill, then Unread comments.
-//  - Gender (25 Oct 2026): the group pill, then Female, Male and Not known, each while some student matches.
+//  - Gender (25 Oct 2026): the group pill, then the codes F, M, NB and ?, each while some student matches. A pill
+//    carrying a `tip` names itself with it (aria-label) and shows it in the instant help popover.
 //    An attribute, so the row narrows: any of the Gender pills AND any of the other pills.
 //  - The status line: "Showing 4 of 12 students" with Copy emails (N) beside it; Clear all on the right.
 // Alerts and Follow up pills combine as "any of"; Gender narrows them (AND). This component renders and reports; RosterTab owns the selection.
@@ -18,6 +20,21 @@ const MailIcon = () => (
     <path d="M2.5 4.5 8 9l5.5-4.5" />
   </svg>
 );
+
+// One pill. A `tip` (the full label behind a code) is its aria-label and an instant popover on hover, focus or tap.
+function Pill({ pill, on, onToggle }) {
+  const { handlers, popover } = useHelpPop();
+  const tipped = pill.tip ? { ...handlers, 'aria-label': `${pill.tip}, ${pill.count}`, onClick: (e) => { handlers.onClick(e); onToggle(); } } : { onClick: onToggle };
+  return (
+    <>
+      <button type="button" className={`filter-btn${on ? ' active' : ''}`} aria-pressed={on} {...tipped}>
+        {pill.label}
+        <span className="filter-btn__n">{pill.count}</span>
+      </button>
+      {popover(pill.tip)}
+    </>
+  );
+}
 
 function Row({ label, watch = false, pills, students, selected, onChange }) {
   if (!pills.length) return null;
@@ -33,13 +50,7 @@ function Row({ label, watch = false, pills, students, selected, onChange }) {
       <GroupPill label={label} state={state} count={students} className={watch ? 'group-pill--watch' : ''}
         onClick={() => set(pills.map((p) => p.key), state !== 'all')} />
       <span className="assessment-filter-row__sep" aria-hidden="true" />
-      {pills.map((p) => (
-        <button key={p.key} type="button" className={`filter-btn${selected.has(p.key) ? ' active' : ''}`}
-          aria-pressed={selected.has(p.key)} onClick={() => toggle(p.key)}>
-          {p.label}
-          <span className="filter-btn__n">{p.count}</span>
-        </button>
-      ))}
+      {pills.map((p) => <Pill key={p.key} pill={p} on={selected.has(p.key)} onToggle={() => toggle(p.key)} />)}
     </div>
   );
 }

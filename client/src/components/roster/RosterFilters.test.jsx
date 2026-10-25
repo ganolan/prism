@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { useState } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import RosterFilters from './RosterFilters.jsx';
 import { rosterFilterOptions, applyRosterFilters } from '../../lib/rosterVitals.js';
 
@@ -108,11 +108,11 @@ describe('RosterFilters Gender row', () => {
       shown={shown.length} total={people.length} onCopyEmails={() => {}} />;
   }
 
-  it('is a group pill with Female, Male and Not known, built from the same pills as Alerts', () => {
+  it('is a group pill with the F, M and ? codes, built from the same pills as Alerts', () => {
     render(<GenderHarness />);
     const row = screen.getByRole('group', { name: 'Gender' });
     expect(row.querySelector('.group-pill')).toHaveTextContent('Gender4');
-    expect([...row.querySelectorAll('.filter-btn')].map((b) => b.textContent)).toEqual(['Female2', 'Male1', 'Not known1']);
+    expect([...row.querySelectorAll('.filter-btn')].map((b) => b.textContent)).toEqual(['F2', 'M1', '?1']);
     fireEvent.click(screen.getByRole('button', { name: /^Female/ }));
     expect(screen.getByRole('button', { name: /^Gender/ })).toHaveAttribute('data-state', 'some');
     expect(status()).toHaveTextContent('Showing 2 of 4 students');
@@ -124,6 +124,31 @@ describe('RosterFilters Gender row', () => {
   it('lists only the pills someone matches', () => {
     render(<GenderHarness people={[{ id: 1, gender: 'M', ps_alerts: [] }]} />);
     const row = screen.getByRole('group', { name: 'Gender' });
-    expect([...row.querySelectorAll('.filter-btn')].map((b) => b.textContent)).toEqual(['Male1']);
+    expect([...row.querySelectorAll('.filter-btn')].map((b) => b.textContent)).toEqual(['M1']);
+  });
+
+  it('a pill names itself in full (aria-label) and shows the full label in an instant popover', () => {
+    render(<GenderHarness people={[...PEOPLE, { id: 5, gender: 'X', ps_alerts: [] }]} />);
+    const row = screen.getByRole('group', { name: 'Gender' });
+    const nb = within(row).getByRole('button', { name: 'Non-binary, 1' });
+    expect(nb).toHaveTextContent('NB1');
+    expect(within(row).getByRole('button', { name: 'Not recorded in PowerSchool, 1' })).toHaveTextContent('?1');
+    expect(document.querySelector('.help-pop')).toBeNull();
+    fireEvent.mouseEnter(nb);
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Non-binary');
+    fireEvent.mouseLeave(nb);
+    expect(document.querySelector('.help-pop')).toBeNull();
+    fireEvent.focus(nb);
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Non-binary');
+  });
+
+  it('the NB and ? pills filter', () => {
+    render(<GenderHarness people={[...PEOPLE, { id: 5, gender: 'X', ps_alerts: [] }]} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Non-binary/ }));
+    expect(status()).toHaveTextContent('Showing 1 of 5 students');
+    fireEvent.click(screen.getByRole('button', { name: /^Not recorded/ }));
+    expect(status()).toHaveTextContent('Showing 2 of 5 students');
+    fireEvent.click(screen.getByRole('button', { name: /^Non-binary/ }));
+    expect(status()).toHaveTextContent('Showing 1 of 5 students');
   });
 });

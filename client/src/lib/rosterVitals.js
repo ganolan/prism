@@ -4,15 +4,15 @@
 //
 // Filter keys: LEARNING_PLAN (any learning alert: they share one pill), an alert key for every other
 // roster alert (health, other; family alerts never reach a roster, `forRoster`), UNREAD, and
-// `gender:F`, `gender:M`, `gender:none` (25 Oct 2026). Alerts and Follow up pills combine as "any of"; the Gender row narrows that (AND).
+// `gender:F`, `gender:M`, `gender:NB`, `gender:none` (25 Oct 2026; none = blank or missing). Alerts and Follow up pills combine as "any of"; the Gender row narrows that (AND).
 import { forRoster } from './psAlerts.js';
-import { genderOf, filterValueLabel } from './rosterFilters.js';
+import { genderOf, GENDER_TAGS } from './genderTag.js';
 
 export const LEARNING_PLAN = 'learning';
 export const UNREAD = 'unread';
 const FIXED_LABELS = { [LEARNING_PLAN]: 'Learning plan', [UNREAD]: 'Unread comments' };
 const GENDER_PREFIX = 'gender:';
-const GENDER_ORDER = ['F', 'M', 'none'];
+const GENDER_ORDER = Object.keys(GENDER_TAGS); // F, M, NB, none
 const CATEGORY_ORDER = { health: 0, other: 1 };
 
 // The course's comment summaries ({ [schoology aid]: { [student id]: summary } }) → { [student id]: unread }.
@@ -47,7 +47,7 @@ export function rosterFilterOptions(students, unread, selected = new Set(), labe
   const alerts = new Map(); // key → { key, label, count, rank }
   let alertStudents = 0;
   let followUpStudents = 0;
-  const genders = { F: 0, M: 0, none: 0 };
+  const genders = { F: 0, M: 0, NB: 0, none: 0 };
   for (const s of students) {
     const roster = forRoster(s.ps_alerts);
     if (roster.length) alertStudents += 1;
@@ -66,10 +66,10 @@ export function rosterFilterOptions(students, unread, selected = new Set(), labe
   }
   const followUp = followUpStudents > 0 || selected.has(UNREAD)
     ? [{ key: UNREAD, label: FIXED_LABELS[UNREAD], count: followUpStudents }] : [];
-  // Female, Male, Not known: listed while some student matches or the pill is on.
+  // F, M, NB, ?: listed while some student matches or the pill is on. The pill shows the code; `tip` is the full label.
   const gender = GENDER_ORDER
     .filter((g) => genders[g] > 0 || selected.has(GENDER_PREFIX + g))
-    .map((g) => ({ key: GENDER_PREFIX + g, label: filterValueLabel('gender', g), count: genders[g] }));
+    .map((g) => ({ key: GENDER_PREFIX + g, label: GENDER_TAGS[g].code, tip: GENDER_TAGS[g].label, count: genders[g] }));
   return {
     alerts: [...alerts.values()].sort((a, b) => a.rank - b.rank || a.label.localeCompare(b.label)).map(({ key, label, count }) => ({ key, label, count })),
     followUp,

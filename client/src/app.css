@@ -1747,7 +1747,16 @@ button.private-details-switch[aria-pressed="true"] { background: var(--badge-amb
 .roster-card__name { font-size: 1.14rem; font-weight: 650; letter-spacing: -0.01em; color: var(--text); text-decoration: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .roster-card__name:hover { color: var(--accent); }
-/* One line: grade, gender (Private details), number, Email. The dot trails each part (the timeline's pattern), so a wrapped
+/* The name line: the name, then (Private details) a small muted tag group. One line always: the name shrinks first
+   (its ellipsis), the tags never wrap, so the card gains no height. The popover is the shared .help-pop. */
+.roster-card__nameline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.roster-card__nameline > .roster-card__name { flex: 0 1 auto; min-width: 0; }
+.roster-tags { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.roster-tag { display: inline-flex; align-items: center; padding: 0 5px; border-radius: 6px; background: var(--bg-subtle);
+  border: 1px solid var(--border); color: var(--text-muted); font-size: 0.68rem; font-weight: 650; line-height: 1.35;
+  white-space: nowrap; cursor: help; user-select: none; }
+.roster-tag:hover, .roster-tag:focus-visible { color: var(--text); border-color: var(--text-muted); outline: none; }
+/* One line: grade, number, Email. The dot trails each part (the timeline's pattern), so a wrapped
    line never starts with one; it is drawn, not a character. */
 .roster-card__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 8px; font-size: 0.78rem; color: var(--text-muted); min-width: 0; }
 .roster-card__meta > * { display: inline-flex; align-items: center; }

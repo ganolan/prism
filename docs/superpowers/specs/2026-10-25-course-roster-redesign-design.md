@@ -372,14 +372,25 @@ Where the build departs from the text above, or settled what it left open (each 
 - **Removed:** the old roster table and its per-category columns, the legal name, the roster's alerts toggle.
 - **Gender and sort (Graham, 25 Oct 2026, after the build):** with Private details on, the card's meta line reads
   grade, gender (Female or Male; nothing when unknown), student number, Email, and the filter bar has a third row,
-  **Gender** (Female, Male, Not known, each with its count; dropped students never counted). Its pills join the one
+  **Gender** (Female, Male, Not known, each with its count; dropped students never counted). *Superseded the same day
+  by the next bullet: gender is a code on the name line, not a word on the meta line.* Its pills join the one
   selection set, but Gender narrows: any of the Gender pills AND any of the Alerts and Follow up pills (controller
   ruling, 25 Oct 2026: gender is an attribute, as the assessment page's Refine pills are). A "Sort by" control
   above the Roster mode's cards offers First name, Last name (the default) and, with Private details on, Gender
-  (Female, Male, unknown, then last name). The choice is remembered on this device in `localStorage`
+  (F, M, NB, ?, then last name). The choice is remembered on this device in `localStorage`
   (`prism:roster:sort`, one key for every course); Gender with the switch off sorts by last name and leaves the stored
   value. It applies to the Roster mode only. Code: `lib/rosterSort.js`, `components/roster/RosterSort.jsx`,
-  `rosterVitals.js` (`gender` options and keys), `rosterFilters.js` (`genderOf`, `GENDER_LABELS`).
+  `rosterVitals.js` (`gender` options and keys), `genderTag.js` (`genderTag`, `genderOf`).
+- **Gender as a tag (Graham, 25 Oct 2026):** gender shows as a code, never a word: `F` (Female), `M` (Male), `NB` (any
+  other value PowerSchool sends: Non-binary), `?` (blank or missing: Not recorded in PowerSchool). It is a small muted
+  tag on the **name line**, right after the name, and no longer on the meta line (grade, student number, Email), so the
+  card is no taller; the name shrinks first and the tag never wraps under it. The tag sits in a tag group built so age
+  (#191) can be added as its first tag. Private details only (not in the DOM with the switch off). Hovering, focusing
+  or tapping a tag shows its full label in the shared `.help-pop`; its `aria-label` is the full label. The Gender filter
+  pills use the same codes (NB and ? only while some student has them, key `gender:NB` and `gender:none`) with the full
+  label as popover and `aria-label`, and the Gender sort is F, M, NB, ?, then last name. Class Tools (#73) keeps its own
+  words. Code: `lib/genderTag.js`, `components/roster/StudentTags.jsx`, `RosterCard.jsx`, `RosterFilters.jsx`,
+  `useHelpPop` in `components/HelpDot.jsx`.
 
 ## Left to the builder
 

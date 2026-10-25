@@ -1,6 +1,6 @@
 // The Roster tab (#160): private by default, one switch shows everything private.
 // With the switch off nothing private is in the DOM at all (a roster may be projected).
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useParams, useLocation } from 'react-router-dom';
 import RosterTab, { PrivateDetailsSwitch } from './RosterTab.jsx';
@@ -64,6 +64,7 @@ const cardOf = (name) => screen.getByText(name).closest('.roster-card');
 const status = () => document.querySelector('.assessment-filter-status__count');
 
 let writeText;
+afterEach(() => { vi.restoreAllMocks(); });
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear(); setPrivateDetails(false); setRosterSort('last'); localStorage.clear();
@@ -303,6 +304,7 @@ const SORTABLE = [
   student(3, { first_name: 'Cal', last_name: 'Aston', gender: null }),
   student(4, { first_name: 'Dee', last_name: 'Bell', gender: 'F' }),
   student(5, { first_name: 'Eve', last_name: 'Zed', gender: 'F', dropped_at: '2026-08-13T00:00:00Z' }),
+  student(6, { first_name: 'Fay', last_name: 'Abel', gender: 'M', dropped_at: '2026-08-14T00:00:00Z' }),
 ];
 const order = () => [...document.querySelectorAll('.roster-mode > .roster-cards .roster-card__name')].map((a) => a.textContent);
 const sortGroup = () => screen.getByRole('group', { name: 'Sort by' });
@@ -419,12 +421,26 @@ describe('RosterTab sort', () => {
     first.unmount();
     renderTab('/course/5', { students: SORTABLE });
     expect(order()).toEqual(['Amy Dunn', 'Ben Cole', 'Cal Aston', 'Dee Bell']);
-    vi.restoreAllMocks();
   });
 
   it('applies to the Roster mode only: Needs attention and Mastery do not show the control', () => {
     renderTab('/course/5?mode=mastery', { students: SORTABLE });
     expect(screen.queryByRole('group', { name: 'Sort by' })).not.toBeInTheDocument();
+    toggle();
+    expect(screen.queryByRole('group', { name: 'Sort by' })).not.toBeInTheDocument();
+  });
+
+  it('Needs attention does not show the control, with Private details off or on', () => {
+    renderTab('/course/5?mode=attention', { students: SORTABLE });
+    expect(screen.queryByRole('group', { name: 'Sort by' })).not.toBeInTheDocument();
+    toggle();
+    expect(screen.queryByRole('group', { name: 'Sort by' })).not.toBeInTheDocument();
+  });
+
+  it('has no Sort by control when nobody is enrolled', () => {
+    renderTab('/course/5', { students: [SORTABLE[4]] }); // only a dropped student
+    expect(screen.queryByRole('group', { name: 'Sort by' })).not.toBeInTheDocument();
+    expect(screen.getByText('No students are enrolled.')).toBeInTheDocument();
   });
 
   it('sorts the dropped students too, and filters leave the sort as it was', () => {
@@ -433,8 +449,11 @@ describe('RosterTab sort', () => {
     fireEvent.click(sortBtn('Gender'));
     fireEvent.click(screen.getByRole('button', { name: /^Female/ }));
     expect(order()).toEqual(['Dee Bell', 'Amy Dunn']);
-    fireEvent.click(screen.getByRole('button', { name: '1 dropped (show)' }));
-    expect(screen.getByText('Eve Zed')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '2 dropped (show)' }));
+    const dropped = () => [...document.querySelectorAll('.roster-dropped .roster-card__name')].map((a) => a.textContent);
+    expect(dropped()).toEqual(['Eve Zed', 'Fay Abel']); // Gender: Female, then Male
+    fireEvent.click(sortBtn('Last name'));
+    expect(dropped()).toEqual(['Fay Abel', 'Eve Zed']);
   });
 });
 

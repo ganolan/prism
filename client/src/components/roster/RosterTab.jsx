@@ -75,7 +75,7 @@ function RosterMode({ on, courseId, active, dropped, unread, filters, setFilters
         <RosterFilters options={options} selected={filters} onChange={setFilters} shown={shown.length} total={active.length}
           onCopyEmails={(anchor) => openPopup({ kind: 'emails', anchor })} />
       )}
-      <RosterSort sort={sort} onChange={setRosterSort} showPrivate={on} />
+      {active.length > 0 && <RosterSort sort={sort} onChange={setRosterSort} showPrivate={on} />}
       <div className="roster-cards">
         {shown.map((s) => card(s))}
         {active.length === 0 && <p className="text-sm text-muted">No students are enrolled.</p>}

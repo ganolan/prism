@@ -10,15 +10,6 @@ Codex reads `.codex/config.toml`. The `.claude/` directory also holds shared
 reference docs that are useful to *every* agent (see Key References) — the name
 is historical, the contents are plain markdown and not Claude-specific.
 
-## Temporary reminder (remove when Graham says it is done)
-
-**Graham's laptop still has the old PrisMCP entry** (removed 20 Oct 2026, #131). At the start of a session, remind him once, in one short line, until he says it is done; then delete this section (and the matching entries in `~/.claude/CLAUDE.md` and the project memory on the mini). On the laptop:
-1. `claude mcp remove prism -s user`
-2. `claude mcp add --transport http -s user prism https://prism.swordtail-everest.ts.net/mcp`
-3. In Claude Code: `/plugin`, then **Marketplaces**, select graham-plugins, then **Enable auto-update**.
-
-Check: `claude mcp get prism` shows `Type: http`. The mini is already done.
-
 ## Project Purpose
 
 Prism is a local-first teacher dashboard for viewing, managing, and enriching student data from Schoology and PowerSchool. It combines a React frontend, an Express API, and a local SQLite database, with feature-flagged tools for analytics, notes, flags, feedback review, and future Schoology write-back workflows.

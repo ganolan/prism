@@ -186,6 +186,11 @@ describe('MasteryView', () => {
     expect(popOn(warn)).toBe("Schoology's levels differ from Prism's. Students see Schoology's levels, so their grade translates to B-, not B+. "
       + "To correct it, override Schoology's level: click a highlighted Schoology level.");
     expect(popOn(cardOf('Annie Lee').querySelector('.mastery-grade__prism'))).toBe("Translated grade from Prism's levels: B+");
+    // The letter is centred alone; its + or - is a separate span to the right, so letters line up.
+    const annieGrade = cardOf('Annie Lee').querySelector('.mastery-grade__prism');
+    expect(annieGrade.firstChild.textContent).toBe('B');
+    expect(annieGrade.querySelector('.mastery-grade__mod')).toHaveTextContent('+');
+    expect(cardOf('Bo Ma').querySelector('.mastery-grade__mod')).toBeNull();
     expect(cardOf('Bo Ma').querySelector('.mastery-grade__warn')).toBeNull();
     // The class row has no Schoology levels, so no warning.
     expect(document.querySelector('.mastery-card--class .mastery-grade__warn')).toBeNull();

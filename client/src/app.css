@@ -1906,7 +1906,7 @@ button.test-day-card__show { padding: 0; font-size: 0.78rem; color: var(--accent
 /* Mastery: Prism's level beside Schoology's. Fixed column widths (--m-p Prism, --m-s Schoology, --m-g the
    translated grade) and a topic track as wide as the longest category (--maxt chips of --sq),
    so the levels line up in one column down the page. Level fills come from LEVEL_COLORS. */
-.mastery { --sq: 30px; --m-p: 46px; --m-s: 88px; --m-g: 80px; display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+.mastery { --sq: 30px; --m-p: 46px; --m-s: 88px; --m-g: 88px; display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
 .mastery-cats { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .mastery-all { display: flex; flex-direction: column; gap: 6px; --track: calc(var(--maxt) * (var(--sq) + 3px) - 3px); }
 .mastery-head, .mastery-card { display: grid; grid-template-columns: 34px minmax(120px, 220px) auto auto minmax(0, 1fr); column-gap: 12px; }
@@ -1955,13 +1955,15 @@ a.mastery-card__name:hover { color: var(--accent); }
 button.sgc:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .sgc.off { border: 0; box-shadow: 0 0 0 2.5px var(--warning); color: var(--text); }
 button.sgc:disabled { cursor: not-allowed; }
-/* The letter stays centred down the column; the warning sits in the right-hand track beside it. */
+/* The letter stays centred down the column, its + or - outside it to the right (so A and A- line up);
+   the warning sits in the right-hand track, clear of the modifier. */
 .mastery-grade { width: var(--m-g); box-sizing: content-box; display: grid; grid-template-columns: 1fr auto 1fr; column-gap: 6px;
   align-items: center; padding-left: 12px; border-left: 2px solid var(--border); align-self: stretch; }
-.mastery-grade__prism { grid-column: 2; font-size: 1.3rem; font-weight: 800; line-height: 1; cursor: default; }
+.mastery-grade__prism { grid-column: 2; position: relative; font-size: 1.3rem; font-weight: 800; line-height: 1; cursor: default; }
+.mastery-grade__mod { position: absolute; left: 100%; top: 0; padding-left: 1px; }
 /* Schoology's levels translate to another grade: the amber of a differing Schoology chip. */
 .mastery-grade__warn { width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; flex: none;
-  grid-column: 3; justify-self: start;
+  grid-column: 3; justify-self: start; margin-left: 10px;
   background: var(--warning-light); color: var(--badge-amber-text); box-shadow: 0 0 0 1.5px var(--warning); font-size: 0.72rem; font-weight: 800; cursor: help; }
 /* One category: a short row per student under a header that stays on screen. Sticky works only with
    no overflow container around it, so nothing here sets overflow; the columns shrink instead. */
@@ -1998,7 +2000,7 @@ button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accen
   .mastery-row--head .mastery-hl, .mastery-row--head button.mastery-th b { font-size: 0.64rem; }
 }
 @container roster (max-width: 480px) {
-  .mastery { --sq: 26px; --m-p: 40px; --m-s: 46px; --m-g: 72px; }
+  .mastery { --sq: 26px; --m-p: 40px; --m-s: 46px; --m-g: 80px; }
   .mastery-card { grid-template-columns: 34px minmax(0, 1fr) auto; grid-template-areas: "av id gr" "ln ln ln"; }
   .mastery-pair, .mastery-grade { column-gap: 4px; }
   .mastery-grade { padding-left: 8px; }

@@ -115,7 +115,8 @@ function GradeCell({ grade, isClass, tracks, categories, linked }) {
   return (
     <span className="mastery-grade">
       <Tip className="mastery-grade__prism" style={p ? { color: LETTER_GRADE_COLORS[p] } : undefined} text={tip}>
-        {p ?? '-'}
+        {/* The letter alone is centred, so letters line up down the column; a + or - sits to its right. */}
+        {p ? <>{p[0]}{p.length > 1 && <span className="mastery-grade__mod">{p.slice(1)}</span>}</> : '-'}
       </Tip>
       {warn && (
         <Tip className="mastery-grade__warn" text={mismatchText(grade, missingCategories(tracks, categories, 'schoology'), linked)}>!</Tip>

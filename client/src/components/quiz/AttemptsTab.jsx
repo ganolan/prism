@@ -9,11 +9,12 @@ import { useStickyTab } from '../../hooks/useStickyTab.js';
 import { useCardBatch } from '../../hooks/useCardBatch.js';
 import { FILTERS } from '../../lib/frqFilters.js';
 import AttemptByStudent from './AttemptByStudent.jsx';
+import AttemptByQuestion from './AttemptByQuestion.jsx';
 import PostMarksBar from './PostMarksBar.jsx';
 
 const VIEWS = [['student', 'By student'], ['question', 'By question']];
 
-export default function AttemptsTab({ group, courseId, reloadKey, byQuestion = null }) {
+export default function AttemptsTab({ group, courseId, reloadKey }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [members, setMembers] = useState({}); // member sid -> { mastery, feedback }
@@ -145,7 +146,7 @@ export default function AttemptsTab({ group, courseId, reloadKey, byQuestion = n
         </div>
       ))}
 
-      {view === 'question' && byQuestion && byQuestion({ data, filter, onFrqSaved: replaceMark })}
+      {view === 'question' && <AttemptByQuestion data={data} groupId={group.id} filter={filter} onFrqSaved={replaceMark} />}
 
       {data.not_taken.length > 0 && (
         <p className="text-sm text-muted">{`Not taken (${data.not_taken.length}): ${data.not_taken.map((s) => s.name).join(', ')}`}</p>

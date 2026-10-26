@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import LargerScreenNote from '../components/LargerScreenNote.jsx';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSyncRun, getQuizGroupFor, getSubmissionLinks, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, loadQuizResults, rebuildQuizOverall, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
+import { getMasteryForAssignment, getSyncRun, getQuizGroupFor, getSubmissionLinks, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, loadQuizResults, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
 import { cardInputs, usesFeedbackRows } from '../lib/cardInputs.js';
 import StudentRubricCard from '../components/gradeCard/StudentRubricCard.jsx';
 import { useCardBatch } from '../hooks/useCardBatch.js';
@@ -15,7 +15,7 @@ import PublishToggle from '../components/PublishTask.jsx';
 import QuizChip from '../components/quiz/QuizChip.jsx';
 import QuizSetupModal from '../components/quiz/QuizSetupModal.jsx';
 import QuestionsTab from '../components/quiz/QuestionsTab.jsx';
-import FreeResponseTab from '../components/quiz/FreeResponseTab.jsx';
+import AttemptsTab from '../components/quiz/AttemptsTab.jsx';
 import QuizLoadWarnings from '../components/quiz/QuizLoadWarnings.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { useQuizGroup } from '../hooks/useQuizGroup.js';
@@ -200,22 +200,17 @@ function AssessmentSummaryBody() {
   const { group: quizGroup, setGroup: setQuizGroup, enabled: quizzesEnabled } = useQuizGroup(assignmentId);
   // Attempt links refresh after Load results (the group's loaded_at changes).
   const attemptLinks = useAttemptLinks({ assignmentId, reloadKey: `${dataVersion}|${quizGroup?.loaded_at ?? ''}` });
-  const [quizTab, setQuizTab] = useStickyTab('assessment-quiz', 'grading', { param: 'tab' });
-  const [quizResultsKey, setQuizResultsKey] = useState(0);
-  // Only on the linked result task; refetched after a load, an FRQ change on the other tabs, or an update.
+  const [storedQuizTab, setQuizTab] = useStickyTab('assessment-quiz', 'grading', { param: 'tab' });
+  // #200: the Free response tab ('frq') became Attempts; an old link or stored tab opens it.
+  const quizTab = storedQuizTab === 'frq' ? 'attempts' : storedQuizTab;
+  // Only on the linked result task; refetched after a load, or an FRQ change on the other tabs. The
+  // quiz line only: the template comment and its Update numbers are on the Attempts tab (#200).
   const quizResults = useQuizResults({
     groupId: quizGroup?.id ?? null,
     enabled: !!quizGroup?.result,
-    reloadKey: `${dataVersion}|${quizGroup?.loaded_at ?? ''}|${quizGroup?.comment_template ?? ''}|${quizTab}|${quizResultsKey}`,
+    reloadKey: `${dataVersion}|${quizGroup?.loaded_at ?? ''}|${quizGroup?.comment_template ?? ''}|${quizTab}`,
   });
-  // Update numbers: refetch only the suggestions and the quiz line, so the cards stay mounted and the
-  // teacher keeps their place (a full load() would show Loading... and scroll to the top).
-  async function handleRebuildQuiz(studentId) {
-    await rebuildQuizOverall(quizGroup.id, studentId);
-    setQuizResultsKey(k => k + 1);
-    const feedback = await getFeedbackForAssignment(assignmentId).catch(() => null);
-    if (feedback) setFeedbackByStudent(feedback);
-  }
+  const quizLineOf = (studentId) => (quizResults[studentId] ? { ...quizResults[studentId], overall: null } : null);
   const [quizSetupOpen, setQuizSetupOpen] = useState(false);
   const [quizLoad, setQuizLoad] = useState({ busy: false, message: null });
   // The group id currently on screen; a Load results response for another
@@ -766,9 +761,7 @@ function AssessmentSummaryBody() {
           <div role="tablist" aria-label="Quiz views" className="tab-row tab-row--joined" style={{ marginTop: '0.4rem' }}>
             <button role="tab" aria-selected={quizTab === 'grading'} className={`tab-btn${quizTab === 'grading' ? ' active' : ''}`} onClick={() => setQuizTab('grading')}>Grading</button>
             <button role="tab" aria-selected={quizTab === 'questions'} className={`tab-btn${quizTab === 'questions' ? ' active' : ''}`} onClick={() => setQuizTab('questions')}>Questions</button>
-            {quizGroup.frq_count > 0 && (
-              <button role="tab" aria-selected={quizTab === 'frq'} className={`tab-btn${quizTab === 'frq' ? ' active' : ''}`} onClick={() => setQuizTab('frq')}>Free response</button>
-            )}
+            <button role="tab" aria-selected={quizTab === 'attempts'} className={`tab-btn${quizTab === 'attempts' ? ' active' : ''}`} onClick={() => setQuizTab('attempts')}>Attempts</button>
           </div>
         )}
       </div>
@@ -776,8 +769,13 @@ function AssessmentSummaryBody() {
       <QuizTabPanel on={Boolean(quizGroup)} first={quizTab === 'grading'}>
       {quizGroup && quizTab === 'questions' ? (
         <QuestionsTab groupId={quizGroup.id} courseId={quizGroup.course_id} reloadKey={quizGroup.loaded_at} />
-      ) : quizGroup && quizTab === 'frq' && quizGroup.frq_count > 0 ? (
-        <FreeResponseTab groupId={quizGroup.id} reloadKey={quizGroup.loaded_at} />
+      ) : quizGroup && quizTab === 'attempts' ? (
+        <AttemptsTab group={quizGroup} courseId={courseId} reloadKey={`${dataVersion}|${quizGroup.loaded_at ?? ''}`} />
+      ) : quizGroup && !quizGroup.result ? (
+        <div className="alert alert-warning attempts-unlinked">
+          <span>No result task is linked to this quiz.</span>
+          <button type="button" className="secondary btn-sm" onClick={() => setQuizSetupOpen(true)}>Link a result task</button>
+        </div>
       ) : students.length === 0 ? (
         <div className="card">
           <p className="text-muted">No students found. Run a mastery sync for this course first.</p>
@@ -815,8 +813,7 @@ function AssessmentSummaryBody() {
               rubricPalette={rubricPalette}
               submissionLink={workLinks.links[student.schoology_uid] || null}
               attemptLink={attemptLinks[student.id] || null}
-              quizResult={quizResults[student.id] || null}
-              onRebuildQuiz={handleRebuildQuiz}
+              quizResult={quizLineOf(student.id)}
               commentsEnabled={commentSummaries !== null}
               commentSummary={commentSummaries?.[student.id] || null}
               onCommentSummary={handleCommentSummary}

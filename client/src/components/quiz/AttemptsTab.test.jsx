@@ -65,6 +65,7 @@ function renderTab(data = DATA()) {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   vi.mocked(api.getMasteryForAssignment).mockImplementation(async (_c, sid) => mastery(sid));
   vi.mocked(api.getFeedbackForAssignment).mockImplementation(async (sid) => (sid === '900'
     ? { 1: { feedback_parsed: { narrative_feedback: 'Multiple choice: 13/20 (65%)' } } } : {}));
@@ -179,5 +180,111 @@ describe('Attempts, By student', () => {
     renderTab();
     await screen.findByRole('region', { name: "Ana Lee's attempt" });
     expect(screen.getByText('Not taken (1): Ana Wu')).toBeInTheDocument();
+  });
+});
+
+// Ported from the Free response tab (retired by #200): the FRQ marking views and their filters.
+const FRQ_RUBRIC = { id: 'r1', rows: [{ id: '146', title: 'Content Knowledge', levels: [{ points: 4, name: 'Exhibiting Depth', descriptionHtml: 'Exhibiting Depth: all' }, { points: 2, name: 'Developing', descriptionHtml: 'Developing: some' }] }] };
+const mark = (over) => ({ state: 'suggested', suggested: { cells: { 146: 4 }, comment: 's' }, final: null, suggestion_revised: false, writeback: { status: null }, changed_in_schoology: false, ...over });
+const frqResp = (answer, m = null, schoology = null) => ({ kind: 'frq', answer_html: answer, schoology, mark: m });
+const FRQ_DATA = () => ({
+  group: { id: 7, title: 'Ep 1', members: [MEMBERS[0]], has_tags: false },
+  questions: [
+    { id: 1, position: 21, kind: 'frq', stem_html: '<p>Q21 stem</p>', max_points: 4, tags: [], rubric: FRQ_RUBRIC },
+    { id: 2, position: 22, kind: 'frq', stem_html: '<p>Q22 stem</p>', max_points: 4, tags: [], rubric: FRQ_RUBRIC },
+  ],
+  students: [
+    student(1, 'u1', 'Lee', MEMBERS[0], { responses: { 21: frqResp('Ana 21', mark()), 22: frqResp('Ana 22') } }),
+    student(2, 'u2', 'Ho', MEMBERS[0], { name: 'Ben Ho', responses: {
+      21: frqResp('Ben 21', mark({ state: 'accepted', final: { cells: { 146: 4 }, comment: 's' }, writeback: { status: 'pending' } })),
+      22: frqResp('Ben 22', null, { cells: { 146: 2 }, comment: 'c' }) } }),
+  ],
+  not_taken: [],
+});
+// By question's own region: the By student attempts stay mounted (hidden) for Publish test comments.
+const bq = () => screen.getByRole('region', { name: 'By question' });
+const byQuestion = async (data) => {
+  renderTab(data);
+  fireEvent.click(await screen.findByRole('tab', { name: 'By question' }));
+};
+
+describe('Attempts, By question', () => {
+  beforeEach(() => { vi.mocked(api.getFeatures).mockResolvedValue({ quiz_writeback: false }); });
+
+  test('the picker lists every question; an MCQ shows each student\'s choice and the option counts', async () => {
+    await byQuestion(DATA());
+    const picker = within(bq()).getByRole('combobox', { name: 'Question' });
+    expect(within(picker).getAllByRole('option').map(o => o.textContent)).toEqual(['Q1', 'Q21']);
+    expect(within(bq()).getByText('Which value?')).toBeInTheDocument();
+    expect(within(bq()).getByText('A 3, B 3, C 11 (answer), D 3')).toBeInTheDocument();
+    expect(within(bq()).getByLabelText('Ana Lee, Q1: chose B, incorrect. Answer C. Class 55% correct.')).toBeInTheDocument();
+    expect(within(bq()).getByLabelText('Ana Ng, Q1: chose C, correct. Class 55% correct.')).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: "Ana Lee's attempt" })).toBeNull();
+  });
+
+  test('an FRQ shows the stem once and one marking card per student; the picker sets it for every card', async () => {
+    await byQuestion(FRQ_DATA());
+    expect(within(bq()).getByText('Q21 stem')).toBeInTheDocument();
+    expect(within(bq()).getByText('Ana 21')).toBeInTheDocument();
+    expect(within(bq()).getByText('Ben 21')).toBeInTheDocument();
+    fireEvent.change(within(bq()).getByRole('combobox', { name: 'Question' }), { target: { value: '22' } });
+    const shown = within(bq()).getAllByTestId('frq-card');
+    expect(shown.map(c => within(c).queryByText(/^(Ana|Ben) 2\d$/)?.textContent)).toEqual(['Ana 22', 'Ben 22']);
+  });
+
+  test('filters, and shows how many marks wait for the agent', async () => {
+    await byQuestion(FRQ_DATA());
+    expect(screen.getByText('1 waiting for the agent')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Waiting to post' }));
+    const shown = within(bq()).getAllByTestId('frq-card');
+    expect(shown.map(c => within(c).getByText(/^(Ana|Ben) 21$/).textContent)).toEqual(['Ben 21']);
+  });
+
+  test('with quiz_writeback on, the post bar replaces "waiting for the agent" and reloads after posting', async () => {
+    vi.mocked(api.getFeatures).mockResolvedValue({ quiz_writeback: true });
+    vi.mocked(api.postFrqWritebacks).mockResolvedValue({ results: [{ student_id: 2, name: 'Ben Ho', question: 21, level: 'Exhibiting Depth', status: 'posted', error: null }], remaining: 0 });
+    renderTab(FRQ_DATA());
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish all to Schoology (1)' }));
+    expect(screen.queryByText('1 waiting for the agent')).toBeNull();
+    expect(await screen.findByText('Published: Ben Ho, Q21 Exhibiting Depth')).toBeInTheDocument();
+    await waitFor(() => expect(api.getQuizAttempts).toHaveBeenCalledTimes(2));
+  });
+
+  test('the post count leaves out marks on a rubric with more than one row', async () => {
+    vi.mocked(api.getFeatures).mockResolvedValue({ quiz_writeback: true });
+    const data = FRQ_DATA();
+    data.questions[1].rubric = { ...FRQ_RUBRIC, rows: [FRQ_RUBRIC.rows[0], { ...FRQ_RUBRIC.rows[0], id: '147' }] };
+    data.students[1].responses[22] = frqResp('Ben 22', mark({ state: 'edited', final: { cells: { 146: 4, 147: 4 }, comment: 'c' }, writeback: { status: 'pending' } }));
+    renderTab(data);
+    expect(await screen.findByRole('button', { name: 'Publish all to Schoology (1)' })).toBeInTheDocument();
+  });
+
+  test('a saved card updates in place', async () => {
+    vi.mocked(api.saveFrqMark).mockResolvedValue({ mark: mark({ state: 'accepted', final: { cells: { 146: 4 }, comment: 's' }, writeback: { status: 'pending' } }) });
+    await byQuestion(FRQ_DATA());
+    const ana = within(bq()).getAllByTestId('frq-card')[0];
+    fireEvent.click(within(ana).getByRole('button', { name: 'Accept' }));
+    expect(await screen.findByText('2 waiting for the agent')).toBeInTheDocument();
+  });
+
+  test('accepting a revised suggestion shows the new mark in the card', async () => {
+    const before = mark({ state: 'accepted', final: { cells: { 146: 2 }, comment: 'Old mark' }, suggested: { cells: { 146: 4 }, comment: 'New suggestion' }, suggestion_revised: true });
+    const data = FRQ_DATA();
+    data.students = [{ ...data.students[0], responses: { ...data.students[0].responses, 21: frqResp('Ana 21', before) } }];
+    vi.mocked(api.saveFrqMark).mockResolvedValue({ mark: { ...before, final: { cells: { 146: 4 }, comment: 'New suggestion' }, suggestion_revised: false, writeback: { status: 'pending' } } });
+    await byQuestion(data);
+    const card = within(bq()).getAllByTestId('frq-card')[0];
+    expect(within(card).getByRole('textbox', { name: 'Comment for Ana Lee' })).toHaveValue('Old mark');
+    fireEvent.click(within(card).getByRole('button', { name: 'Accept' }));
+    await waitFor(() => {
+      const now = within(bq()).getAllByTestId('frq-card')[0];
+      expect(within(now).getByRole('textbox', { name: 'Comment for Ana Lee' })).toHaveValue('New suggestion');
+    });
+  });
+
+  test('shows a load error', async () => {
+    vi.mocked(api.getQuizAttempts).mockRejectedValue(new Error('No quiz group 7'));
+    render(<MemoryRouter><AttemptsTab group={{ id: 7 }} courseId={5} reloadKey="" /></MemoryRouter>);
+    expect(await screen.findByText('No quiz group 7')).toBeInTheDocument();
   });
 });

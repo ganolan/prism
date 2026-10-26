@@ -1362,6 +1362,9 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .mcq-answer__options li.is-key { border-color: var(--success); background: var(--success-light); }
 .mcq-answer__options li.is-chosen:not(.is-key) { border-color: var(--danger); background: var(--danger-bg); }
 .mcq-answer__mark { margin-left: auto; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+.mcq-answer--compact { padding: 0.35rem 0.8rem; }
+.attempt-by-question { display: grid; gap: 0.5rem; }
+.attempt-by-question__pick { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .frq-student__q { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--text-muted); }
 .question-stem-line { flex: 1 1 160px; min-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .triage-row__text { min-width: 0; display: flex; flex-direction: column; }

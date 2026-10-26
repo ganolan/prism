@@ -2268,7 +2268,8 @@ describe('AssessmentSummaryPage - quiz line (linked quizzes, phase 3)', () => {
     await waitFor(() => expect(onRebuildQuiz).toHaveBeenCalledWith(1));
   });
 
-  it('Update numbers refreshes the feedback in place, without reloading the page', async () => {
+  // #200: the template comment lives on the test (the Attempts tab), so Grading's quiz line has no Update numbers.
+  it('Grading cards show the quiz line without Update numbers', async () => {
     getFeatures.mockResolvedValue({ quizzes: true });
     getQuizGroupFor.mockResolvedValue({ group: { id: 7, title: 'Ep 1', members: [], result: { id: 50, schoology_assignment_id: '8', title: 'Launch' }, canonical_schoology_id: '8', frq_count: 1, loaded_at: '2026-10-13 01:00:00' } });
     getMasteryForAssignment.mockResolvedValue({
@@ -2276,17 +2277,14 @@ describe('AssessmentSummaryPage - quiz line (linked quizzes, phase 3)', () => {
       topics: TOPICS, students: [makeStudent()],
     });
     getQuizResults.mockResolvedValue({ students: [RESULT] });
-    rebuildQuizOverall.mockResolvedValue({ student: { ...RESULT, overall: { stale: false } } });
     render(
       <MemoryRouter initialEntries={['/course/4/assessment/8']}>
         <Routes><Route path="/course/:id/assessment/:assignmentId" element={<AssessmentSummaryPage />} /></Routes>
       </MemoryRouter>
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Update numbers' }));
-    await waitFor(() => expect(rebuildQuizOverall).toHaveBeenCalledWith(7, 1));
-    await waitFor(() => expect(getFeedbackForAssignment.mock.calls.length).toBeGreaterThanOrEqual(2));
-    expect(getMasteryForAssignment).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText('Loading...')).not.toBeInTheDocument();
+    expect(await screen.findByText('MCQ 17/20 (85%), FRQ Q21: Exhibiting')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Update numbers' })).toBeNull();
+    expect(screen.queryByText('Numbers changed')).toBeNull();
   });
 
   it('the page fetches results for a linked group on the result task and passes them to the card', async () => {

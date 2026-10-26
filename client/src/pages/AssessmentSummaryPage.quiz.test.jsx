@@ -7,7 +7,7 @@ import { formatDateTime } from '../lib/formatDate.js';
 
 vi.mock('../lib/assessmentDraftSaver.js', () => ({ makeDraftSaver: () => ({ save: vi.fn(), remove: vi.fn(), flush: vi.fn(), settle: vi.fn(async () => {}), dispose: vi.fn() }) }));
 vi.mock('../components/quiz/QuestionsTab.jsx', () => ({ default: ({ groupId }) => <div>Questions for group {groupId}</div> }));
-vi.mock('../components/quiz/FreeResponseTab.jsx', () => ({ default: ({ groupId }) => <div>Free response for group {groupId}</div> }));
+vi.mock('../components/quiz/AttemptsTab.jsx', () => ({ default: ({ group }) => <div>Attempts for group {group.id}</div> }));
 vi.mock('../services/api.js', () => ({
   getMasteryForAssignment: vi.fn(),
   getSubmissionLinks: vi.fn().mockResolvedValue({ status: 'not_lti', links: {} }),
@@ -230,11 +230,29 @@ describe('AssessmentSummaryPage with a quiz group', () => {
     expect(await screen.findByText(/1 linked test/)).toBeInTheDocument();
   });
 
-  it('shows a Free response tab only when the group has an FRQ', async () => {
+  // #200: Attempts replaces the Free response tab and shows for every quiz.
+  it('the tabs are Grading, Questions, Attempts', async () => {
     getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, frq_count: 1 } });
     renderAt('/course/5/assessment/950');
-    fireEvent.click(await screen.findByRole('tab', { name: 'Free response' }));
-    expect(await screen.findByText('Free response for group 7')).toBeInTheDocument();
+    const tabs = await screen.findByRole('tablist', { name: 'Quiz views' });
+    expect(Array.from(tabs.querySelectorAll('[role=tab]')).map(t => t.textContent)).toEqual(['Grading', 'Questions', 'Attempts']);
+    fireEvent.click(screen.getByRole('tab', { name: 'Attempts' }));
+    expect(await screen.findByText('Attempts for group 7')).toBeInTheDocument();
+  });
+
+  it('a link to the old Free response tab opens Attempts', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, frq_count: 1 } });
+    renderAt('/course/5/assessment/950?tab=frq');
+    expect(await screen.findByText('Attempts for group 7')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Attempts' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('with no result task linked, Grading states it and opens Quiz setup', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, result: null, canonical_schoology_id: '900' } });
+    renderAt('/course/5/assessment/900');
+    expect(await screen.findByText('No result task is linked to this quiz.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Link a result task' }));
+    expect(await screen.findByRole('combobox', { name: 'Result task' })).toBeInTheDocument();
   });
 
   // #194: the active quiz tab joins the panel that holds the tab's content.
@@ -244,16 +262,15 @@ describe('AssessmentSummaryPage with a quiz group', () => {
     const tabs = await screen.findByRole('tablist', { name: 'Quiz views' });
     expect(tabs).toHaveClass('tab-row', 'tab-row--joined');
     expect(document.querySelector('.tab-panel')).toHaveClass('tab-panel--first');
-    fireEvent.click(screen.getByRole('tab', { name: 'Free response' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Attempts' }));
     const panel = document.querySelector('.tab-panel');
-    expect(panel).toContainElement(await screen.findByText('Free response for group 7'));
+    expect(panel).toContainElement(await screen.findByText('Attempts for group 7'));
     expect(panel).not.toHaveClass('tab-panel--first');
   });
 
-  it('no Free response tab without an FRQ', async () => {
+  it('Attempts shows for a quiz with no FRQ too', async () => {
     getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, frq_count: 0 } });
     renderAt('/course/5/assessment/950');
-    await screen.findByRole('tab', { name: 'Questions' });
-    expect(screen.queryByRole('tab', { name: 'Free response' })).toBeNull();
+    expect(await screen.findByRole('tab', { name: 'Attempts' })).toBeInTheDocument();
   });
 });

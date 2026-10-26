@@ -1924,3 +1924,11 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Shared logic:** `server/services/rosterForAgents.js` imports `client/src/lib/masteryCompare.js`, `masteryLevels.js`, `testDay.js` and `genderTag.js` directly, so the tools and the roster cannot disagree. `courseMasteryPayload` is now the one builder of `GET /api/mastery/:courseId`'s answer (`server/routes/mastery.js` uses it).
 - **Parity:** `scripts/parity-prismcp-http.js` compares `get_category_check` and `get_test_day`, and excludes `get_alert_detail` as a live read.
 - **Tests:** `mcp/rosterTools.test.js` (11). Checked against a copy of prod's database on 25 Oct 2026: every current course answered; 0 differences (Prism and Schoology agree today, checked per student by hand on one course) and no test in the next 14 days.
+
+## Parent and child tabs (#194, 2026-10-26)
+
+- **Choice:** Graham picked option A, attached panel, from three mocks (https://claude.ai/artifact/46PmMhTCDkVCE7JLaVkf9d).
+- **CSS:** `.tab-row--joined`, `.tab-panel` (`--first`), `.subtab-row`, `.subtab-btn` in `client/src/app.css`; phone rule in PHONE LAYOUT (the joined row never wraps).
+- **Applied:** `CoursePage.jsx` (`COURSE_VIEWS`, tabs are `role="tab"`, the main column is the panel), `RosterTab.jsx` (modes are the child row, `role="tab"`, `.roster-modes` removed), `AssessmentSummaryPage.jsx` (`QuizTabPanel` around a linked quiz's tab content), `FreeResponseTab.jsx` (By question / By student child row), `RubricManagerModal.jsx` (tabs use `.tab-btn`).
+- **Tests:** CoursePage (panel holds the Roster child row, corner, rail outside), quiz page (panel, corner), FreeResponseTab (child row); tab selectors moved from `button` to `tab`. `npm run check:mobile` on a prod copy: 50 checks pass, every page fits at 390px.
+

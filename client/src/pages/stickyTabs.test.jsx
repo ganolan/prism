@@ -91,7 +91,7 @@ describe('CoursePage sticky tab', () => {
 
   it('the Roster tab remembers its mode in ?mode=', async () => {
     renderAt('/course/5?mode=testday');
-    const modes = await screen.findByRole('group', { name: 'Roster view' });
+    const modes = await screen.findByRole('tablist', { name: 'Roster view' });
     expect(within(modes).getByText('Test day')).toHaveClass('active');
   });
 

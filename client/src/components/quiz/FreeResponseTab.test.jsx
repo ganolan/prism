@@ -38,7 +38,10 @@ describe('FreeResponseTab', () => {
   it('by student stacks each student\'s FRQs', async () => {
     render(<FreeResponseTab groupId={7} />);
     await screen.findByText('Ana 21');
-    fireEvent.click(screen.getByRole('button', { name: 'By student' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'By student' }));
+    // #194: By question and By student are the Free response tab's child row.
+    expect(screen.getByRole('tab', { name: 'By student' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tablist', { name: 'View' })).toHaveClass('subtab-row');
     expect(screen.getByText('Ana 21')).toBeInTheDocument();
     expect(screen.getByText('Ana 22')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Question' })).toBeNull();

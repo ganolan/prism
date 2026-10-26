@@ -43,6 +43,8 @@ import { isFlag, isFinalFlag } from '../lib/flags.js';
 import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts } from '../lib/assessmentTypeFilter.js';
 
 const SHORT_BADGE = { late: 'L', draft: 'D', overdue: 'O', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
+// The course page's tabs, in order: [view key, label].
+const COURSE_VIEWS = [['roster', 'Roster'], ['gradebook', 'Gradebook'], ['assessments', 'Assessments'], ['analytics', 'Analytics']];
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-amber', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
 export default function CoursePage() {
@@ -222,19 +224,16 @@ export default function CoursePage() {
           <SyncDialog followRunId={followRun} onClose={() => setFollowRun(null)} onSyncComplete={bumpDataVersion} />
         )}
 
+        {/* The active tab joins the panel under it, which holds the tab's content (#194). */}
         <div className="course-header__tabs">
-          <button className={`tab-btn ${view === 'roster' ? 'active' : ''}`} onClick={() => setView('roster')}>
-            Roster
-          </button>
-          <button className={`tab-btn ${view === 'gradebook' ? 'active' : ''}`} onClick={() => setView('gradebook')}>
-            Gradebook
-          </button>
-          <button className={`tab-btn ${view === 'assessments' ? 'active' : ''}`} onClick={() => setView('assessments')}>
-            Assessments
-          </button>
-          <button className={`tab-btn ${view === 'analytics' ? 'active' : ''}`} onClick={() => setView('analytics')}>
-            Analytics
-          </button>
+          <div className="tab-row tab-row--joined" role="tablist" aria-label="Course views">
+            {COURSE_VIEWS.map(([key, label]) => (
+              <button key={key} type="button" role="tab" aria-selected={view === key}
+                className={`tab-btn${view === key ? ' active' : ''}`} onClick={() => setView(key)}>
+                {label}
+              </button>
+            ))}
+          </div>
           {view === 'gradebook' && privateOn && gradebook?.assignments?.length > 0 && (
             <TypeFilterBar
               compact assignments={gradebook.assignments} filter={gradebookFilter}
@@ -257,7 +256,7 @@ export default function CoursePage() {
       {/* Tab content in the main column, the triage rail beside it (below it on a phone). */}
       {/* On a current course's Roster tab the main column keeps the width it has beside the rail, shown or not (#192). */}
       <div className={`triage-layout${view === 'roster' && courseLive ? ' triage-layout--fixed-main' : ''}`}>
-        <div className="triage-layout__main">
+        <div className={`triage-layout__main tab-panel${view === COURSE_VIEWS[0][0] ? ' tab-panel--first' : ''}`}>
           {privateOn && (view === 'gradebook' || view === 'analytics') && <LargerScreenNote />}
           {view === 'roster' && (
             <RosterTab

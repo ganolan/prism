@@ -152,7 +152,7 @@ describe('CoursePage triage', () => {
     vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
     renderAt('/course/5?tab=gradebook');
     await screen.findByRole('button', { name: /^Triage/ });
-    fireEvent.click(screen.getByRole('button', { name: 'Assessments' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Assessments' }));
     expect(await screen.findByRole('complementary', { name: 'Triage' })).toBeInTheDocument();
   });
 
@@ -202,8 +202,8 @@ describe('CoursePage triage', () => {
     renderAt('/course/5?tab=gradebook');
     fireEvent.click(await screen.findByRole('button', { name: /^Triage/ }));
     expect(rail()).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Roster' }));
-    await screen.findByRole('group', { name: 'Roster view' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Roster' }));
+    await screen.findByRole('tablist', { name: 'Roster view' });
     expect(document.querySelector('.triage-rail')).toBeNull();
     expect(screen.getByRole('button', { name: /^Triage/ })).toHaveAttribute('aria-expanded', 'false');
   });
@@ -219,15 +219,32 @@ describe('CoursePage triage', () => {
     expect(await screen.findByText('Grades are private.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Private details' })).not.toBeInTheDocument();
     expect(container.querySelector('.gradebook-table, table')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Assessments' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Assessments' }));
     expect(screen.getByText('Assessments and their marking progress are private.')).toBeInTheDocument();
     expect(within(rail()).getByText('Triage is private.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Analytics' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Analytics' }));
     expect(screen.getByText('Class results are private.')).toBeInTheDocument();
     expect(api.getCourseAnalytics).not.toHaveBeenCalled();
     act(() => setPrivateDetails(true));
     expect(screen.queryByText('Class results are private.')).not.toBeInTheDocument();
     await waitFor(() => expect(api.getCourseAnalytics).toHaveBeenCalled());
+  });
+
+  // #194: the active course tab joins the panel that holds its content and any child row; the rail stays outside.
+  it('the Roster tab content, its child row included, sits in the panel; the corner squares only under the first tab', async () => {
+    loaded({ archived: 0 });
+    vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
+    renderAt('/course/5?tab=roster');
+    const modes = await screen.findByRole('tablist', { name: 'Roster view' });
+    const panel = document.querySelector('.tab-panel');
+    expect(panel).toContainElement(modes);
+    expect(panel).toHaveClass('tab-panel--first');
+    expect(screen.getByRole('tablist', { name: 'Course views' })).toHaveClass('tab-row--joined');
+    expect(screen.getByRole('tab', { name: 'Roster' })).toHaveAttribute('aria-selected', 'true');
+    expect(panel).not.toContainElement(rail());
+    fireEvent.click(screen.getByRole('tab', { name: 'Assessments' }));
+    expect(document.querySelector('.tab-panel')).not.toHaveClass('tab-panel--first');
+    expect(screen.getByRole('tab', { name: 'Assessments' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('shows no triage (and fetches none) on an archived course page', async () => {

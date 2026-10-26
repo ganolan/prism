@@ -522,13 +522,13 @@ describe('RosterTab sort', () => {
 describe('RosterTab modes', () => {
   it('four mode tabs, remembered in the URL as ?mode=', () => {
     renderTab();
-    const modes = screen.getByRole('group', { name: 'Roster view' });
+    const modes = screen.getByRole('tablist', { name: 'Roster view' });
     // #192: the first is "Details and Attendance", since "Roster" repeated the parent tab; its id stays `roster`.
-    expect(within(modes).getAllByRole('button').map((b) => b.textContent)).toEqual(['Details and Attendance', 'Needs attention', 'Test day', 'Mastery']);
-    expect(within(modes).getByRole('button', { name: 'Details and Attendance' })).toHaveClass('tab-btn', 'active');
-    fireEvent.click(within(modes).getByRole('button', { name: 'Mastery' }));
+    expect(within(modes).getAllByRole('tab').map((b) => b.textContent)).toEqual(['Details and Attendance', 'Needs attention', 'Test day', 'Mastery']);
+    expect(within(modes).getByRole('tab', { name: 'Details and Attendance' })).toHaveClass('subtab-btn', 'active');
+    fireEvent.click(within(modes).getByRole('tab', { name: 'Mastery' }));
     expect(screen.getByTestId('search')).toHaveTextContent('mode=mastery');
-    expect(within(modes).getByRole('button', { name: 'Mastery' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(modes).getByRole('tab', { name: 'Mastery' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByText('Annie Lee')).not.toBeInTheDocument();
   });
 

@@ -153,6 +153,12 @@ async function waitForRun(runId, wanted) {
 // Private details off only the way back to the course and the PrivateHidden box are in the page. The
 // page itself unmounts: each grade card in edit mode saves its draft as it unmounts, and turning the
 // switch on again mounts a fresh page that reads the task, its drafts included.
+// A linked quiz's tab content sits in the panel its active tab joins (#194); without a quiz, as it is.
+function QuizTabPanel({ on, first, children }) {
+  if (!on) return children;
+  return <div className={`tab-panel${first ? ' tab-panel--first' : ''}`}>{children}</div>;
+}
+
 export default function AssessmentSummaryPage() {
   const [privateOn] = usePrivateDetails();
   const { id: courseId } = useParams();
@@ -698,10 +704,11 @@ function AssessmentSummaryBody() {
   return (
     <div className="fade-in">
       <LargerScreenNote />
+      {/* With a linked quiz's tabs, the active tab joins the panel right under this header (#194). */}
       <div style={{
         position: 'sticky', top: 0, zIndex: 5, background: 'var(--bg)',
-        marginBottom: '1.25rem', padding: '0.55rem 0',
-        borderBottom: '1px solid var(--border)',
+        marginBottom: quizGroup ? 0 : '1.25rem', padding: quizGroup ? '0.55rem 0 0' : '0.55rem 0',
+        borderBottom: quizGroup ? 'none' : '1px solid var(--border)',
       }}>
         {/* Breadcrumb back to the class, named with its block (the Dashboard's
             [BK n] label) — sections of the same course look identical otherwise. */}
@@ -848,7 +855,7 @@ function AssessmentSummaryBody() {
         />
         {quizGroup && <QuizLoadWarnings group={quizGroup} students={students} />}
         {quizGroup && (
-          <div role="tablist" aria-label="Quiz views" style={{ display: 'flex', gap: '0.25rem', marginTop: '0.4rem' }}>
+          <div role="tablist" aria-label="Quiz views" className="tab-row tab-row--joined" style={{ marginTop: '0.4rem' }}>
             <button role="tab" aria-selected={quizTab === 'grading'} className={`tab-btn${quizTab === 'grading' ? ' active' : ''}`} onClick={() => setQuizTab('grading')}>Grading</button>
             <button role="tab" aria-selected={quizTab === 'questions'} className={`tab-btn${quizTab === 'questions' ? ' active' : ''}`} onClick={() => setQuizTab('questions')}>Questions</button>
             {quizGroup.frq_count > 0 && (
@@ -858,6 +865,7 @@ function AssessmentSummaryBody() {
         )}
       </div>
 
+      <QuizTabPanel on={Boolean(quizGroup)} first={quizTab === 'grading'}>
       {quizGroup && quizTab === 'questions' ? (
         <QuestionsTab groupId={quizGroup.id} courseId={quizGroup.course_id} reloadKey={quizGroup.loaded_at} />
       ) : quizGroup && quizTab === 'frq' && quizGroup.frq_count > 0 ? (
@@ -1048,6 +1056,7 @@ function AssessmentSummaryBody() {
           </div>
         </>
       )}
+      </QuizTabPanel>
 
       {drawerOpen && (
         <>

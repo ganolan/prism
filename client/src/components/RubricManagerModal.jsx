@@ -78,7 +78,7 @@ export default function RubricManagerModal({ open, onClose, courseId, assignment
 
   const Tab = ({ id, label, disabled }) => (
     <button role="tab" aria-selected={tab === id} disabled={disabled}
-      className={`filter-btn${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>{label}</button>
+      className={`tab-btn${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>{label}</button>
   );
 
   return (

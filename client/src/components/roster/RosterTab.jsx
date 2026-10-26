@@ -124,10 +124,11 @@ export default function RosterTab({ course = null, students, mastery = null, tri
 
   return (
     <div className="roster-tab">
-      <div className="roster-modes" role="group" aria-label="Roster view">
+      {/* The Roster tab's child row (#194): .subtab-btn inside the course page's tab panel. */}
+      <div className="subtab-row" role="tablist" aria-label="Roster view">
         {ROSTER_MODES.map((m) => (
-          <button key={m.id} type="button" className={`tab-btn${current === m.id ? ' active' : ''}`}
-            aria-pressed={current === m.id} onClick={() => setMode(m.id)}>
+          <button key={m.id} type="button" role="tab" className={`subtab-btn${current === m.id ? ' active' : ''}`}
+            aria-selected={current === m.id} onClick={() => setMode(m.id)}>
             {m.label}
           </button>
         ))}

@@ -73,11 +73,12 @@ export default function FreeResponseTab({ groupId, reloadKey }) {
 
   return (
     <div className="fade-in frq-tab">
+      {/* Free response's child row (#194), first in the panel its tab joins. */}
+      <div className="subtab-row" role="tablist" aria-label="View">
+        <button type="button" role="tab" className={`subtab-btn${view === 'question' ? ' active' : ''}`} aria-selected={view === 'question'} onClick={() => setView('question')}>By question</button>
+        <button type="button" role="tab" className={`subtab-btn${view === 'student' ? ' active' : ''}`} aria-selected={view === 'student'} onClick={() => setView('student')}>By student</button>
+      </div>
       <div className="card frq-tab__bar">
-        <div role="group" aria-label="View" style={{ display: 'flex', gap: '0.25rem' }}>
-          <button type="button" className={`filter-btn${view === 'question' ? ' active' : ''}`} aria-pressed={view === 'question'} onClick={() => setView('question')}>By question</button>
-          <button type="button" className={`filter-btn${view === 'student' ? ' active' : ''}`} aria-pressed={view === 'student'} onClick={() => setView('student')}>By student</button>
-        </div>
         {view === 'question' && (
           <select className="frq-tab__q" aria-label="Question" value={question.position} onChange={(e) => setPosition(Number(e.target.value))}>
             {data.questions.map(q => <option key={q.position} value={q.position}>{`Q${q.position}`}</option>)}

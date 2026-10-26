@@ -237,6 +237,19 @@ describe('AssessmentSummaryPage with a quiz group', () => {
     expect(await screen.findByText('Free response for group 7')).toBeInTheDocument();
   });
 
+  // #194: the active quiz tab joins the panel that holds the tab's content.
+  it('the quiz tabs join a panel holding the active tab\'s content; the corner squares only under Grading', async () => {
+    getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, frq_count: 1 } });
+    renderAt('/course/5/assessment/950');
+    const tabs = await screen.findByRole('tablist', { name: 'Quiz views' });
+    expect(tabs).toHaveClass('tab-row', 'tab-row--joined');
+    expect(document.querySelector('.tab-panel')).toHaveClass('tab-panel--first');
+    fireEvent.click(screen.getByRole('tab', { name: 'Free response' }));
+    const panel = document.querySelector('.tab-panel');
+    expect(panel).toContainElement(await screen.findByText('Free response for group 7'));
+    expect(panel).not.toHaveClass('tab-panel--first');
+  });
+
   it('no Free response tab without an FRQ', async () => {
     getQuizGroupFor.mockResolvedValue({ group: { ...GROUP, frq_count: 0 } });
     renderAt('/course/5/assessment/950');

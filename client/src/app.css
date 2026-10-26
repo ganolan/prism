@@ -1336,6 +1336,32 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .post-marks__ok { color: var(--success); }
 .post-marks__fail { color: var(--danger); }
 .frq-student { display: grid; gap: 0.5rem; }
+
+/* ATTEMPTS (#200): the Attempts tab of a linked quiz. By student shows one attempt: a header, the
+   test's grade card, the percent by tag, then every question (an MCQ row or an FRQ marking card). */
+.attempts-tab { display: grid; gap: 0.75rem; }
+.attempts-tab__bar { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.attempts-tab__walk { display: inline-flex; align-items: center; gap: 0.35rem; }
+.attempts-tab__walk select { width: auto; min-width: 10rem; }
+.attempts-tab__filters { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.attempts-tab__publish { display: inline-flex; align-items: center; gap: 0.5rem; margin-left: auto; }
+.attempt { display: grid; gap: 0.6rem; }
+.attempt__head { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.attempt__name { margin: 0; font-size: 1.05rem; }
+.attempt__tags { display: flex; gap: 0.9rem; flex-wrap: wrap; margin: 0; color: var(--text-muted); }
+.attempt__questions { display: grid; gap: 0.5rem; }
+.mcq-answer { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 10px; padding: 0.6rem 0.8rem; display: grid; gap: 0.35rem; box-shadow: var(--card-shadow); }
+.mcq-answer__head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.mcq-answer__class { margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; }
+.mcq-answer__stem { line-height: 1.5; max-width: 100%; overflow-x: auto; }
+.mcq-answer__stem img { max-width: 100%; height: auto; }
+.mcq-answer__options { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+.mcq-answer__options li { display: flex; gap: 0.5rem; align-items: baseline; padding: 0.15rem 0.4rem; border-radius: 6px; border: 1px solid transparent; }
+.mcq-answer__options li p { margin: 0; }
+.mcq-answer__letter { font-weight: 700; min-width: 1rem; }
+.mcq-answer__options li.is-key { border-color: var(--success); background: var(--success-light); }
+.mcq-answer__options li.is-chosen:not(.is-key) { border-color: var(--danger); background: var(--danger-bg); }
+.mcq-answer__mark { margin-left: auto; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
 .frq-student__q { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--text-muted); }
 .question-stem-line { flex: 1 1 160px; min-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .triage-row__text { min-width: 0; display: flex; flex-direction: column; }

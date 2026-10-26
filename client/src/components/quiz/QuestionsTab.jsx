@@ -1,6 +1,7 @@
 // Per-question statistics for a quiz group (spec §8). Counts, percentages, bands
 // and distractor flags only; no discrimination statistics. With a courseId, each tag
 // opens TagResultsDrawer: that tag across every quiz group in the course (#139).
+import { stripOptionLetter } from '../../lib/quizOptions.js';
 import { useEffect, useMemo, useState } from 'react';
 import { getQuizStats, setQuizTags } from '../../services/api.js';
 import ScoreDots from './ScoreDots.jsx';
@@ -10,9 +11,6 @@ import TagResultsDrawer from './TagResultsDrawer.jsx';
 // Stem and option HTML is the teacher's own Schoology question text, rendered as-is in this local app.
 // DOMParser is inert (no scripts, no image loads), so reading textContent here runs nothing.
 const plain = (html) => new DOMParser().parseFromString(html || '', 'text/html').body.textContent.replace(/\s+/g, ' ').trim();
-// Schoology option text often repeats its own letter ("a. ...", "b) ..."); the row already shows it.
-const stripOptionLetter = (html, letter) =>
-  (html || '').replace(new RegExp(`^((?:\\s|<[^>]+>)*)${letter}[.)](?:\\s|&nbsp;)+`, 'i'), '$1');
 const FLAG_CLASS = { critical: 'badge badge-red', warning: 'badge badge-amber', note: 'badge' };
 
 // A tag with stored text shows it on hover (dotted underline as the cue). With onOpen it is a

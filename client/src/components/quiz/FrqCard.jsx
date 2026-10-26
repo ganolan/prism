@@ -19,7 +19,8 @@ export function stateChips({ schoology, mark }) {
   return chips;
 }
 
-export default function FrqCard({ groupId, student, question, response, onSaved }) {
+// `showStudent` off: inside one student's attempt (By student, #200), where the attempt's header names them.
+export default function FrqCard({ groupId, student, question, response, onSaved, showStudent = true }) {
   const { mark, schoology } = response;
   const start = mark?.final ?? mark?.suggested ?? schoology ?? { cells: {}, comment: '' };
   const [cells, setCells] = useState(start.cells || {});
@@ -53,8 +54,12 @@ export default function FrqCard({ groupId, student, question, response, onSaved 
   return (
     <div className="card frq-card" data-testid="frq-card">
       <div className="frq-card__head">
-        <strong>{student.name}</strong>
-        <AttemptLink link={{ url: student.attempt_url, completedAt: student.completed_at }} name={student.name} />
+        {showStudent && (
+          <>
+            <strong>{student.name}</strong>
+            <AttemptLink link={{ url: student.attempt_url, completedAt: student.completed_at }} name={student.name} />
+          </>
+        )}
         {stateChips(response).map(c => <span key={c.key} className={`badge ${c.tone}`} title={c.key === 'writeback' && mark?.writeback?.error ? mark.writeback.error : undefined}>{c.label}</span>)}
         {mark?.suggestion_revised && <span className="badge badge-pink">Revised suggestion</span>}
       </div>

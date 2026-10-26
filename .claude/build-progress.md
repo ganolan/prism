@@ -1932,3 +1932,12 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Applied:** `CoursePage.jsx` (`COURSE_VIEWS`, tabs are `role="tab"`, the main column is the panel), `RosterTab.jsx` (modes are the child row, `role="tab"`, `.roster-modes` removed), `AssessmentSummaryPage.jsx` (`QuizTabPanel` around a linked quiz's tab content), `FreeResponseTab.jsx` (By question / By student child row), `RubricManagerModal.jsx` (tabs use `.tab-btn`).
 - **Tests:** CoursePage (panel holds the Roster child row, corner, rail outside), quiz page (panel, corner), FreeResponseTab (child row); tab selectors moved from `button` to `tab`. `npm run check:mobile` on a prod copy: 50 checks pass, every page fits at 390px.
 
+## Linked quizzes: the Attempts tab (#200, 2026-10-26)
+
+- **Design:** `docs/superpowers/specs/2026-10-26-linked-quiz-attempts-design.md` (Graham, 26 Oct); plan `docs/superpowers/plans/2026-10-26-linked-quiz-attempts.md`.
+- **Spike first (`a4d72bb`):** a test's overall comment is the ordinary grade comment; Prism's write-comment route wrote and cleared one hidden comment on the TV Club test (runs 114, 115). A hidden comment with text reads back `comment_status` 0.
+- **Server:** `quizResults` names each student's member test, attempt, score and times, and reads the overall suggestion from the member test; `quizOverall` writes in parts (impression → test comment on the member test; `rubric_scores` and the new `narrative` → result task, merged); new `quizAttempts` + `GET /api/quizzes/:id/attempts`.
+- **PrisMCP:** `write_quiz_overall_suggestions` takes optional `impression`, `rubric_scores`, `narrative`; `get_quiz_results` records serves on the member tests too.
+- **Client:** `AttemptsTab` (By student, By question), `AttemptByStudent`, `AttemptByQuestion`, `McqAnswer`; `useCardBatch` (the Grading tab's Send all as a hook); `lib/frqFilters.js`, `lib/quizOptions.js`; `FreeResponseTab` deleted (tests ported). Tabs: Grading, Questions, Attempts.
+- **Tests:** quizResults, quizOverall, quizAttempts, quizzes route, mastery route (a test comment echoes the grade), MCP handlers and server, useCardBatch, AttemptsTab (By student and By question, the ported Free response tests), the page's quiz tests.
+

@@ -736,7 +736,8 @@ export function markFrqWritebackTool(db, { group_id, student, question, status, 
   return recordWriteback(db, { groupId: group_id, student, position: question, status, error });
 }
 
-// Phase 3 (spec §13): the overall result on the linked result task.
+// Phase 3 (spec §13, #200): the overall result: the test comment on the test each student took, the
+// levels and the narrative on the linked result task.
 // The read is recorded as a serve of the group's result task and of each member test (the test
 // comment's home since #200), dated by when the results were loaded (`loaded_at` is SQLite UTC
 // time; 'never' when they never were), so write_quiz_overall_suggestions, which has no context_id

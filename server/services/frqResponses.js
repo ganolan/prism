@@ -1,4 +1,4 @@
-// The FRQ read model (spec §12): what the Free response tab, the REST route and the MCP tools
+// The FRQ read model (spec §12): what the Attempts tab's FRQ cards (#200), the REST route and the MCP tools
 // show. Built only from Prism's stored copy; nothing here reads Schoology.
 import { QuizError } from './quizError.js';
 import { getGroup, attemptUrl } from './quizGroups.js';

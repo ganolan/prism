@@ -147,6 +147,8 @@ CSV export, once phase 2 ships.
 
 ## 7. The overall comment
 
+*(As built, #200, 26 Oct 2026: the comment this section builds is the test comment, a suggestion on the member test each student took, shown on the Attempts tab. The result task's comment is the teacher's optional narrative. See `2026-10-26-linked-quiz-attempts-design.md`.)*
+
 Prism builds the comment from a template stored on the group, so the numbers always match the
 data. The agent writes only the impression. Default template (student-facing, so British spelling):
 
@@ -313,6 +315,8 @@ loads. MCP tools return the answer as plain text with line breaks kept.
 
 ### Free response tab
 
+*(Superseded by #200, 26 Oct 2026: the Free response tab is folded into the Attempts tab, whose By question and By student views keep every FRQ card, filter and Publish all described here. See `2026-10-26-linked-quiz-attempts-design.md`.)*
+
 Shown when the group has an FRQ.
 - **Command bar:** **By question** (default) or **By student**; in By question, one picker sets the FRQ
   for every card. Filter chips: To review, Accepted, Waiting to post, Posted, Failed, Changed in
@@ -343,6 +347,8 @@ route stays as the fallback for when Prism is down; nothing in it is deleted.
 - **Schema test:** the table list gains `frq_marks`.
 
 ## 13. Phase 3 design (agreed with the teacher, 2026-10-13)
+
+*(As built, #200, 26 Oct 2026: the result is written in parts: the impression's built comment on the member test the student took, the levels and an optional narrative on the result task. `write_quiz_overall_suggestions` takes `impression`, `rubric_scores` and `narrative`, each optional.)*
 
 The overall result is an ordinary suggestion on the linked result task, so that task grades like every
 other task in Prism. Prism builds its comment from the group's template and the stored data; the agent
@@ -517,7 +523,7 @@ the teacher chooses, saving the mark that student should get anyway, with the te
 
 Only while `quiz_writeback` is on. The flag ships off; the teacher turns it on after the first real post
 looks right in Schoology.
-- **Publish all to Schoology (n)** on the Free response tab publishes every accepted or edited mark on
+- **Publish all to Schoology (n)** on the Free response tab (the Attempts tab since #200) publishes every accepted or edited mark on
   every FRQ of the quiz (both copies) in one click, each read back, with a line per student: Published,
   Failed with the reason, or Skipped. A mark that fails stays waiting, and the button returns for it. (The
   first version posted one student first; the teacher dropped that step on 2026-10-13, because every write

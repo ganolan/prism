@@ -35,9 +35,9 @@ export const INSTRUCTIONS =
   'levels and comments verbatim, e.g. for reference letters. Also linked ' +
   'quizzes: per-question results of Schoology tests that Prism combined, and ' +
   'tags per question; get_tag_results follows one tag across a course. FRQ marking: get_frq_responses, write_frq_suggestions, then the teacher accepts in Prism; ' +
-  'the teacher publishes accepted marks with Publish all to Schoology on the Free response tab; ' +
+  'the teacher publishes accepted marks with Publish all to Schoology on the Attempts tab; ' +
   'list_frq_writebacks and mark_frq_writeback are the fallback when that button is absent. Overall result: get_quiz_results, then ' +
-  'write_quiz_overall_suggestions (levels and an impression; Prism builds the comment). ' +
+  'write_quiz_overall_suggestions (an impression for the test comment on the test each student took, Prism builds it; levels and an optional narrative for the result task). ' +
   'Roster (teacher only): get_category_check (Prism against Schoology per reporting category), ' +
   'get_test_day (extra time on upcoming tests), get_alert_detail (one PowerSchool alert).';
 
@@ -281,7 +281,7 @@ export function createServer({ devCopy = false } = {}) {
   server.registerTool(
     'list_frq_writebacks',
     {
-      description: "FRQ marks the teacher accepted or edited that Schoology does not show yet (write-back pending or failed): student, question number, the attempt URL to open, the level and points per rubric row, and the comment to enter. After entering one in Schoology, record it with mark_frq_writeback; the next load_quiz_results also detects it. While Prism's quiz write-back is on, the teacher publishes these with Publish all to Schoology on the Free response tab; use this list for a mark it reports as \"Post this one by hand\", or when the teacher asks.",
+      description: "FRQ marks the teacher accepted or edited that Schoology does not show yet (write-back pending or failed): student, question number, the attempt URL to open, the level and points per rubric row, and the comment to enter. After entering one in Schoology, record it with mark_frq_writeback; the next load_quiz_results also detects it. While Prism's quiz write-back is on, the teacher publishes these with Publish all to Schoology on the Attempts tab; use this list for a mark it reports as \"Post this one by hand\", or when the teacher asks.",
       inputSchema: { group_id: z.union([z.number(), z.string()]).describe('Quiz group id from list_quiz_groups') },
     },
     async ({ group_id }) => text(() => listFrqWritebacksTool(getDb(), { group_id }))

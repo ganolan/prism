@@ -1338,6 +1338,8 @@ The /assessment/ card header holds one line of action pills (Refer, Waive / Exte
 
 ## Free response tab (October 2026, linked quizzes phase 2)
 
+*(Folded into the Attempts tab by #200, 26 Oct 2026: see "Attempts tab (#200)" below. The views, filters and Publish all live on there.)*
+
 - **Two views, one picker.** **By question** (the default) shows every student's answer to one FRQ, chosen with one picker for the whole list, under the question's stem. **By student** stacks each student's FRQs. The view and filter buttons are `.filter-btn`s in one bar, which is not sticky because the assessment page header already is.
 - **Filters name the work left.** All, To review, Accepted, Waiting to post, Posted, Failed, Changed in Schoology. While `quiz_writeback` is off the bar also shows "n waiting for the agent".
 - **Card order:** the name with the **Attempt** link and state chips; the answer on `var(--bg-subtle)`; the Schoology rubric grid; the comment; then **Accept** (`.primary`), **Save edit** (`.secondary`), **Keep mine** and **Copy comment** (`.ghost`).
@@ -1817,3 +1819,15 @@ Prism's level is the correct one; Schoology's is what students and report cards 
 - **Header layout:** the course header has no bottom margin, so the tab meets the panel. The gradebook's type filter and the Triage button share the tab line, right-aligned; `flex-wrap: wrap-reverse` puts them on a line above when there is no room, so the tab row always stays next to the panel. A quiz's sticky header drops its bottom border and margin while the quiz tabs show.
 - **Phone:** a joined tab row never wraps (a wrapped row would hang the active tab over the second line). At 390px the four course tabs fit at 0.8rem with smaller side padding; on a narrower screen they shrink with an ellipsis. The rule is in the PHONE LAYOUT block.
 - **Private details:** the issue's plan to put the switch on the Roster child row was dropped; #197 moved it to the sidebar for the whole app.
+
+## Attempts tab (#200, 26 Oct 2026)
+
+- **Graham's design (26 Oct 2026):** a linked quiz's page has three tabs, **Grading** (the result task), **Questions** (class statistics) and **Attempts** (the Schoology test itself, for any mix of MCQs and FRQs, so a validation test works too). Attempts replaces the Free response tab; `?tab=frq` opens it. Design: `docs/superpowers/specs/2026-10-26-linked-quiz-attempts-design.md`.
+- **Child row:** By student (the default) and By question, as Schoology has, in the #194 `.subtab-row` inside the tab panel.
+- **By student:** Previous, a student picker and Next walk the class. Each attempt (`AttemptByStudent.jsx`) has a header (the name, the member test as a badge when the group has more than one, the attempt link, the time taken), the test's own grade card (`StudentRubricCard` for the member test: score, overall comment with the template suggestion, the quiz line and Update numbers), the percent by tag when the quiz has tags, then every question: an MCQ row (`McqAnswer.jsx`) or the FRQ marking card. Every attempt stays mounted (hidden) so Publish test comments covers the class.
+- **MCQ row:** the stem, the options with the chosen one and the key marked (the key green, a wrong choice red), Correct / Incorrect / No answer, the points, and the class's percent correct with the Questions tab's band. The aria-label states the row in words ("Q3: chose B, incorrect. Answer C. Class 55% correct.").
+- **By question:** one picker over every question, the stem once; an MCQ adds the class's option counts ("A 3, B 3, C 11 (answer), D 3") and a compact row per student; an FRQ shows one marking card per student.
+- **One bar:** FRQ only (By student, when the quiz has both kinds), the FRQ filters (when it has FRQs), Publish all to Schoology for FRQ marks (or "n waiting for the agent"), and **Publish test comments (n)**, named so it cannot be confused with the FRQ button. Test comments go to the test each student took, never the result task; Grading's own Send all covers only the result task.
+- **Grading:** the cards keep the quiz line and the attempt link, without Numbers changed or Update numbers (the template comment is on the test now). A quiz with no result task linked shows "No result task is linked to this quiz." and a Link a result task button that opens Quiz setup.
+- **Marking card in an attempt:** `FrqCard showStudent={false}` leaves out the name and attempt link the attempt's header already shows.
+

@@ -130,3 +130,14 @@ and a button that opens Quiz setup's Result task picker.
 - Whether By question's MCQ list and the Questions tab share a component.
 - The server shape of the attempts read, as long as it comes from stored data in one request.
 - Test names, file split, and the order of the work.
+
+## As built (26 Oct 2026)
+
+Plan: `docs/superpowers/plans/2026-10-26-linked-quiz-attempts.md`. Calls made while building:
+- **Header:** the student, the member test (only when the group has more than one: Prism reads nothing from titles, so no "extra-time" flag), the attempt link and the time taken. The quiz line and Update numbers come from the grade card's own quiz line, not repeated.
+- **Result-task writes merge:** a call with only levels or only a narrative keeps the other half of the result task's latest suggestion.
+- **Reviewer flags** go on the test suggestion when an impression is sent, else on the result task.
+- **Serves:** `get_quiz_results` records its read on every member test as well as the result task, so the test suggestion is stamped with the results' load time.
+- **Publish:** the Grading tab's batch became `useCardBatch`, one instance per tab; the Attempts button reads "Publish test comments (n)".
+- **Attempts shows for every linked quiz**, not only one with an FRQ.
+

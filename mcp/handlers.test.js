@@ -1139,9 +1139,26 @@ describe('quiz tools', () => {
       const { g } = seedOverall();
       getDb().prepare(`UPDATE quiz_groups SET loaded_at = '2026-10-20 09:58:30' WHERE id = ?`).run(g);
       gradeFrom(g);
+      // One serve for the result task and one for the member test (#200).
       expect(getDb().prepare('SELECT data_as_of, served_at FROM context_serves').all())
-        .toEqual([{ data_as_of: '2026-10-20T09:58:30.000Z', served_at: NOW.toISOString() }]);
+        .toEqual([1, 2].map(() => ({ data_as_of: '2026-10-20T09:58:30.000Z', served_at: NOW.toISOString() })));
       expect(feedbackOf()).toMatchObject({ data_as_of: '2026-10-20T09:58:30.000Z', suggested_at: NOW.toISOString(), data_stale: false });
+    });
+
+    // #200: the test comment is a suggestion on the member test, stamped with the same load time.
+    test('get_quiz_results records a serve for each member test too; the test suggestion copies it', () => {
+      const { g, a } = seedOverall();
+      getDb().prepare(`UPDATE quiz_groups SET loaded_at = '2026-10-20 09:58:30' WHERE id = ?`).run(g);
+      gradeFrom(g);
+      const member = getDb().prepare('SELECT assignment_id FROM quiz_attempts WHERE id = ?').get(a).assignment_id;
+      const testRow = withDataTime(getDb().prepare('SELECT * FROM feedback WHERE assignment_id = ? ORDER BY id DESC LIMIT 1').get(member));
+      expect(testRow).toMatchObject({ data_as_of: '2026-10-20T09:58:30.000Z', suggested_at: NOW.toISOString() });
+    });
+
+    test('write_quiz_overall_suggestions passes a narrative to the result task', () => {
+      const { g } = seedOverall();
+      const r = writeQuizOverallSuggestionsTool(getDb(), { group_id: g, students: [{ student: '701', narrative: 'Revise part (a).' }] });
+      expect(r.results[0]).toMatchObject({ status: 'written', test: null, result: { status: 'written' } });
     });
 
     test('results loaded 2 days ago show stale', () => {
@@ -1155,14 +1172,15 @@ describe('quiz tools', () => {
       const { g } = seedOverall();
       getDb().prepare('UPDATE quiz_groups SET loaded_at = NULL WHERE id = ?').run(g);
       getQuizResultsTool(getDb(), { group_id: g });
-      expect(getDb().prepare('SELECT data_as_of FROM context_serves').all()).toEqual([{ data_as_of: 'never' }]);
+      expect(getDb().prepare('SELECT data_as_of FROM context_serves').all()).toEqual([{ data_as_of: 'never' }, { data_as_of: 'never' }]);
     });
 
-    test('a group with no result task records nothing', () => {
+    test('a group with no result task records a serve for its member test only (#200)', () => {
       const { g } = seedOverall();
       getDb().prepare('UPDATE quiz_groups SET result_assignment_id = NULL WHERE id = ?').run(g);
       getQuizResultsTool(getDb(), { group_id: g });
-      expect(getDb().prepare('SELECT COUNT(*) AS n FROM context_serves').get().n).toBe(0);
+      const member = getDb().prepare('SELECT assignment_id FROM quiz_group_members WHERE group_id = ?').get(g).assignment_id;
+      expect(getDb().prepare('SELECT assignment_id FROM context_serves').all()).toEqual([{ assignment_id: member }]);
     });
   });
 

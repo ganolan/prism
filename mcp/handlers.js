@@ -40,7 +40,7 @@ import { askLine, extendResubmissionLine, gradeStandsLine, extensionLine, makeUp
 import { loadCalendar } from '../server/services/schoolCalendar.js';
 import { todayLocal } from '../server/lib/schoolDays.js';
 import { statusLineUntil } from '../server/services/statusLineDue.js';
-import { listGroups, setQuestionTags } from '../server/services/quizGroups.js';
+import { getGroup, listGroups, setQuestionTags } from '../server/services/quizGroups.js';
 import { courseTagResults } from '../server/services/quizTagResults.js';
 import { loadQuizQueued } from '../server/services/quizRun.js';
 import { frqResponses, listWritebacks, levelsOf } from '../server/services/frqResponses.js';
@@ -737,17 +737,17 @@ export function markFrqWritebackTool(db, { group_id, student, question, status, 
 }
 
 // Phase 3 (spec §13): the overall result on the linked result task.
-// The read is recorded as a serve of the group's result task, dated by when the results were
-// loaded (`loaded_at` is SQLite UTC time; 'never' when they never were), so
-// write_quiz_overall_suggestions, which has no context_id and takes the oldest serve of the last
-// 3 hours, stamps the suggestion with the data it was graded from (#170).
+// The read is recorded as a serve of the group's result task and of each member test (the test
+// comment's home since #200), dated by when the results were loaded (`loaded_at` is SQLite UTC
+// time; 'never' when they never were), so write_quiz_overall_suggestions, which has no context_id
+// and takes the oldest serve of the last 3 hours, stamps each suggestion with the data it was
+// graded from (#170).
 export function getQuizResultsTool(db, { group_id }) {
   const data = quizResults(db, { groupId: group_id });
-  if (data.group.result) {
-    const loaded = data.group.loaded_at;
-    const loadedIso = loaded ? new Date(/[TZ]/.test(loaded) ? loaded : `${loaded.replace(' ', 'T')}Z`).toISOString() : 'never';
-    recordServe(db, { assignmentId: data.group.result.id, dataAsOf: loadedIso });
-  }
+  const loaded = data.group.loaded_at;
+  const loadedIso = loaded ? new Date(/[TZ]/.test(loaded) ? loaded : `${loaded.replace(' ', 'T')}Z`).toISOString() : 'never';
+  const served = [data.group.result?.id, ...getGroup(db, data.group.id).members.map(m => m.id)].filter(Boolean);
+  for (const assignmentId of served) recordServe(db, { assignmentId, dataAsOf: loadedIso });
   return {
     ...data,
     students: data.students.map(({ name, student_id, overall, ...rest }) => ({

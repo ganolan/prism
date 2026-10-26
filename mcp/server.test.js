@@ -714,16 +714,20 @@ describe('PrisMCP quiz tools', () => {
     const names = tools.map(t => t.name);
     expect(names).toEqual(expect.arrayContaining(['get_quiz_results', 'write_quiz_overall_suggestions']));
     const w = tools.find(t => t.name === 'write_quiz_overall_suggestions');
-    expect(w.inputSchema.properties.students.items.required).toEqual(expect.arrayContaining(['student', 'impression']));
+    // #200: each part is optional; the test comment goes on the test the student took.
+    expect(w.inputSchema.properties.students.items.required).toEqual(['student']);
+    expect(Object.keys(w.inputSchema.properties.students.items.properties)).toEqual(expect.arrayContaining(['impression', 'rubric_scores', 'narrative']));
+    expect(w.description).toMatch(/on the test the student took/);
+    expect(w.description).toMatch(/narrative/);
   });
 
   test('get_quiz_results and write_quiz_overall_suggestions answer over MCP', async () => {
     const client = await connect();
     const read = JSON.parse((await client.callTool({ name: 'get_quiz_results', arguments: { group_id: g } })).content[0].text);
     expect(read.students.map(s => [s.student, s.ready, s.blocked])).toEqual([['Ana Lee', false, ['Q21 not marked']], ['Ana Ng', false, ['Q21 not marked']]]);
-    const res = await client.callTool({ name: 'write_quiz_overall_suggestions', arguments: { group_id: g, students: [{ student: '701', rubric_scores: {}, impression: 'x' }] } });
-    expect(res.isError).toBe(true);
-    expect(res.content[0].text).toMatch(/Link this quiz group to its result task first/);
+    getDb().prepare(`UPDATE quiz_groups SET loaded_at = '2026-10-13 01:00:00' WHERE id = ?`).run(g);
+    const res = await client.callTool({ name: 'write_quiz_overall_suggestions', arguments: { group_id: g, students: [{ student: '701', narrative: 'Revise part (a).' }] } });
+    expect(JSON.parse(res.content[0].text).results[0]).toMatchObject({ status: 'error', message: 'Link this quiz group to its result task first' });
   });
 
   test('write_quiz_overall_suggestions: a numeric level is reported, not a rejected call', async () => {

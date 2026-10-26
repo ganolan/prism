@@ -17,6 +17,7 @@ import { courseTagResults } from '../services/quizTagResults.js';
 import { frqResponses } from '../services/frqResponses.js';
 import { setFrqMark } from '../services/frqMarks.js';
 import { quizResults } from '../services/quizResults.js';
+import { quizAttempts } from '../services/quizAttempts.js';
 import { rebuildOverallSuggestion } from '../services/quizOverall.js';
 import { postWritebacks } from '../services/quizWriteback.js';
 
@@ -81,6 +82,8 @@ router.get('/:id/stats', handle((req, db) => groupStats(db, { groupId: req.param
 router.put('/:id/template', handle((req, db) => ({ group: setCommentTemplate(db, { groupId: req.params.id, template: req.body.template }) })));
 router.put('/:id/tags', handle((req, db) => setQuestionTags(db, { groupId: req.params.id, tags: req.body.tags, texts: req.body.texts })));
 router.get('/:id/results', handle((req, db) => quizResults(db, { groupId: req.params.id })));
+// #200: the Attempts tab: every question and every student's answers, from Prism's stored copy.
+router.get('/:id/attempts', handle((req, db) => quizAttempts(db, { groupId: req.params.id })));
 router.post('/:id/overall/:studentId/rebuild', handle((req, db) => ({
   student: rebuildOverallSuggestion(db, { groupId: req.params.id, studentId: req.params.studentId }),
 })));

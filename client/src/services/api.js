@@ -319,6 +319,8 @@ export const getTagResults = (courseId, tag) => request(`/quizzes/tag-results?co
 export const setQuizTags = (groupId, tags, texts) => request(`/quizzes/${groupId}/tags`, { method: 'PUT', body: JSON.stringify({ tags, texts }) });
 export const setQuizTemplate = (groupId, template) => request(`/quizzes/${groupId}/template`, { method: 'PUT', body: JSON.stringify({ template }) });
 export const getQuizResults = (groupId) => request(`/quizzes/${groupId}/results`);
+// #200: every question and every student's answers, for the Attempts tab.
+export const getQuizAttempts = (groupId) => request(`/quizzes/${groupId}/attempts`);
 export const rebuildQuizOverall = (groupId, studentId) => request(`/quizzes/${groupId}/overall/${studentId}/rebuild`, { method: 'POST' });
 export const postFrqWritebacks = (groupId, limit = null) => request(`/quizzes/${groupId}/writeback`, { method: 'POST', body: JSON.stringify({ limit }) });
 export const getFrqResponses = (groupId) => request(`/quizzes/${groupId}/frq`);

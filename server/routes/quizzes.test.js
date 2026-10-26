@@ -61,6 +61,16 @@ describe('/api/quizzes', () => {
     expect((await call('PUT', `/api/quizzes/${id}/link`, { result_assignment_id: null })).body.group.result).toBeNull();
   });
 
+  // #200: the Attempts tab's one read.
+  test('GET /:id/attempts returns the questions, students and not taken; an unknown group is 404', async () => {
+    const created = await call('POST', '/api/quizzes', { course_id: course, assignment_ids: ['900', '901'], title: 'T' });
+    const r = await call('GET', `/api/quizzes/${created.body.group.id}/attempts`);
+    expect(r.status).toBe(200);
+    expect(Object.keys(r.body).sort()).toEqual(['group', 'not_taken', 'questions', 'students']);
+    expect(r.body.questions).toHaveLength(1);
+    expect((await call('GET', '/api/quizzes/99999/attempts')).status).toBe(404);
+  });
+
   test('a parity mismatch is 409 with the differences', async () => {
     vi.mocked(readQuestionLists).mockResolvedValueOnce([
       { assignmentId: 1, schoologyId: '900', title: 'T', questions: [Q('1', 'One')] },

@@ -4,7 +4,7 @@
 // question shows one question for every student. FRQ marks publish to the attempt (PostMarksBar);
 // test comments publish to the test each student took, through the grade cards' own batch.
 import { useEffect, useMemo, useState } from 'react';
-import { getQuizAttempts, getMasteryForAssignment, getFeedbackForAssignment, getFeatures, rebuildQuizOverall } from '../../services/api.js';
+import { getQuizAttempts, getMasteryForAssignment, getFeedbackForAssignment, getDraftsForAssignment, getFeatures, rebuildQuizOverall } from '../../services/api.js';
 import { useStickyTab } from '../../hooks/useStickyTab.js';
 import { useCardBatch } from '../../hooks/useCardBatch.js';
 import { FILTERS } from '../../lib/frqFilters.js';
@@ -17,9 +17,11 @@ const VIEWS = [['student', 'By student'], ['question', 'By question']];
 export default function AttemptsTab({ group, courseId, reloadKey }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [members, setMembers] = useState({}); // member sid -> { mastery, feedback }
+  const [members, setMembers] = useState({}); // member sid -> { mastery, feedback, drafts }
+  const [memberErrors, setMemberErrors] = useState([]); // members whose read failed: [{ title, message }]
   const [features, setFeatures] = useState({});
-  const [view, setView] = useStickyTab('assessment-attempts', 'student', { param: 'view' });
+  // Its own URL param: `view` is the Grading tab's Descriptors / Compact.
+  const [view, setView] = useStickyTab('assessment-attempts', 'student', { param: 'attempts' });
   const [index, setIndex] = useState(0);
   const [frqOnly, setFrqOnly] = useState(false);
   const [filter, setFilter] = useState('all');
@@ -32,14 +34,27 @@ export default function AttemptsTab({ group, courseId, reloadKey }) {
       .then(async (d) => {
         if (!active) return;
         setData(d);
+        // Each member test is read on its own: one that fails keeps its last good data (none on the
+        // first read) and is named, while the others work.
         const loaded = await Promise.all(d.group.members.map(async (m) => {
-          const [mastery, feedback] = await Promise.all([
-            getMasteryForAssignment(courseId, m.schoology_assignment_id),
-            getFeedbackForAssignment(m.schoology_assignment_id).catch(() => ({})),
-          ]);
-          return [m.schoology_assignment_id, { mastery, feedback: feedback || {} }];
+          try {
+            const [mastery, feedback, drafts] = await Promise.all([
+              getMasteryForAssignment(courseId, m.schoology_assignment_id),
+              getFeedbackForAssignment(m.schoology_assignment_id).catch(() => ({})),
+              getDraftsForAssignment(m.schoology_assignment_id).catch(() => ({})),
+            ]);
+            return { sid: m.schoology_assignment_id, data: { mastery, feedback: feedback || {}, drafts: drafts || {} } };
+          } catch (e) {
+            return { sid: m.schoology_assignment_id, error: { title: m.title, message: e.message } };
+          }
         }));
-        if (active) setMembers(Object.fromEntries(loaded));
+        if (!active) return;
+        setMembers((prev) => {
+          const next = { ...prev };
+          for (const r of loaded) if (r.data) next[r.sid] = r.data;
+          return next;
+        });
+        setMemberErrors(loaded.filter((r) => r.error).map((r) => r.error));
       })
       .catch((e) => { if (active) setError(e.message); });
     Promise.resolve().then(() => getFeatures()).then((f) => { if (active) setFeatures(f || {}); }).catch(() => {});
@@ -131,15 +146,21 @@ export default function AttemptsTab({ group, courseId, reloadKey }) {
         )}
       </div>
 
-      {students.length === 0 && <div className="card"><p className="text-muted">No attempts loaded yet: press Load results.</p></div>}
+      {memberErrors.map((e) => <div key={e.title} className="alert alert-warning">{`Could not read ${e.title}: ${e.message}`}</div>)}
+      {students.length === 0 && (
+        <div className="card"><p className="text-muted">{group.loaded_at ? 'Nobody has taken this test yet.' : 'No attempts loaded yet: press Load results.'}</p></div>
+      )}
 
-      {/* Every attempt stays mounted, so its test card counts in Publish test comments; one is shown. */}
+      {/* Every attempt's test card stays mounted, so it counts in Publish test comments; one attempt is shown,
+          and only it draws its questions. */}
       {students.map((st, i) => (
         <div key={st.student_id} hidden={view !== 'student' || i !== current}>
           <AttemptByStudent
             st={st} questions={questions} hasTags={data.group.has_tags} showMember={data.group.members.length > 1}
             member={members[st.member.schoology_assignment_id]}
             feedbackRow={members[st.member.schoology_assignment_id]?.feedback?.[st.student_id] || null}
+            draftRow={members[st.member.schoology_assignment_id]?.drafts?.[st.student_id] || null}
+            active={view === 'student' && i === current}
             courseId={courseId} groupId={group.id} frqOnly={frqOnly} filter={filter}
             onRebuild={rebuild} onFrqSaved={replaceMark} batch={cardBatch}
           />

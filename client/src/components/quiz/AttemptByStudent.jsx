@@ -1,7 +1,8 @@
 // One student's whole attempt on the Attempts tab (#200): a header (the student, the member test they
 // took when the group has several, the attempt link, the time taken), the test's own grade card (score,
 // overall comment with the template suggestion, the quiz line and Update numbers), the percent by tag
-// when the quiz has tags, then every question in order: an MCQ row or the FRQ marking card.
+// when the quiz has tags, then every question in order: an MCQ row or the FRQ marking card. Off screen
+// (`active` false) only the grade card is drawn, so it keeps its state and counts in Publish test comments.
 import StudentRubricCard from '../gradeCard/StudentRubricCard.jsx';
 import AttemptLink from './AttemptLink.jsx';
 import FrqCard from './FrqCard.jsx';
@@ -18,7 +19,7 @@ export function timeTaken(startedAt, completedAt) {
 }
 
 export default function AttemptByStudent({
-  st, questions, hasTags, showMember, member, feedbackRow, courseId, groupId,
+  st, questions, hasTags, showMember, member, feedbackRow, draftRow = null, active = true, courseId, groupId,
   frqOnly, filter, onRebuild, onFrqSaved, batch,
 }) {
   const taken = timeTaken(st.started_at, st.completed_at);
@@ -40,6 +41,7 @@ export default function AttemptByStudent({
           assignmentId={st.member.schoology_assignment_id}
           assignmentRow={member.mastery.assignment}
           feedbackRow={feedbackRow}
+          draftRow={draftRow}
           scoreScale={member.mastery.scoreScale || null}
           quizResult={st}
           onRebuildQuiz={onRebuild}
@@ -51,10 +53,10 @@ export default function AttemptByStudent({
           unregisterCard={batch.unregisterCard}
         />
       )}
-      {hasTags && st.by_tag?.length > 0 && (
+      {active && hasTags && st.by_tag?.length > 0 && (
         <p className="text-sm attempt__tags">{st.by_tag.map((t) => `${t.tag}: ${t.percent}%`).map((t) => <span key={t}>{t}</span>)}</p>
       )}
-      <div className="attempt__questions">
+      {active && <div className="attempt__questions">
         {shown.map((q) => (q.kind === 'mcq'
           ? <McqAnswer key={q.position} question={q} response={st.responses[q.position]} />
           : (
@@ -64,7 +66,7 @@ export default function AttemptByStudent({
                 onSaved={(mark) => onFrqSaved(st.student_id, q.position, mark)} />
             </div>
           )))}
-      </div>
+      </div>}
     </section>
   );
 }

@@ -6,13 +6,13 @@ import * as api from '../../services/api.js';
 
 vi.mock('../../services/api.js', () => ({
   getQuizAttempts: vi.fn(), getMasteryForAssignment: vi.fn(), getFeedbackForAssignment: vi.fn(),
-  getFeatures: vi.fn(), rebuildQuizOverall: vi.fn(), sendAllGrades: vi.fn(), saveFrqMark: vi.fn(), postFrqWritebacks: vi.fn(),
+  getFeatures: vi.fn(), getDraftsForAssignment: vi.fn(), rebuildQuizOverall: vi.fn(), sendAllGrades: vi.fn(), saveFrqMark: vi.fn(), postFrqWritebacks: vi.fn(),
 }));
 // The grade card has its own tests: here a stub that shows which task it draws and registers for Publish all.
 vi.mock('../gradeCard/StudentRubricCard.jsx', async () => {
   const { useEffect } = await import('react');
   return {
-    default: function CardStub({ student, assignmentId, assignmentRow, feedbackRow, quizResult, onRebuildQuiz, registerCard, unregisterCard, onPendingChange }) {
+    default: function CardStub({ student, assignmentId, assignmentRow, feedbackRow, draftRow, quizResult, onRebuildQuiz, registerCard, unregisterCard, onPendingChange }) {
       useEffect(() => {
         registerCard(student.schoology_uid, { getEntry: () => ({ entry: { uid: student.schoology_uid, assignmentId }, patch: {} }), applyResult: () => {} });
         onPendingChange(student.schoology_uid, 'publish');
@@ -21,6 +21,7 @@ vi.mock('../gradeCard/StudentRubricCard.jsx', async () => {
       return (
         <div data-testid="test-card" data-assignment={assignmentId} data-is-test={assignmentRow?.is_test} data-quiz-line={quizResult ? 'shown' : 'none'}>
           {feedbackRow?.feedback_parsed?.narrative_feedback}
+          {draftRow && <span>{`Draft: ${draftRow.comment}`}</span>}
           {quizResult?.overall?.stale && <button type="button" onClick={() => onRebuildQuiz(quizResult.student_id)}>Update numbers</button>}
         </div>
       );
@@ -59,9 +60,9 @@ const mastery = (sid) => ({
     { id: 2, schoology_uid: 'u2', first_name: 'Ana', last_name: 'Ng', enrollment_id: 'e2', score: 13 }],
 });
 
-function renderTab(data = DATA()) {
+function renderTab(data = DATA(), { path = '/', group = { id: 7, loaded_at: '2026-10-26 06:31:21' } } = {}) {
   vi.mocked(api.getQuizAttempts).mockResolvedValue(data);
-  return render(<MemoryRouter><AttemptsTab group={{ id: 7 }} courseId={5} reloadKey="" /></MemoryRouter>);
+  return render(<MemoryRouter initialEntries={[path]}><AttemptsTab group={group} courseId={5} reloadKey="" /></MemoryRouter>);
 }
 
 beforeEach(() => {
@@ -70,6 +71,7 @@ beforeEach(() => {
   vi.mocked(api.getFeedbackForAssignment).mockImplementation(async (sid) => (sid === '900'
     ? { 1: { feedback_parsed: { narrative_feedback: 'Multiple choice: 13/20 (65%)' } } } : {}));
   vi.mocked(api.getFeatures).mockResolvedValue({ quiz_writeback: true });
+  vi.mocked(api.getDraftsForAssignment).mockResolvedValue({});
   vi.mocked(api.rebuildQuizOverall).mockResolvedValue({});
   vi.mocked(api.sendAllGrades).mockResolvedValue({ results: [] });
 });
@@ -174,6 +176,52 @@ describe('Attempts, By student', () => {
     const [courseId, entries] = vi.mocked(api.sendAllGrades).mock.calls[0];
     expect(courseId).toBe(5);
     expect(entries.map(e => [e.uid, e.assignmentId])).toEqual([['u1', '900'], ['u2', '901']]);
+  });
+
+  // Final review fixes (#200).
+  test('the Grading tab\'s ?view=compact does not reach the Attempts view', async () => {
+    renderTab(DATA(), { path: '/?view=compact' });
+    expect(await screen.findByRole('region', { name: "Ana Lee's attempt" })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'By student' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  test('a test comment draft is restored on the card', async () => {
+    vi.mocked(api.getDraftsForAssignment).mockImplementation(async (sid) => (sid === '900' ? { 1: { comment: 'half written' } } : {}));
+    renderTab();
+    const lee = await screen.findByRole('region', { name: "Ana Lee's attempt" });
+    expect(await within(lee).findByText('Draft: half written')).toBeInTheDocument();
+    expect(api.getDraftsForAssignment).toHaveBeenCalledWith('901');
+  });
+
+  test('only the attempt on screen draws its questions; every test card stays mounted', async () => {
+    renderTab();
+    await screen.findByRole('region', { name: "Ana Lee's attempt" });
+    await waitFor(() => expect(document.querySelectorAll('[data-testid="test-card"]')).toHaveLength(2));
+    expect(document.querySelectorAll('.mcq-answer')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-testid="frq-card"]')).toHaveLength(1);
+  });
+
+  test('a member test that cannot be read leaves the other attempts working', async () => {
+    vi.mocked(api.getMasteryForAssignment).mockImplementation(async (_c, sid) => { if (sid === '901') throw new Error('offline'); return mastery(sid); });
+    renderTab();
+    const lee = await screen.findByRole('region', { name: "Ana Lee's attempt" });
+    await waitFor(() => expect(within(lee).getByTestId('test-card')).toBeInTheDocument());
+    expect(screen.queryByText('offline')).toBeNull();
+    expect(screen.getByText(/Could not read Ep 1 \*: offline/)).toBeInTheDocument();
+  });
+
+  test('loaded results with nobody taking the test say so', async () => {
+    const data = DATA();
+    data.students = [];
+    renderTab(data);
+    expect(await screen.findByText('Nobody has taken this test yet.')).toBeInTheDocument();
+  });
+
+  test('results never loaded say to press Load results', async () => {
+    const data = DATA();
+    data.students = [];
+    renderTab(data, { group: { id: 7, loaded_at: null } });
+    expect(await screen.findByText('No attempts loaded yet: press Load results.')).toBeInTheDocument();
   });
 
   test('students who did not take it are listed under Not taken', async () => {

@@ -1306,7 +1306,7 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 .tag-drawer__table { width: 100%; }
 .tag-drawer__table th[title] { cursor: help; }
 .tag-drawer__current td { font-weight: 600; }
-/* Free response tab (linked quizzes phase 2): the stored Schoology rubric as level buttons. */
+/* FRQ marking card (linked quizzes phase 2, on the Attempts tab since #200): the stored Schoology rubric as level buttons. */
 .frq-grid { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 0.74rem; }
 .frq-grid td, .frq-grid th { border: 1px solid var(--border); padding: 0; vertical-align: top; }
 .frq-grid__row { width: 9rem; padding: 0.4rem 0.5rem; text-align: left; font-weight: 600; background: var(--bg-subtle); }

@@ -114,6 +114,12 @@ describe('writeOverallSuggestions', () => {
     expect(fjOf(latest(stu.u1))).toMatchObject({ narrative_feedback: 'Revise part (a).', rubric_scores: { 'CSP.1.1': 'D' } });
   });
 
+  test('an empty narrative clears the result task comment and keeps the levels', () => {
+    writeOverallSuggestions(db, { groupId: g, students: [{ student: 'u1', rubric_scores: { 'CSP.1.1': 'EX' }, narrative: 'Revise part (a).' }] });
+    writeOverallSuggestions(db, { groupId: g, students: [{ student: 'u1', narrative: '' }] });
+    expect(fjOf(latest(stu.u1))).toMatchObject({ narrative_feedback: '', rubric_scores: { 'CSP.1.1': 'EX' } });
+  });
+
   test('a narrative is written for a student who is not ready; the impression and levels are refused', () => {
     const r = writeOverallSuggestions(db, { groupId: g, students: [{ student: 'u2', impression: 'x', rubric_scores: { 'CSP.1.1': 'EX' }, narrative: 'Finish Q21.' }] });
     expect(r.results[0]).toMatchObject({ status: 'written', test: { status: 'error', message: 'Not ready: Q21 not marked' } });

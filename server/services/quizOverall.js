@@ -57,7 +57,9 @@ function writeOne(db, data, s) {
   const impression = String(s.impression ?? '').trim();
   const narrative = s.narrative == null ? null : String(s.narrative).trim();
   const levels = hasLevels(s.rubric_scores) ? s.rubric_scores : null;
-  if (!impression && !levels && !narrative) return fail('Nothing to write: send an impression, rubric_scores or a narrative');
+  // An empty narrative is sent on purpose: it clears the result task's comment.
+  const hasNarrative = narrative != null;
+  if (!impression && !levels && !hasNarrative) return fail('Nothing to write: send an impression, rubric_scores or a narrative');
   const notReady = `Not ready: ${st.blocked.join(', ')}`;
   // Reviewer flags go with the test comment when there is one, else with the result task.
   const flags = { reviewer_flags: s.reviewer_flags, reviewer_flags_brief: s.reviewer_flags_brief };
@@ -69,14 +71,14 @@ function writeOne(db, data, s) {
       : { student: s.student, status: 'error', message: notReady };
   }
   let result = null;
-  if (levels || narrative) {
+  if (levels || hasNarrative) {
     const writeLevels = levels && st.ready;
     if (!data.group.result) result = { student: s.student, status: 'error', message: 'Link this quiz group to its result task first' };
-    else if (!writeLevels && !narrative) result = { student: s.student, status: 'error', message: notReady };
+    else if (!writeLevels && !hasNarrative) result = { student: s.student, status: 'error', message: notReady };
     else {
       result = storeResult(db, data, st, {
         rubric_scores: writeLevels ? levels : undefined,
-        narrative: narrative || undefined,
+        narrative: hasNarrative ? narrative : undefined,
         ...(impression ? {} : flags),
       });
       if (levels && !writeLevels) result.message = [result.message, `The levels were not written: ${notReady}`].filter(Boolean).join(' ');

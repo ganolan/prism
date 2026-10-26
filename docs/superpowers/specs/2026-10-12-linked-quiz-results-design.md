@@ -164,7 +164,7 @@ Guide in `AP CSP Theory Test Marking Guides 2026-27.json`.
 ## 8. UI
 
 **One tabbed page.** A member test or the linked result task opens the same assessment page, with
-tabs **Grading** (only when linked), **Questions** and **Free response**. The header shows the
+tabs **Grading** (only when linked), **Questions** and **Free response**. *(As built: Grading always shows, and it is the task in the page address. #200, decided 26 Oct 2026, makes Grading always the result task and adds an Attempts tab for the test.)* The header shows the
 linked tests as a chip, the **Load results** button and the load time.
 
 - **Lists fold the group.** In the course list and gradebook, member tests sit under their result

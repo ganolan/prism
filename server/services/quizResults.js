@@ -1,5 +1,6 @@
-// The overall-result read model (spec §13): per student, the MCQ score, percent by tag,
-// confirmed FRQ marks, readiness for an overall suggestion, and the state of that suggestion.
+// The overall-result read model (spec §13): per student, the member test taken, the MCQ score,
+// percent by tag, confirmed FRQ marks, readiness for an overall suggestion, and the state of that
+// suggestion (on the member test since #200; its levels on the Result task).
 // Built only from Prism's stored copy; nothing here reads Schoology.
 import { getGroup, attemptUrl } from './quizGroups.js';
 import { schoologyMarkOf } from './frqMarks.js';
@@ -31,19 +32,20 @@ export function confirmedMark(markRow, schoology, rubric) {
   return onRubric(rubric, found.cells) ? found : { reason: 'not on the rubric' };
 }
 
-// `latestFeedback`: the prepared query for a student's latest feedback row on the Result task.
-function overallFor(latestFeedback, group, studentId, template, values, ready) {
-  if (!group.result) return null;
-  const fb = latestFeedback.get(studentId, group.result.id);
+// `latestFeedback`: the prepared query for a student's latest feedback row on a task. The overall
+// suggestion is on the member test the student took (#200); its levels are on the Result task.
+function overallFor(latestFeedback, group, studentId, memberId, template, values, ready) {
+  const fb = latestFeedback.get(studentId, memberId);
   const fj = parse(fb?.feedback_json, {});
   if (!fb || fj.quiz_overall?.group_id !== group.id) return null;
+  const levels = group.result ? parse(latestFeedback.get(studentId, group.result.id)?.feedback_json, {}).rubric_scores : null;
   const rebuilt = buildComment(template, { ...values, impression: fj.quiz_overall.impression });
   // `built` is the comment as Prism built it; a different narrative is an edit (made on the
   // /feedback page until #122 retired it), never stale on its own and never overwritten. Older rows have no `built`.
   const narrative = fj.narrative_feedback ?? '';
   const built = fj.quiz_overall.built ?? narrative;
   return {
-    feedback_id: fb.id, rubric_scores: fj.rubric_scores || {}, impression: fj.quiz_overall.impression,
+    feedback_id: fb.id, rubric_scores: levels || {}, impression: fj.quiz_overall.impression,
     status: fb.status, suggestion_state: fb.suggestion_state ?? null,
     stale: ready && rebuilt !== built,
     edited: narrative !== built,
@@ -58,8 +60,9 @@ export function quizResults(db, { groupId }) {
   const frqs = questions.filter(q => q.kind === 'frq').map(q => ({ ...q, rubric: parse(q.schoology_rubric_json) }));
   const template = group.comment_template ?? group.default_comment_template;
 
-  const attempts = db.prepare(`SELECT qa.id, qa.student_id, qa.schoology_attempt_id, qa.completed_at,
-      s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher, a.schoology_assignment_id AS member_sid
+  const attempts = db.prepare(`SELECT qa.id, qa.student_id, qa.schoology_attempt_id, qa.started_at, qa.completed_at, qa.score, qa.max_score,
+      s.schoology_uid, s.first_name, s.last_name, s.preferred_name, s.preferred_name_teacher,
+      a.id AS member_id, a.schoology_assignment_id AS member_sid, a.title AS member_title
     FROM quiz_attempts qa JOIN students s ON s.id = qa.student_id JOIN assignments a ON a.id = qa.assignment_id
     WHERE qa.group_id = ?`).all(group.id);
   // One read per attempt for its responses and its marks, keyed by question.
@@ -100,9 +103,12 @@ export function quizResults(db, { groupId }) {
     };
     return {
       student_id: a.student_id, name: studentFullName(a), schoology_uid: a.schoology_uid, attempt_url: attemptUrl(a),
+      // The member test this student took (#200): its grade holds the test comment.
+      member: { id: a.member_id, schoology_assignment_id: a.member_sid, title: a.member_title },
+      attempt_id: a.id, score: a.score, max_score: a.max_score, started_at: a.started_at, completed_at: a.completed_at,
       mcq, by_tag: [...tags.values()].map(t => ({ ...t, percent: pct(t.correct, t.total) })),
       frq, ready, blocked, comment_values,
-      overall: overallFor(latestFeedback, group, a.student_id, template, comment_values, ready),
+      overall: overallFor(latestFeedback, group, a.student_id, a.member_id, template, comment_values, ready),
     };
   }).sort(byName);
 

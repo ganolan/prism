@@ -567,6 +567,24 @@ describe('POST /api/mastery/:courseId/write-comment — mirrors score to local D
     pushGradeUpdates.mockResolvedValue({ status: 207 });
   });
 
+  // #200: the Attempts tab writes a Schoology test's overall comment through this route, with no
+  // points: the PUT carries the auto-scored grade Schoology holds, so the score never changes.
+  test('write-comment on a Schoology test sends back the grade Schoology holds', async () => {
+    const db = getDb();
+    db.prepare(`UPDATE assignments SET is_test = 1 WHERE id = ?`).run(assignmentId);
+    getSectionGrades.mockResolvedValue([
+      { assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: 100, exception: 0, timestamp: 1779418446 },
+    ]);
+    const { status } = await post(`/api/mastery/${courseId}/write-comment`, {
+      enrollmentId: 'enr-wc', assignmentId: 'sa-wc', comment: 'Multiple choice: 20/20 (100%)', commentStatus: false,
+    });
+    expect(status).toBe(200);
+    const [, entries] = pushGradeUpdates.mock.calls.at(-1);
+    expect(entries).toEqual([expect.objectContaining({
+      assignment_id: 'sa-wc', enrollment_id: 'enr-wc', grade: '100', comment: 'Multiple choice: 20/20 (100%)', comment_status: null,
+    })]);
+  });
+
   // The bug (#60): grading on the assessment page calls write-comment, which
   // fetched the fresh Schoology grade but mirrored only the comment — leaving
   // the local row's score NULL, so the gradebook showed "Overdue • Not Started"

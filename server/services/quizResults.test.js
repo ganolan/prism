@@ -100,7 +100,9 @@ describe('quizResults', () => {
 
   test('an existing overall suggestion shows its impression, and stale when the comment would now differ', () => {
     const built = 'Multiple choice: 1/2 (50%)\nFree response: Q21 Exhibiting\nGood.\nOpen your attempt on the test to read the feedback on each free-response question.';
-    upsertStudentSuggestion(db, { assignmentId: '950', student: 'u1', narrative_feedback: built, rubric_scores: { 'CSP.1.1': 'EX' }, quiz_overall: { group_id: g, impression: 'Good.' } });
+    // #200: the built comment is on the test taken; the levels are on the result task.
+    upsertStudentSuggestion(db, { assignmentId: '900', student: 'u1', narrative_feedback: built, quiz_overall: { group_id: g, impression: 'Good.' } });
+    upsertStudentSuggestion(db, { assignmentId: '950', student: 'u1', narrative_feedback: '', rubric_scores: { 'CSP.1.1': 'EX' } });
     expect(quizResults(db, { groupId: g }).students[0].overall).toMatchObject({ impression: 'Good.', rubric_scores: { 'CSP.1.1': 'EX' }, stale: false });
     db.prepare(`UPDATE quiz_responses SET is_correct = 1 WHERE attempt_id = ? AND question_id = ?`).run(att.u1, q2);
     expect(quizResults(db, { groupId: g }).students[0].overall.stale).toBe(true);
@@ -109,6 +111,29 @@ describe('quizResults', () => {
   test('a suggestion written without quiz_overall, or for another group, is not this quiz\'s overall', () => {
     upsertStudentSuggestion(db, { assignmentId: '950', student: 'u1', narrative_feedback: 'by hand', rubric_scores: {} });
     expect(quizResults(db, { groupId: g }).students[0].overall).toBeNull();
+  });
+
+  // #200: the template comment lives on the member test the student took.
+  test('overall is read from the member test, not the result task', () => {
+    upsertStudentSuggestion(db, { assignmentId: '950', student: 'u1', narrative_feedback: 'old home', quiz_overall: { group_id: g, impression: 'Old.' } });
+    expect(quizResults(db, { groupId: g }).students[0].overall).toBeNull();
+    upsertStudentSuggestion(db, { assignmentId: '900', student: 'u1', narrative_feedback: 'x', quiz_overall: { group_id: g, impression: 'New.' } });
+    expect(quizResults(db, { groupId: g }).students[0].overall).toMatchObject({ impression: 'New.', rubric_scores: {} });
+  });
+
+  test('each student names the member test taken, the attempt and its times', () => {
+    const copy = db.prepare(`INSERT INTO assignments (course_id, schoology_assignment_id, title, is_test) VALUES (?, '901', 'Ep 1 *', 1)`).run(c).lastInsertRowid;
+    db.prepare('INSERT INTO quiz_group_members (group_id, assignment_id) VALUES (?, ?)').run(g, copy);
+    const yip = db.prepare(`INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('u4', 'Ana', 'Yip')`).run().lastInsertRowid;
+    db.prepare('INSERT INTO enrolments (student_id, course_id) VALUES (?, ?)').run(yip, c);
+    const a4 = db.prepare(`INSERT INTO quiz_attempts (group_id, assignment_id, student_id, schoology_attempt_id, started_at, completed_at, score, max_score, fetched_at)
+      VALUES (?, ?, ?, '5u4', '2026-10-09 06:00:00', '2026-10-09 06:35:00', 13, 20, 'now')`).run(g, copy, yip).lastInsertRowid;
+    const r = quizResults(db, { groupId: g });
+    const y = r.students.find(x => x.student_id === yip);
+    expect(y).toMatchObject({ member: { id: copy, schoology_assignment_id: '901', title: 'Ep 1 *' },
+      attempt_id: a4, score: 13, max_score: 20, started_at: '2026-10-09 06:00:00', completed_at: '2026-10-09 06:35:00' });
+    expect(y.attempt_url).toMatch(/\/assignment\/901\//);
+    expect(r.students[0].member).toEqual({ id: expect.any(Number), schoology_assignment_id: '900', title: 'Ep 1' });
   });
 
   test('an unlinked group has result null and no overall', () => {

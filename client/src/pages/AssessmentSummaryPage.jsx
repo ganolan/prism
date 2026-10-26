@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import LargerScreenNote from '../components/LargerScreenNote.jsx';
 import { useParams, Link, useSearchParams, Navigate, useLocation } from 'react-router-dom';
-import { getMasteryForAssignment, getSyncRun, getQuizGroupFor, getSubmissionLinks, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, sendAllGrades, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, loadQuizResults, rebuildQuizOverall, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
+import { getMasteryForAssignment, getSyncRun, getQuizGroupFor, getSubmissionLinks, getFeedbackForAssignment, getAssessmentAnalysis, syncMasteryForAssignment, getRubricForAssignment, getRubricConfig, getDraftsForAssignment, getSettings, loadQuizResults, rebuildQuizOverall, getAssignmentCommentSummaries, getAssignmentFileSummaries } from '../services/api.js';
 import { cardInputs, usesFeedbackRows } from '../lib/cardInputs.js';
 import StudentRubricCard from '../components/gradeCard/StudentRubricCard.jsx';
-import { flagClearedPatch, resubmissionFieldsPatch } from '../lib/cardPatches.js';
+import { useCardBatch } from '../hooks/useCardBatch.js';
 import { resolveRubricScores, distributionByTopic } from '../lib/rubricSuggestions.js';
-import { studentFullName } from '../lib/studentNames.js';
 import { useDataVersion } from '../hooks/useDataVersion.jsx';
 import { LEVELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import RubricManagerModal from '../components/RubricManagerModal.jsx';
@@ -27,7 +26,7 @@ import { useStickyTab } from '../hooks/useStickyTab.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import { workLinksStatusText } from '../lib/workLink.js';
 import { lineDate } from '../lib/statusLines.js';
-import { FLAGS, isFinalFlag } from '../lib/flags.js';
+import { isFinalFlag } from '../lib/flags.js';
 import { afterRefresh } from '../lib/assessmentFreshness.js';
 import SyncStatus from '../components/SyncStatus.jsx';
 import SyncHelp from '../components/SyncHelp.jsx';
@@ -290,23 +289,12 @@ function AssessmentSummaryBody() {
   const focusedForRef = useRef(null);
   const reloadRubric = async () => setRubricData(await getRubricForAssignment(assignmentId));
 
-  // "Send all" bar state (#51). pendingByUid maps each card's uid → 'publish' while
-  // it has changes to publish, or 'held' while its only changes are levels a final
-  // flag holds back (#177); cardsRef holds each card's { getEntry, applyResult }
-  // so the batch can collect entries and report results back per card.
-  const [pendingByUid, setPendingByUid] = useState({});
-  // Per-card visibility (display-to-student) reported up so the bulk bar's
-  // "show all" toggle can reflect the class-wide aggregate.
-  const [displayByUid, setDisplayByUid] = useState({});
   const visibilityPop = useHelpPop();
-  const [bulkSaving, setBulkSaving] = useState(false);
-  const [bulkResult, setBulkResult] = useState(null);
   // "Discard all" is destructive across every student, so it requires a second
   // confirming click (armed → confirm). Disarms on mouse-leave or after firing.
   const [discardAllArmed, setDiscardAllArmed] = useState(false);
   // "Mark all <level>" for a score-scale assignment (#41) — also a two-click confirm.
   const [markAllArmed, setMarkAllArmed] = useState(false);
-  const cardsRef = useRef({});
 
   // Patch a single student in place after its card saves, instead of reloading
   // the whole page (#50). Avoids the "Loading..." flash that unmounted every
@@ -328,32 +316,11 @@ function AssessmentSummaryBody() {
     return fresh;
   }, [courseId, assignmentId, handleCardSaved]);
 
-  // Stable registry callbacks (empty deps) so the cards' effects don't churn.
-  // The no-op guard keeps a card reporting an unchanged pending state from
-  // triggering a re-render loop.
-  const handlePendingChange = useCallback((uid, state) => {
-    setPendingByUid(prev => {
-      if ((prev[uid] || false) === state) return prev;
-      const next = { ...prev };
-      if (state) next[uid] = state; else delete next[uid];
-      return next;
-    });
-  }, []);
-  const handleDisplayChange = useCallback((uid, vis) => {
-    setDisplayByUid(prev => (prev[uid] === vis ? prev : { ...prev, [uid]: vis }));
-  }, []);
-  const registerCard = useCallback((uid, handlers) => { cardsRef.current[uid] = handlers; }, []);
-  const unregisterCard = useCallback((uid) => {
-    delete cardsRef.current[uid];
-    setPendingByUid(prev => {
-      if (!prev[uid]) return prev;
-      const next = { ...prev }; delete next[uid]; return next;
-    });
-    setDisplayByUid(prev => {
-      if (!(uid in prev)) return prev;
-      const next = { ...prev }; delete next[uid]; return next;
-    });
-  }, []);
+  // The "Send all" bar's state and batch (#51), shared with the Attempts tab (#200).
+  const {
+    pendingByUid, displayByUid, cardsRef, bulkSaving, bulkResult, setBulkResult,
+    onPendingChange: handlePendingChange, onDisplayChange: handleDisplayChange, registerCard, unregisterCard, publishAll,
+  } = useCardBatch({ courseId, students: data?.students, onSaved: handleCardSaved });
 
   // A card has an unpublished Prism draft while it reports pending changes. Every
   // card stays mounted (filtered-out cards are only hidden), so this covers them all.
@@ -401,66 +368,7 @@ function AssessmentSummaryBody() {
     for (const uid of Object.keys(cardsRef.current).filter(isShown)) cardsRef.current[uid]?.setDisplay?.(value);
   }
 
-  async function handleSendAll() {
-    const uids = Object.keys(pendingByUid).filter(isShown);
-    if (uids.length === 0) return;
-    setBulkSaving(true);
-    setBulkResult(null);
-
-    // Collect each pending card's request entry + its in-place patch, then send
-    // the whole set in one batched request (#51) — one browser session for all
-    // score writes + one bulk comment PUT, instead of a per-card loop.
-    const items = [];
-    // A card on a final flag (Exempt, Missing) sends only its comment and Display: its staged
-    // levels stay as its draft (#177), and the result names the student. The server refuses a
-    // grade over a final flag (FLAGGED) as the backstop.
-    const held = [];
-    const byUid = new Map((data?.students || []).map((st) => [st.schoology_uid, st]));
-    for (const uid of uids) {
-      const card = cardsRef.current[uid];
-      const st = byUid.get(uid);
-      if (st && card?.holdsLevels?.()) held.push(`${studentFullName(st)} (${FLAGS[Number(st.exception)]?.name || 'flagged'})`);
-      const built = card?.getEntry();
-      if (built) items.push({ uid, ...built });
-    }
-    const heldText = held.length ? ` Levels kept as a draft until the flag is cleared: ${held.join(', ')}.` : '';
-    if (items.length === 0) {
-      setBulkSaving(false);
-      setBulkResult(`Nothing published.${heldText}`);
-      return;
-    }
-
-    try {
-      const { results } = await sendAllGrades(courseId, items.map(i => i.entry));
-      const resultByUid = new Map((results || []).map(r => [r.uid, r]));
-      let ok = 0, fail = 0;
-      for (const i of items) {
-        const r = resultByUid.get(i.uid);
-        const success = r?.ok ?? false;
-        cardsRef.current[i.uid]?.applyResult(success, r);
-        // Each saved pair's post-save resubmission state comes back with its result (I2), and a
-        // grade that cleared a marker its flagCleared (#40), and points the score Schoology holds (#181).
-        if (success) {
-          handleCardSaved(i.uid, { ...i.patch, ...(r.score !== undefined ? { score: r.score } : {}), ...resubmissionFieldsPatch(r.resubmissionFields), ...flagClearedPatch(r.flagCleared) });
-          ok++;
-        } else { fail++; }
-        // Published, but its feedback rows did not save in Prism: the grade and comment are in
-        // Schoology (the server retired any saved copy), so the card shows them; the rows stay staged.
-        if (!success && r?.published) {
-          const { row_levels: _rows, ...published } = i.patch;
-          handleCardSaved(i.uid, { ...published, ...resubmissionFieldsPatch(r.resubmissionFields), ...flagClearedPatch(r.flagCleared) });
-        }
-      }
-      setBulkResult(`Published ${ok} grade${ok !== 1 ? 's' : ''}${fail ? `, ${fail} failed` : ''}.${heldText}`);
-    } catch (err) {
-      // All-or-nothing: a non-2xx (incl. the 502 abort) rejects here — mark every
-      // card failed and leave them pending so a retry is one click away.
-      for (const i of items) cardsRef.current[i.uid]?.applyResult(false);
-      setBulkResult(`Error: ${err.message}`);
-    } finally {
-      setBulkSaving(false);
-    }
-  }
+  const handleSendAll = () => publishAll(isShown);
 
   // Stage the scale's bulk level (e.g. Completed) on every shown card with no
   // grade yet (#41). Nothing is written: the teacher reviews, then publishes.

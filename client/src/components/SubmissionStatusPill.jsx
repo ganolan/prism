@@ -12,6 +12,7 @@ import { submissionStatus, ltiStatusUnavailable } from '../lib/gradeLabel.js';
 import { TONE_VARS } from '../lib/assessmentFilters.js';
 import { lateText } from '../lib/submissionTimeline.js';
 import LateClock from './LateClock.jsx';
+import { Tip } from './HelpDot.jsx';
 import FlagSymbol from './FlagSymbol.jsx';
 import { preferredFirstName } from '../lib/studentNames.js';
 
@@ -45,10 +46,10 @@ export default function SubmissionStatusPill({ student, assignment, aligned = fa
       exception: student.exception ?? 0,
     })) {
       return (
-        <span style={{ ...PILL, background: 'var(--warning-light)', color: 'var(--warning)', border: '2px solid var(--warning)' }}
-          title="Prism couldn't read the submission status for this assignment at the last sync, re-sync to refresh.">
+        <Tip style={{ ...PILL, background: 'var(--warning-light)', color: 'var(--warning)', border: '2px solid var(--warning)' }}
+          text="Prism couldn't read the submission status for this assignment at the last sync, re-sync to refresh.">
           <span aria-hidden="true">⚠ </span>Status unavailable
-        </span>
+        </Tip>
       );
     }
     return null;
@@ -73,7 +74,7 @@ export default function SubmissionStatusPill({ student, assignment, aligned = fa
             <span style={{ ...PILL, background: v.bg, color: v.text, border: `1px solid ${v.text}` }}>
               {shown.label}
             </span>
-            {b.late && <LateClock title={lateText(student.timeline)} />}
+            {b.late && <LateClock text={lateText(student.timeline)} />}
           </span>
         );
       })}

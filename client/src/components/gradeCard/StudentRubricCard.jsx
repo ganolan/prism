@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useHelpPop } from '../HelpDot.jsx';
+import { useHelpPop, Tip } from '../HelpDot.jsx';
 import { Link } from 'react-router-dom';
 import { setSuggestionState, writeMasteryScores, writeMasteryComment, getDraftsForAssignment, getTriagePair, saveRowLevels, setGradeFlag } from '../../services/api.js';
 import { draftBaseline } from '../../lib/assessmentDraft.js';
@@ -1367,9 +1367,11 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
           onChange={handleResubmitChange}
         />}
         {isRubricLocked && (
-          <span className={`badge ${LOCK_BADGE[student.exception]}`} style={{ fontSize: '0.68rem' }} title={`Flag set in Schoology. ${flagEffect(student.exception)}`}>
+          <Tip className={`badge ${LOCK_BADGE[student.exception]}`} style={{ fontSize: '0.68rem' }}
+            text={`${exceptionLabel}, rubric locked. Flag set in Schoology. ${flagEffect(student.exception)}`}
+            pop={`Flag set in Schoology. ${flagEffect(student.exception)}`}>
             {exceptionLabel}, rubric locked
-          </span>
+          </Tip>
         )}
         {isView && onEdit && (
           <button type="button" className="secondary btn-sm" onClick={() => onEdit()}>Edit</button>
@@ -1583,11 +1585,14 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
                     const showCode = isFinal || isDraft || stagedRemoval || isSuggested;
 
                     return (
-                      <td
+                      // A cell to click is named by what the click does ("Set Topic to Developing"):
+                      // its visible content is at most the level's code (#199).
+                      <Tip
+                        as="td"
                         key={l}
                         style={cellStyle}
                         onClick={isView ? undefined : () => selectLevel(t.id, l)}
-                        title={isView ? undefined : `Set ${t.title} to ${LEVEL_LABELS[l]}`}
+                        text={isView ? undefined : `Set ${t.title} to ${LEVEL_LABELS[l]}`}
                       >
                         {showCode ? (
                           <span style={{ fontSize: '0.75rem', color: CELL_TEXT }}>
@@ -1606,7 +1611,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
                             lineHeight: 1, color: '#ef4444',
                           }}>✕</span>
                         )}
-                      </td>
+                      </Tip>
                     );
                   })}
                 </tr>
@@ -1852,11 +1857,12 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
               </div>
               {/* Use and Ignore act on the comment editor, which a view card does not draw. */}
               {!isView && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <button
+                <Tip
+                  as="button"
                   type="button"
                   onClick={ignoreSuggestion}
                   aria-label="Ignore suggestion"
-                  title="Hide this suggestion. Show again from its folded line"
+                  text="Hide this suggestion. Show again from its folded line"
                   style={{
                     borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
                     fontWeight: 600, cursor: 'pointer',
@@ -1864,10 +1870,12 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
                   }}
                 >
                   Ignore
-                </button>
-                <button
+                </Tip>
+                <Tip
+                  as="button"
                   onClick={applySuggestion}
-                  title="Copy the suggestion down into your comment"
+                  named={false}
+                  text="Copy the suggestion down into your comment"
                   style={{
                     borderRadius: 7, padding: '0.4rem 0.75rem', fontSize: '0.74rem',
                     fontWeight: 600, cursor: 'pointer',
@@ -1875,7 +1883,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
                   }}
                 >
                   ↓ Use suggestion
-                </button>
+                </Tip>
               </div>}
             </div>
           )}
@@ -1905,28 +1913,32 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
           )}
           {commentDirty && draftMark}
           {comment.trim() && (
-            <button
+            <Tip
+              as="button"
               type="button"
               className="ghost btn-sm"
               onClick={addUpdate}
-              title="Add a dated update line above the comment, for example after a grade appeal"
+              named={false}
+              text="Add a dated update line above the comment, for example after a grade appeal"
             >
               Add update
-            </button>
+            </Tip>
           )}
           {/* "Resubmission received" chip (triage resubmissions, Amendment B Task 7):
               a resubmission is sitting unanswered (arrived). Inserts the status
               line into the draft above — visible and editable, published only
               when the teacher saves. */}
           {student.resubmission?.state === 'arrived' && (
-            <button
+            <Tip
+              as="button"
               type="button"
               className="ghost btn-sm"
               onClick={insertReceivedLine}
-              title="Insert a line telling the student this was regraded after their resubmission"
+              named={false}
+              text="Insert a line telling the student this was regraded after their resubmission"
             >
               ⟳ Insert "resubmission received" line
-            </button>
+            </Tip>
           )}
         </div>
         <textarea
@@ -2012,27 +2024,31 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
             </span>
           )}
 
-          <button
+          <Tip
+            as="button"
             className="primary"
             onClick={handleSave}
             disabled={saving || !canPublish || (!isRubricLocked && !scoreScale && !pointsTask && !scale.ready)}
-            title={heldLevels
+            named={false}
+            text={heldLevels
               ? 'Publish the comment and Display to Schoology. Your staged levels stay as a draft until the flag is cleared.'
               : rowsOnlySave ? 'Save the feedback rows in Prism (nothing is sent to Schoology)' : 'Publish scores & comment to Schoology'}
           >
             {saving
               ? (rowsOnlySave ? 'Saving...' : 'Publishing...')
               : (heldLevels ? 'Publish the comment only' : rowsOnlySave ? 'Save in Prism' : 'Publish to Schoology')}
-          </button>
+          </Tip>
 
           {/* Discard — undo arrow + label, always shown, disabled when nothing pending.
               A wider labelled target is easier to hit than the old icon-only button.
-              Red accent when active so it reads as "revert / destructive". */}
-          <button
+              Red accent when active so it reads as "revert / destructive". Disabled, its popover says why
+              (its visible label already names it when enabled). */}
+          <Tip
+            as="button"
             onClick={discardChanges}
             disabled={!hasPendingChanges}
             aria-label="Discard changes"
-            title={hasPendingChanges ? 'Discard changes' : 'Discard changes (nothing to discard)'}
+            text={hasPendingChanges ? undefined : 'Discard changes (nothing to discard)'}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
               alignSelf: 'stretch', boxSizing: 'border-box',
@@ -2049,7 +2065,7 @@ function GradeCard({ student, topics, courseId, assignmentId, assignmentRow, fee
               <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
             </svg>
             Discard Changes
-          </button>
+          </Tip>
 
           {/* Pending-change count — sits immediately right of Discard. Counts
               rubric edits + comment + visibility toggle. */}

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { getSubmissionCommentThread, postSubmissionComment, postSubmissionCommentFile, deleteSubmissionComment, markSubmissionCommentsSeen } from '../services/api.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import FileViewer, { viewKind } from './FileViewer.jsx';
+import { Tip, useHelpPop, hoverOnly } from './HelpDot.jsx';
 
 // A student's Schoology submission comment thread (spec
 // 2026-10-17-submission-comments-design.md): a bubble on the assessment card
@@ -44,6 +45,7 @@ export const sizeLabel = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toF
 // overall: { text, visible } for the cell's popover (the teacher's overall comment, read-only).
 export default function SubmissionComments({ assignmentId, studentId, studentName, title, summary, onSummary, variant = 'card', overall = null }) {
   const [anchor, setAnchor] = useState(null);
+  const pop = useHelpPop();
   const btn = useRef(null);
   const open = () => setAnchor(btn.current.getBoundingClientRect());
   const close = () => { setAnchor(null); btn.current?.focus(); };
@@ -52,22 +54,25 @@ export default function SubmissionComments({ assignmentId, studentId, studentNam
   // open (a refresh or a delete can bring the count to 0).
   if (variant === 'cell' && !(summary?.count > 0) && !anchor) return null;
   const label = summaryLabel(summary);
+  // The card's chip says the summary in an instant popover (hover and focus; a tap opens the thread).
+  // The cell's bubble has none of its own: the gradebook cell's hover already describes the thread.
   return (
     <>
       {variant === 'cell' ? (
         <button ref={btn} type="button" className={`comment-dot comment-dot--corner${studentWork(summary) ? ' comment-dot--wrote' : ''}${summary?.unread > 0 ? ' comment-dot--unread' : ''}`}
-          title={label} aria-label={`${label}. Open the thread`} aria-expanded={!!anchor}
+          aria-label={`${label}. Open the thread`} aria-expanded={!!anchor}
           onClick={(e) => { e.stopPropagation(); anchor ? close() : open(); }}>
           <Bubble />
         </button>
       ) : (
         <>
           <button ref={btn} type="button" className={`comment-chip${summary?.count ? '' : ' comment-chip--empty'}${studentWork(summary) ? ' comment-chip--wrote' : ''}${summary?.unread > 0 ? ' comment-chip--unread' : ''}`}
-            title={label} aria-label={`${label}. Open the thread`} aria-expanded={!!anchor}
+            aria-label={`${label}. Open the thread`} aria-expanded={!!anchor} {...hoverOnly(pop.handlers)}
             onClick={() => (anchor ? close() : open())}>
             <Bubble />
             {summary?.count > 0 && <span>{summary.count}</span>}
           </button>
+          {!anchor && pop.popover(label)}
         </>
       )}
       {anchor && createPortal(
@@ -195,8 +200,8 @@ export function CommentPopover({ assignmentId, studentId, studentName, title, an
               const label = <>{name} <span className="comment-file-size">{sizeLabel(f.filesize)}</span></>;
               // An image, video or PDF opens in Prism's viewer (#162); anything else downloads.
               return viewKind(f) ? (
-                <button key={f.fid} type="button" className={`${cls} files-view`} title={`View ${name} in Prism`}
-                  onClick={() => setViewing({ comment: c, file: f })}>{label}</button>
+                <Tip as="button" key={f.fid} type="button" className={`${cls} files-view`} text={`View ${name} in Prism`}
+                  onClick={() => setViewing({ comment: c, file: f })}>{label}</Tip>
               ) : (
                 <a key={f.fid} className={cls} href={`${fileUrl(c.id, f.fid)}?download=1`} download>{label}</a>
               );

@@ -35,7 +35,8 @@ describe('make-up chips of folded member tests', () => {
     expect(await screen.findByRole('button', { name: 'Make-ups (Test 1): tracked' })).toHaveAttribute('aria-pressed', 'true');
     const second = screen.getByRole('button', { name: 'Make-ups (Test 2): ignored' });
     expect(second).toHaveAttribute('aria-pressed', 'false');
-    expect(second.getAttribute('title')).toContain('Ep 1 *');
+    fireEvent.mouseEnter(second);
+    expect(document.querySelector('.help-pop').textContent).toContain('Ep 1 *');
   });
 
   it('a folded chip toggles with the member\'s own assignment row', async () => {
@@ -75,7 +76,7 @@ describe('an unpublished result task', () => {
     getQuizGroups.mockResolvedValue({ groups: [group] });
     render(<MemoryRouter><AssessmentsView data={withPublished(1, 0)} courseId={5} /></MemoryRouter>);
     expect(await screen.findByRole('link', { name: 'Ep 1 - Result (S)' })).toBeInTheDocument();
-    expect(screen.getByTitle('Not published on Schoology')).toBeInTheDocument();
+    expect(screen.getByLabelText('Not published on Schoology')).toBeInTheDocument();
   });
 
   it('hides the folded row by default when no member test is published either', async () => {

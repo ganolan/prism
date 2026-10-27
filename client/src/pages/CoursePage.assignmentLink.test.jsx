@@ -1,6 +1,6 @@
 // External "View in Schoology" affordance next to assignment titles (#76).
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AssessmentsView, GradebookView } from './CoursePage.jsx';
 
@@ -98,8 +98,9 @@ describe('AssessmentsView — feedback wait column (triage)', () => {
     expect(ring).toHaveClass('urgency-ring', 'urgency-ring--amber');
     expect(ring).toHaveTextContent('8');
     expect(ring.closest('.triage-wait')).toContainElement(screen.getByText('7/24 ungraded'));
-    expect(ring.closest('.triage-wait')).toHaveAttribute(
-      'title', 'Oldest wait: 8 school days since the due date (or a late submission); overdue at 10',
+    fireEvent.mouseEnter(ring.closest('.triage-wait'));
+    expect(document.querySelector('.help-pop')).toHaveTextContent(
+      'Oldest wait: 8 school days since the due date (or a late submission); overdue at 10',
     );
     expect(screen.getAllByText(/ungraded/)).toHaveLength(1);
   });

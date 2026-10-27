@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildEmailMenu, uniqueAddresses, copiedMessage, mailtoFor } from '../../lib/emailLists.js';
-import { Tip } from '../HelpDot.jsx';
+import { Tip, useHelpPop, hoverOnly } from '../HelpDot.jsx';
 
 // "@ ▾" in a triage panel header (#137): copies the addresses of students who still
 // owe something, by urgency tier or by assessment, as "a@x; b@x" for Outlook's To or
@@ -20,6 +20,7 @@ export default function EmailMenu({ kind, rows, showCourse = false }) {
   const popRef = useRef(null);
   const bubbleRef = useRef(null);
   const timer = useRef(null);
+  const pop = useHelpPop();
 
   useEffect(() => () => clearTimeout(timer.current), []);
   // `.triage-rail` is a sticky, scrolling column (max-height + overflow-y: auto); a button
@@ -72,10 +73,9 @@ export default function EmailMenu({ kind, rows, showCourse = false }) {
 
   const itemButton = (item) => (
     <button
-      key={item.key} type="button" role="menuitem" className="ghost email-menu__item"
-      title={`${item.label} (${item.students})`} onClick={() => copy(item)}
+      key={item.key} type="button" role="menuitem" className="ghost email-menu__item" onClick={() => copy(item)}
     >
-      <span className="email-menu__label">{item.label}</span> <span className="email-menu__count">({item.students})</span>
+      <Tip className="email-menu__label" named={false} clipped text={`${item.label} (${item.students})`}>{item.label}</Tip> <span className="email-menu__count">({item.students})</span>
     </button>
   );
 
@@ -83,11 +83,12 @@ export default function EmailMenu({ kind, rows, showCourse = false }) {
     <div className="email-menu" ref={wrapRef}>
       <button
         ref={buttonRef} type="button" className="ghost accent triage-panel__more"
-        aria-label="Copy student emails" title="Copy student emails"
+        aria-label="Copy student emails" {...hoverOnly(pop.handlers)}
         aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}
       >
         @ ▾
       </button>
+      {!open && pop.popover('Copy student emails')}
       {open && (
         <div ref={popRef} className="email-menu__pop" role="menu" aria-label="Copy student emails">
           {menu.tiers.map(itemButton)}

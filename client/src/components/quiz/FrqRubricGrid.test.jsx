@@ -17,7 +17,7 @@ it('marks the AI cell and Schoology\'s cell', () => {
   render(<FrqRubricGrid rubric={RUBRIC} suggested={{ 146: 4 }} schoology={{ 146: 2 }} onSelect={() => {}} />);
   const ed = screen.getByRole('button', { name: 'Content Knowledge: Exhibiting Depth' });
   expect(ed).toHaveClass('frq-cell--ai');
-  expect(within(screen.getByRole('button', { name: 'Content Knowledge: Developing' })).getByTitle("Schoology's current mark")).toBeInTheDocument();
+  expect(within(screen.getByRole('button', { name: 'Content Knowledge: Developing' })).getByLabelText("Schoology's current mark")).toBeInTheDocument();
 });
 
 it('clicking a cell selects it', () => {

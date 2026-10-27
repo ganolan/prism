@@ -14,6 +14,7 @@ import TriageSection from '../components/triage/TriageSection.jsx';
 import StatsStrip from '../components/triage/StatsStrip.jsx';
 import { courseTriageSummary, courseRedLine } from '../lib/triage.js';
 import { usePrivateDetails } from '../lib/privateDetails.js';
+import { Tip } from '../components/HelpDot.jsx';
 
 // The first run (#171): a course whose first read has not finished yet is 'pending', and stays off
 // the dashboard while a run reads it (one whose read failed is shown, with a "Sync failed" badge).
@@ -216,7 +217,11 @@ export default function Dashboard() {
               </span>
             )}
             {!!c.hidden && <span className="badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }}>Hidden</span>}
-            {(c.first_sync === 'failed' || isPending(c)) && <span className="badge badge-red" title={c.first_sync_error || (isPending(c) ? 'Not read yet' : undefined)}>Sync failed</span>}
+            {(c.first_sync === 'failed' || isPending(c)) && (() => {
+              // Inside the card's link: not a tab stop of its own; its label joins the link's name.
+              const why = c.first_sync_error || (isPending(c) ? 'Not read yet' : undefined);
+              return <Tip className="badge badge-red" tabIndex={-1} text={why ? `Sync failed: ${why}` : undefined} pop={why}>Sync failed</Tip>;
+            })()}
           </div>
 
           {isSettings ? (
@@ -237,14 +242,15 @@ export default function Dashboard() {
               </button>
             </div>
           ) : (
-            <button
+            <Tip
+              as="button"
               className="ghost tap-target"
               style={{ fontSize: '0.9rem', color: 'var(--text-muted)', lineHeight: 1 }}
               onClick={e => { e.preventDefault(); e.stopPropagation(); setSettingsCard(c.id); }}
-              title="Card settings"
+              text="Card settings"
             >
               ⚙
-            </button>
+            </Tip>
           )}
         </div>
       </Link>

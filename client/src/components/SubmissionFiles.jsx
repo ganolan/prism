@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { getSubmissionFiles } from '../services/api.js';
 import { formatDateTime } from '../lib/formatDate.js';
 import FileViewer, { viewKind } from './FileViewer.jsx';
+import { Tip, useHelpPop, hoverOnly } from './HelpDot.jsx';
 
 // A student's native Schoology dropbox files (#107): a paperclip chip beside
 // the status pill opens a popover with every revision, newest first, and each
@@ -51,6 +52,7 @@ export default function SubmissionFiles({ assignmentId, studentId, studentName, 
   const [off, setOff] = useState(false);
   const btn = useRef(null);
   const summary = given || own;
+  const pop = useHelpPop();
 
   useEffect(() => {
     if (!autoLoad) return undefined;
@@ -70,11 +72,12 @@ export default function SubmissionFiles({ assignmentId, studentId, studentName, 
   return (
     <>
       <button ref={btn} type="button" className={`comment-chip files-chip${empty ? ' comment-chip--empty' : ''}`}
-        title={label} aria-label={`${label}. Open the list`} aria-expanded={!!anchor}
+        aria-label={`${label}. Open the list`} aria-expanded={!!anchor} {...hoverOnly(pop.handlers)}
         onClick={() => (anchor ? close() : open())}>
         <Clip />
         <span>{chipText(summary)}</span>
       </button>
+      {!anchor && pop.popover(label)}
       {anchor && createPortal(
         <FilesPopover assignmentId={assignmentId} studentId={studentId} studentName={studentName} title={title}
           anchor={anchor} onClose={close} onSummary={take} anchorEl={btn} />,
@@ -146,10 +149,10 @@ export function FilesPopover({ assignmentId, studentId, studentName, title, anch
               return (
                 <div key={f.id} className="files-row">
                   {viewKind(f) ? (
-                    <button type="button" className="comment-file files-view" title={`View ${name} in Prism`}
+                    <Tip as="button" type="button" className="comment-file files-view" text={`View ${name} in Prism`}
                       onClick={() => setViewing({ revision: r, file: f })}>
                       {name} <span className="comment-file-size">{sizeLabel(f.filesize)}</span>
-                    </button>
+                    </Tip>
                   ) : (
                     <span className="comment-file files-plain">
                       {name} <span className="comment-file-size">{sizeLabel(f.filesize)}</span>

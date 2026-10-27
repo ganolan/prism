@@ -1,4 +1,5 @@
 import { formatDate } from '../lib/formatDate.js';
+import { Tip } from './HelpDot.jsx';
 
 // PowerSchool student alerts (#117) as badges: accommodation / learning support
 // (blue), health (amber), other (grey), family (pink; student page only). The
@@ -15,9 +16,9 @@ export default function PsAlertBadges({ alerts, syncedAt = null }) {
   return (
     <span className="ps-alerts" aria-label="PowerSchool alerts">
       {alerts.map((a) => (
-        <span key={a.key} className={`badge ${TONE[a.category] || 'badge-gray'}`} title={`${a.title || a.label}. ${source}`}>
+        <Tip key={a.key} className={`badge ${TONE[a.category] || 'badge-gray'}`} text={`${a.title || a.label}. ${source}`}>
           {a.label}
-        </span>
+        </Tip>
       ))}
     </span>
   );

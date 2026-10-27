@@ -76,7 +76,7 @@ describe('Class Tools: roster filters (#73)', () => {
     const gender = within(card).getByRole('group', { name: 'Gender' });
     expect(within(gender).getAllByRole('button').map((b) => b.textContent)).toEqual(['Female (2)', 'Male (1)', 'Not known (1)']);
     const level = within(card).getByRole('group', { name: 'Overall proficiency' });
-    expect(within(level).getByRole('button', { name: 'EX (2)' })).toHaveAttribute('title', 'Exhibiting');
+    expect(within(level).getByRole('button', { name: 'Exhibiting (2)' })).toHaveTextContent('EX (2)');
     expect(within(card).getByRole('group', { name: 'Grade' })).toHaveTextContent('Grade 12 (1)');
   });
 

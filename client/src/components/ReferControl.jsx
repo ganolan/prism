@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import ActionPanel, { PanelRow } from './ActionPanel.jsx';
 import ReferPanel, { canClearInSchoology } from './ReferPanel.jsx';
+import { Tip } from './HelpDot.jsx';
 import { recordReferral, undoReferral, getTriagePair } from '../services/api.js';
 
 // The assessment card's referral actions, mirroring the dashboard's Overdue work row
@@ -61,9 +62,10 @@ export default function ReferControl({ student, assignmentId, panelHost = null, 
     const waived = referral.action === 'waived';
     return (
       <span className="resubmit-control">
-        <span className={`badge ${waived ? 'badge-gray' : 'badge-red'}`} title={referral.note || undefined}>
+        <Tip className={`badge ${waived ? 'badge-gray' : 'badge-red'}`}
+          text={referral.note ? `${waived ? 'Referral waived' : 'Referred'}: ${referral.note}` : undefined} pop={referral.note || undefined}>
           {waived ? 'Referral waived' : 'Referred'}
-        </span>
+        </Tip>
         {referral.id && (
           <button type="button" className="ghost btn-sm" disabled={busy} aria-expanded={confirming === 'undo' || undefined}
             onClick={() => (canClearInSchoology(referral.schoology) ? setConfirming(confirming ? null : 'undo') : act(() => undoReferral(referral.id)))}>Undo</button>
@@ -78,16 +80,16 @@ export default function ReferControl({ student, assignmentId, panelHost = null, 
   const handedIn = row.kind === 'submitted_late';
   return (
     <span className="resubmit-control">
-      <button type="button" className="resubmit-pill refer-pill" title="Refer to the academic office" disabled={busy}
+      <Tip as="button" type="button" className="resubmit-pill refer-pill" named={false} text="Refer to the academic office" disabled={busy}
         aria-expanded={handedIn ? undefined : confirming === 'refer'}
         onClick={() => {
           if (handedIn) return act(() => recordReferral({ ...ids, action: 'referred' }));
           setWaiving(false);
           setConfirming(confirming ? null : 'refer');
-        }}>Refer</button>
+        }}>Refer</Tip>
       {handedIn && (
-        <button type="button" className="resubmit-pill" title="Don't refer: record why" aria-expanded={waiving}
-          onClick={() => { setNote(''); setWaiving(!waiving); }}>Waive</button>
+        <Tip as="button" type="button" className="resubmit-pill" named={false} text="Don't refer: record why" aria-expanded={waiving}
+          onClick={() => { setNote(''); setWaiving(!waiving); }}>Waive</Tip>
       )}
       {error && !confirming && <span className="text-sm" style={{ color: 'var(--danger)' }}>{error}</span>}
       {warningText}

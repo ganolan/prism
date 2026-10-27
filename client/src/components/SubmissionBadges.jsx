@@ -1,4 +1,5 @@
 import LateClock from './LateClock.jsx';
+import { Tip } from './HelpDot.jsx';
 // Shared submission-state + flag badges. Renders a flat run of <span> badges
 // (a Fragment, no wrapper element) so callers can drop it straight into their
 // own flex row. Used by the /student/ course table (StudentPage) and the
@@ -22,7 +23,7 @@ export default function SubmissionBadges({ status = [], flags = [], resubmitted 
       {status.map(b => (
         <span key={b.kind} className="status-pill-wrap">
           <span className={`badge ${TONE_CLASS[b.tone]}`} style={{ fontSize: '0.65rem' }}>{b.label}</span>
-          {b.late && <LateClock title={lateTitle} />}
+          {b.late && <LateClock text={lateTitle} />}
         </span>
       ))}
       {flags.filter(flag => flag.flag_type === 'resubmit_requested').map(flag => (
@@ -31,10 +32,10 @@ export default function SubmissionBadges({ status = [], flags = [], resubmitted 
         </span>
       ))}
       {resubmitted && (
-        <span className="badge badge-resubmitted" style={{ fontSize: '0.68rem' }}
-              title="The student has submitted new work since this was last graded">
+        <Tip className="badge badge-resubmitted" style={{ fontSize: '0.68rem' }}
+              text="The student has submitted new work since this was last graded">
           ↩ Resubmitted
-        </span>
+        </Tip>
       )}
     </>
   );

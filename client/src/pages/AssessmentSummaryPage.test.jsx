@@ -97,14 +97,14 @@ describe('StudentRubricCard header: one signal for submission comments', () => {
 describe('StudentRubricCard draft persistence', () => {
   it('calls saver.save when there are pending changes', () => {
     renderCard();
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     expect(mockSaver.save).toHaveBeenCalled();
   });
 
   it('calls saver.remove after a successful save', async () => {
     const onSaved = vi.fn();
     renderCard({ onSaved });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled()
     );
@@ -154,7 +154,7 @@ describe('StudentRubricCard draft persistence', () => {
 
   it('calls saver.remove when pending changes are discarded', () => {
     renderCard();
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     mockSaver.save.mockClear();
     fireEvent.click(screen.getByRole('button', { name: /discard changes/i }));
     expect(mockSaver.remove).toHaveBeenCalled();
@@ -190,7 +190,7 @@ describe('StudentRubricCard — cell language (Slice 1)', () => {
   it('renders a synced final cell with its final fill, 2px final border, bold, black text', () => {
     const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
     renderCard({ student: s });
-    const cell = screen.getByTitle('Set Topic 1 to Exhibiting Depth');
+    const cell = screen.getByLabelText('Set Topic 1 to Exhibiting Depth');
     expect(cell).toHaveStyle({
       background: '#bfdbfe', border: '2px solid #2563eb', color: '#1a1a1a', fontWeight: '700',
     });
@@ -199,8 +199,8 @@ describe('StudentRubricCard — cell language (Slice 1)', () => {
 
   it('renders a pending draft cell with its draft fill, 2px draft border, black text', () => {
     renderCard(); // empty scores
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
-    const cell = screen.getByTitle('Set Topic 1 to Developing');
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
+    const cell = screen.getByLabelText('Set Topic 1 to Developing');
     expect(cell).toHaveStyle({
       background: '#fefce8', border: '2px dashed #fcd34d', color: '#1a1a1a',
     });
@@ -208,7 +208,7 @@ describe('StudentRubricCard — cell language (Slice 1)', () => {
 
   it('renders an empty cell with the default card background and no level code', () => {
     renderCard();
-    const cell = screen.getByTitle('Set Topic 1 to Emerging');
+    const cell = screen.getByLabelText('Set Topic 1 to Emerging');
     expect(cell).toHaveStyle({ background: 'var(--card-bg)' });
     expect(cell).toHaveTextContent('');
   });
@@ -216,8 +216,8 @@ describe('StudentRubricCard — cell language (Slice 1)', () => {
   it('renders the overridden synced final as empty when a draft is pending on another cell', () => {
     const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
     renderCard({ student: s });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing')); // draft on D
-    const oldFinal = screen.getByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing')); // draft on D
+    const oldFinal = screen.getByLabelText('Set Topic 1 to Exhibiting Depth'); // ED
     expect(oldFinal).toHaveStyle({ background: 'var(--card-bg)' });
   });
 });
@@ -373,7 +373,7 @@ describe('StudentRubricCard — "resubmission received" chip (Task 7, triage res
   it('a save that wrote rubric scores first passes rubricSaved on the comment write', async () => {
     writeMasteryScores.mockResolvedValueOnce({ ok: true });
     renderCard();
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Exhibiting Depth'));
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Regraded' } });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
@@ -475,7 +475,7 @@ describe('StudentRubricCard — in-place save (#50)', () => {
     const onSaved = vi.fn();
     renderCard({ onSaved });
 
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), {
       target: { value: 'nice work' },
     });
@@ -498,7 +498,7 @@ describe('StudentRubricCard — in-place save (#50)', () => {
 describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
   it('clears a pending draft when its cell is clicked again', () => {
     renderCard();
-    const cell = screen.getByTitle('Set Topic 1 to Developing');
+    const cell = screen.getByLabelText('Set Topic 1 to Developing');
     fireEvent.click(cell);
     expect(screen.getByText('1 pending change')).toBeInTheDocument();
     fireEvent.click(cell);
@@ -508,7 +508,7 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
   it('stages a synced final for removal on click, showing the red removal marker', () => {
     const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
     renderCard({ student: s });
-    const finalCell = screen.getByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    const finalCell = screen.getByLabelText('Set Topic 1 to Exhibiting Depth'); // ED
     fireEvent.click(finalCell);
     expect(screen.getByText('1 pending change')).toBeInTheDocument();
     expect(finalCell).toHaveStyle({ outline: '1.5px dashed #ef4444' });
@@ -518,7 +518,7 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
   it('unstages a removal when the staged final cell is clicked again', () => {
     const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
     renderCard({ student: s });
-    const finalCell = screen.getByTitle('Set Topic 1 to Exhibiting Depth');
+    const finalCell = screen.getByLabelText('Set Topic 1 to Exhibiting Depth');
     fireEvent.click(finalCell); // stage removal
     fireEvent.click(finalCell); // unstage
     expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
@@ -529,7 +529,7 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
     const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
     const onSaved = vi.fn();
     renderCard({ student: s, onSaved });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth')); // stage removal of ED
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Exhibiting Depth')); // stage removal of ED
     // Wait for scale to be ready before the save button becomes enabled.
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled()
@@ -546,10 +546,10 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
   it('replaces a staged removal with a draft when a different cell is clicked', () => {
     const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
     renderCard({ student: s });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting Depth')); // stage REMOVE on ED
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));        // new draft on D
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Exhibiting Depth')); // stage REMOVE on ED
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));        // new draft on D
     expect(screen.getByText('1 pending change')).toBeInTheDocument();
-    const draftCell = screen.getByTitle('Set Topic 1 to Developing');
+    const draftCell = screen.getByLabelText('Set Topic 1 to Developing');
     expect(draftCell).toHaveStyle({ background: '#fefce8' }); // D draftFill
   });
 
@@ -559,9 +559,9 @@ describe('StudentRubricCard — rubric interaction (Slice 2)', () => {
     // final, NOT show ED as a draft.
     const s = { ...makeStudent(), scores: { t1: { grade: 'ED', points: 100 } } };
     renderCard({ student: s });
-    const edCell = screen.getByTitle('Set Topic 1 to Exhibiting Depth'); // ED (synced final)
+    const edCell = screen.getByLabelText('Set Topic 1 to Exhibiting Depth'); // ED (synced final)
     fireEvent.click(edCell);                                              // stage removal
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Exhibiting'));      // draft EX
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Exhibiting'));      // draft EX
     expect(screen.getByText('1 pending change')).toBeInTheDocument();
     fireEvent.click(edCell);                                              // back to original final
     // One click reverts: no pending change, ED renders as the solid final again.
@@ -599,7 +599,8 @@ describe('StudentRubricCard — OneDrive work link (#120)', () => {
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(link).toHaveTextContent('Open');
     // Tooltip carries the last-edited time, day-first.
-    expect(link.getAttribute('title')).toMatch(/last edited 28\/09\/2026/);
+    fireEvent.mouseEnter(link);
+    expect(document.querySelector('.help-pop').textContent).toMatch(/last edited 28\/09\/2026/);
   });
 
   it('renders no work link when there is no file for the student', () => {
@@ -678,7 +679,8 @@ describe('AssessmentSummaryPage — OneDrive work links (#120)', () => {
     const link = await screen.findByRole('link', { name: /open ada lovelace's work in google drive/i });
     expect(link).toHaveAttribute('href', url);
     expect(link).toHaveAttribute('target', '_blank');
-    expect(link.getAttribute('title')).toMatch(/submitted 16\/03\/2023/);
+    fireEvent.mouseEnter(link);
+    expect(document.querySelector('.help-pop').textContent).toMatch(/submitted 16\/03\/2023/);
     expect(screen.queryByRole('link', { name: /onedrive/i })).not.toBeInTheDocument();
   });
 
@@ -928,7 +930,7 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     await screen.findByRole('button', { name: /publish all to schoology/i });
 
     // Make a pending change on the first card only.
-    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
+    fireEvent.click(screen.getAllByLabelText('Set Topic 1 to Developing')[0]);
 
     const btn = await screen.findByRole('button', { name: /publish all to schoology \(1\)/i });
     expect(btn).toBeEnabled();
@@ -952,8 +954,8 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     renderPage();
     await screen.findByRole('button', { name: /publish all to schoology/i });
 
-    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
-    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
+    fireEvent.click(screen.getAllByLabelText('Set Topic 1 to Developing')[0]);
+    fireEvent.click(screen.getAllByLabelText('Set Topic 1 to Developing')[1]);
 
     const btn = await screen.findByRole('button', { name: /publish all to schoology \(2\)/i });
     fireEvent.click(btn);
@@ -971,8 +973,8 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     renderPage();
     await screen.findByRole('button', { name: /publish all to schoology/i });
 
-    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[0]);
-    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
+    fireEvent.click(screen.getAllByLabelText('Set Topic 1 to Developing')[0]);
+    fireEvent.click(screen.getAllByLabelText('Set Topic 1 to Developing')[1]);
     await screen.findByRole('button', { name: /publish all to schoology \(2\)/i });
 
     // First click arms the confirm; nothing is discarded yet (both cards still
@@ -1060,7 +1062,7 @@ describe('AssessmentSummaryPage — Send all bar (#51)', () => {
     );
 
     // Stage a pending score change.
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     expect(screen.getByText('1 pending change')).toBeInTheDocument();
 
     // The card registered itself synchronously; getEntry() must reflect the
@@ -1104,7 +1106,7 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
   it('a topic pick on a new student turns the comment visible (aligned auto-flip)', () => {
     renderCard();
     expect(screen.getByText('No comment')).toBeInTheDocument();
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment for this student/), { target: { value: 'Well done' } });
     expect(screen.getByRole('switch', { name: /display to student/i })).toHaveAttribute('aria-checked', 'true');
   });
@@ -1129,7 +1131,7 @@ describe('StudentRubricCard — card chrome (Slice 5)', () => {
 
   it('enables discard once there is a pending change and clears it on click', () => {
     renderCard();
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     const discard = screen.getByRole('button', { name: /discard changes/i });
     expect(discard).toBeEnabled();
     fireEvent.click(discard);
@@ -1353,7 +1355,7 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
       1: { feedback_parsed: { rubric_scores: { X1: 'ED' }, narrative_feedback: 'nice' } },
     });
     renderPage();
-    const cell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth'); // ED
+    const cell = await screen.findByLabelText('Set Topic 1 to Exhibiting Depth'); // ED
     await waitFor(() => expect(cell.querySelector('svg')).toBeTruthy());
     expect(cell).toHaveStyle({ background: 'var(--ai-suggest-wash)' }); // fuchsia wash, no teacher mark
   });
@@ -1365,7 +1367,7 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
       1: { feedback_parsed: { rubric_scores: { NOPE: 'ED' } } },
     });
     renderPage();
-    await screen.findByTitle('Set Topic 1 to Exhibiting Depth');
+    await screen.findByLabelText('Set Topic 1 to Exhibiting Depth');
     expect(screen.queryByText('✦')).not.toBeInTheDocument();
     debugSpy.mockRestore();
   });
@@ -1378,7 +1380,7 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
       1: { feedback_parsed: { rubric_scores: { X1: 'ED' } } }, // suggestion also ED
     });
     renderPage();
-    const cell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth');
+    const cell = await screen.findByLabelText('Set Topic 1 to Exhibiting Depth');
     await waitFor(() => expect(cell.querySelector('svg')).toBeTruthy());
     expect(cell).toHaveStyle({
       background: '#bfdbfe', border: '2px solid #2563eb',
@@ -1394,8 +1396,8 @@ describe('AssessmentSummaryPage — feedback load (Slice 4)', () => {
       1: { feedback_parsed: { rubric_scores: { X1: 'EX' } } }, // suggestion EX
     });
     renderPage();
-    const finalCell = await screen.findByTitle('Set Topic 1 to Exhibiting Depth'); // ED
-    const suggCell = screen.getByTitle('Set Topic 1 to Exhibiting');             // EX
+    const finalCell = await screen.findByLabelText('Set Topic 1 to Exhibiting Depth'); // ED
+    const suggCell = screen.getByLabelText('Set Topic 1 to Exhibiting');             // EX
     expect(finalCell).toHaveStyle({ background: '#bfdbfe' });   // final, no sparkle
     expect(finalCell).not.toHaveTextContent('✦');
     expect(suggCell).toHaveStyle({ background: 'var(--ai-suggest-wash)' });    // fuchsia wash + sparkle
@@ -1671,7 +1673,7 @@ describe('StudentRubricCard — Reviewer notes collapse', () => {
 
   it('auto-collapses after publishing to Schoology', async () => {
     renderCard(withFb({ narrative_feedback: 'Collapse on publish' }));
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled()
     );
@@ -1753,7 +1755,7 @@ describe('AssessmentSummaryPage Needs action / Watch', () => {
     fireEvent.click(pill(/^To grade1/));
     expect(screen.getByText('Cy N')).not.toBeVisible();
     // Choosing a level on Ada's card makes it a draft: To grade no longer holds, the card stays.
-    fireEvent.click(within(document.querySelector('#student-card-1')).getByTitle('Set T1 to Developing'));
+    fireEvent.click(within(document.querySelector('#student-card-1')).getByLabelText('Set T1 to Developing'));
     await waitFor(() => expect(screen.getByText(/1 no longer matches/)).toBeInTheDocument());
     expect(screen.getByText('Ada L')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Update the list' }));
@@ -1909,7 +1911,7 @@ describe('AssessmentSummaryPage — deep link from a triage row (Task 10)', () =
     // new object (new students array), which previously re-fired the deep-link
     // effect (it depends on [focusStudentId, data]) and yanked the page back to
     // this card mid-grading-run.
-    fireEvent.click(screen.getAllByTitle('Set Topic 1 to Developing')[1]);
+    fireEvent.click(screen.getAllByLabelText('Set Topic 1 to Developing')[1]);
     const publishAll = await screen.findByRole('button', { name: /publish all to schoology \(1\)/i });
     fireEvent.click(publishAll);
     await waitFor(() => expect(sendAllGrades).toHaveBeenCalledTimes(1));
@@ -1971,7 +1973,7 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     renderPage();
     await waitFor(() => expect(resubPill()).toBeInTheDocument());
 
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
 
     await screen.findByText(/Published 1 grade/);
@@ -2010,7 +2012,7 @@ describe('AssessmentSummaryPage — a save regrades an arrived resubmission (fin
     sendAllGrades.mockResolvedValue({ results: [{ uid: 'uid-1', ok: true, resubmissionFields: stillArrived }] });
     renderPage();
     await waitFor(() => expect(resubPill()).toBeInTheDocument());
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     fireEvent.click(await screen.findByRole('button', { name: /publish all to schoology \(1\)/i }));
     await screen.findByText(/Published 1 grade/);
     expect(resubPill()).toBeInTheDocument();
@@ -2345,7 +2347,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
   it('labels a rows-only save "Save in Prism" and an overall change "Publish to Schoology"', () => {
     card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
       scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
-    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Playtesting to Developing'));
     expect(screen.getByRole('button', { name: 'Save in Prism' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: /^developing$/i }));
     expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled();
@@ -2362,8 +2364,8 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
 
   it('Save publishes the overall and carries the rows', async () => {
     card();
-    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
-    fireEvent.click(screen.getByTitle('Set Playtesting to Exhibiting'));
+    fireEvent.click(screen.getByLabelText('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByLabelText('Set Playtesting to Exhibiting'));
     // An explicit pick of the level the rubric average already staged.
     fireEvent.click(screen.getByRole('button', { name: /^exhibiting$/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
@@ -2379,7 +2381,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
     writeMasteryComment.mockRejectedValueOnce(Object.assign(new Error(error), { published: true }));
     const onSaved = vi.fn();
     card({ onSaved });
-    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Playtesting to Developing'));
     fireEvent.click(screen.getByRole('button', { name: /^exhibiting$/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('uid-1', expect.objectContaining({ score: 75, scale_level: 'EX', saved_grade: null })));
@@ -2390,7 +2392,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
   it('a rows-only change on a published student saves in Prism only', async () => {
     card({ student: { ...makeStudent(), score: 75, scale_level: 'EX', grade_comment: 'Hi', comment_status: 1,
       scores: rowScores({ 'Features and Code': 'EX', Playtesting: 'EX' }) } });
-    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Playtesting to Developing'));
     fireEvent.click(screen.getByRole('button', { name: 'Save in Prism' }));
     await waitFor(() => expect(saveRowLevels).toHaveBeenCalledWith('8', 'uid-1', { Playtesting: 'D' }));
     expect(writeMasteryComment).not.toHaveBeenCalled();
@@ -2404,8 +2406,8 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
       registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {},
     });
     // Clicking a synced final stages its removal: null clears the row.
-    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
-    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByLabelText('Set Playtesting to Developing'));
     const rowsOnly = handlers['uid-1'].getEntry();
     expect(rowsOnly.entry).toMatchObject({ scores: null, grade: null, comment: null,
       rowLevels: { 'Features and Code': null, Playtesting: 'D' } });
@@ -2421,7 +2423,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
 
   it('a row pick on a new student does not turn the comment visible, so Save in Prism saves rows in Prism only', async () => {
     card(); // makeStudent(): comment_status 0, grade_comment '' (auto-flip armed)
-    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Playtesting to Developing'));
     expect(screen.getByText('No comment')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save in Prism' }));
     await waitFor(() => expect(saveRowLevels).toHaveBeenCalledWith('8', 'uid-1', { Playtesting: 'D' }));
@@ -2431,7 +2433,7 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
   it('Send all: a row pick on a new student is a rows-only entry with no comment', () => {
     const handlers = {};
     card({ registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {} });
-    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByLabelText('Set Features and Code to Exhibiting'));
     const sent = handlers['uid-1'].getEntry();
     expect(sent.entry).toMatchObject({ grade: null, comment: null, rowLevels: { 'Features and Code': 'EX' } });
     expect(sent.patch).toEqual({ row_levels: { 'Features and Code': 'EX' } });
@@ -2453,16 +2455,16 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
 
   it('stages the rubric average when every row is marked and nothing is published', async () => {
     card();
-    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
-    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByLabelText('Set Playtesting to Developing'));
     expect(screen.getByText('Average of the rubric rows: Exhibiting')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^exhibiting$/i, pressed: true })).toBeInTheDocument(); // the picker's EX, staged
   });
 
   it('the staged average publishes as the overall and does not turn the comment visible', async () => {
     card();
-    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
-    fireEvent.click(screen.getByTitle('Set Playtesting to Exhibiting'));
+    fireEvent.click(screen.getByLabelText('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByLabelText('Set Playtesting to Exhibiting'));
     expect(screen.getByText('No comment')).toBeInTheDocument();
     expect(screen.getByText('3 pending changes')).toBeInTheDocument(); // two rows + the staged overall
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
@@ -2475,8 +2477,8 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
   it('Send all carries the staged average as the grade', () => {
     const handlers = {};
     card({ registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {} });
-    fireEvent.click(screen.getByTitle('Set Features and Code to Developing'));
-    fireEvent.click(screen.getByTitle('Set Playtesting to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Features and Code to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Playtesting to Developing'));
     const sent = handlers['uid-1'].getEntry();
     expect(sent.entry.grade).toEqual({ points: 50 });
     expect(sent.patch).toMatchObject({ score: 50, scale_level: 'D' });
@@ -2484,8 +2486,8 @@ describe('StudentRubricCard - feedback rows on an unaligned task', () => {
 
   it('a different pick shows the reset button, which restores the average', async () => {
     card();
-    fireEvent.click(screen.getByTitle('Set Features and Code to Exhibiting'));
-    fireEvent.click(screen.getByTitle('Set Playtesting to Exhibiting'));
+    fireEvent.click(screen.getByLabelText('Set Features and Code to Exhibiting'));
+    fireEvent.click(screen.getByLabelText('Set Playtesting to Exhibiting'));
     fireEvent.click(screen.getByRole('button', { name: /^developing$/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Use the rubric average (Exhibiting)' }));
     expect(screen.getByText('Average of the rubric rows: Exhibiting')).toBeInTheDocument();
@@ -2694,7 +2696,7 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
     renderCard({ student: { ...makeStudent(), exception } });
     expect(screen.getByText(`Grading this work clears ${name}.`)).toBeInTheDocument();
     expect(screen.queryByText(/rubric locked/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     expect(screen.getByText('1 pending change')).toBeInTheDocument();
   });
 
@@ -2702,7 +2704,7 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
     renderCard({ student: { ...makeStudent(), exception } });
     expect(screen.getByText(`${name}, rubric locked`)).toBeInTheDocument();
     expect(screen.queryByText(/Grading this work clears/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     expect(screen.queryByText(/pending change/)).not.toBeInTheDocument();
   });
 
@@ -2724,7 +2726,7 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
     writeMasteryComment.mockResolvedValueOnce({ flagCleared: { exception: 0, comment: 'Good start.', status_line: null } });
     renderCard({ onSaved, student: { ...makeStudent(), exception: 6, grade_comment: 'Marked late on Wed 21/10.\n\nGood start.', comment_status: 1,
       status_line: { line: 'Marked late on Wed 21/10.', kind: 'flag' } } });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
@@ -2738,7 +2740,7 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
   it('a failed settle after the levels went says the levels are published and what was not', async () => {
     writeMasteryComment.mockRejectedValueOnce(new Error('Another update for this student is in progress: try again'));
     renderCard({ student: { ...makeStudent(), exception: 6, grade_comment: 'Hi', comment_status: 1 } });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     expect(await screen.findByText(/^error: Levels published to Schoology; the flag's line was not removed from the comment \(Another update/)).toBeInTheDocument();
@@ -2747,7 +2749,7 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
   it('#182: levels Schoology accepted but Prism could not mirror: the card shows the warning, and the levels are no longer pending', async () => {
     writeMasteryScores.mockResolvedValueOnce({ warning: "Levels published to Schoology, but Prism's copy was not updated (disk full). Sync to refresh it." });
     renderCard({ student: { ...makeStudent(), grade_comment: 'Hi', comment_status: 1 } });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     expect(await screen.findByText(/^error: Levels published to Schoology, but Prism's copy was not updated \(disk full\)\. Sync to refresh it\.$/)).toBeInTheDocument();
@@ -2759,7 +2761,7 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
     const onSaved = vi.fn();
     writeMasteryComment.mockRejectedValueOnce(new Error('Another update for this student is in progress: try again'));
     renderCard({ onSaved, student: { ...makeStudent(), grade_comment: 'Hi', comment_status: 1 } });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Hi there' } });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
@@ -2775,7 +2777,7 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
     const handlers = {};
     renderCard({ student: { ...makeStudent(), exception: 6, grade_comment: 'Hi', comment_status: 1 },
       registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {} });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     await waitFor(() => expect(handlers['uid-1'].getEntry().entry.scores).not.toBeNull()); // once the scale loads
     const built = handlers['uid-1'].getEntry();
     expect(built.entry.comment).toBeNull(); // the card's comment is never sent unchanged
@@ -2791,7 +2793,7 @@ describe('StudentRubricCard: final flags and markers (#40)', () => {
   it('publishing rubric levels with no flag sends no comment write when the comment is unchanged', async () => {
     const onSaved = vi.fn();
     renderCard({ onSaved, student: { ...makeStudent(), grade_comment: 'Hi', comment_status: 1 } });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
@@ -2824,20 +2826,20 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
   it('the flagged card shows the saved levels in the locked rubric, under the saved caption', () => {
     renderCard({ student: { ...makeStudent(), exception: 1, saved_grade: SAVED } });
     expect(screen.getByText('Saved before the flag on Wed 21/10. Clear the flag to restore it.')).toBeInTheDocument();
-    expect(screen.getByTitle('Set Topic 1 to Exhibiting')).toHaveTextContent('EX');
+    expect(screen.getByLabelText('Set Topic 1 to Exhibiting')).toHaveTextContent('EX');
     expect(screen.queryByRole('button', { name: 'Restore saved grade' })).toBeNull();
   });
 
   it('a locked card with no saved copy shows no caption and no levels', () => {
     renderCard({ student: { ...makeStudent(), exception: 1 } });
     expect(screen.queryByText(/Saved before the flag/)).toBeNull();
-    expect(screen.getByTitle('Set Topic 1 to Exhibiting')).not.toHaveTextContent('EX');
+    expect(screen.getByLabelText('Set Topic 1 to Exhibiting')).not.toHaveTextContent('EX');
   });
 
   it('a marker keeps the live rubric (no saved levels drawn over it)', () => {
     renderCard({ student: { ...makeStudent(), exception: 6, saved_grade: { ...SAVED, flag: 6 } } });
     expect(screen.queryByText(/Saved before the flag/)).toBeNull();
-    expect(screen.getByTitle('Set Topic 1 to Exhibiting')).not.toHaveTextContent('EX');
+    expect(screen.getByLabelText('Set Topic 1 to Exhibiting')).not.toHaveTextContent('EX');
   });
 
   it('the offer says what it restores and when it was saved', () => {
@@ -2848,7 +2850,7 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
   it('with staged changes, "Restore saved grade" asks first, inside the card; Cancel writes nothing', async () => {
     setGradeFlag.mockResolvedValueOnce({ exception: 0, saved: false, withdrawn: [], line: null, restored: { draft: true, notRestored: [] } });
     renderCard({ student: { ...makeStudent(), exception: 0, score: null, saved_grade: SAVED }, onRefreshPair: vi.fn(async () => ({ ...makeStudent(), exception: 0 })) });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     fireEvent.click(screen.getByRole('button', { name: 'Restore saved grade' }));
     expect(screen.getByText('Restoring replaces your draft on this card with the saved grade (1 topic level).')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -2904,7 +2906,7 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
       );
     }
     render(<Harness />);
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     fireEvent.change(screen.getByPlaceholderText(/Teacher comment/i), { target: { value: 'Away this week.' } });
     expect(screen.getByText('2 pending changes')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Flags/ }));
@@ -2921,7 +2923,7 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
     expect(screen.queryByText(/Your staged levels stay as a draft/)).toBeNull();
     unmount();
     renderCard({ student: { ...makeStudent(), exception: 6 } });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     expect(screen.queryByText(/Your staged levels stay as a draft/)).toBeNull();
   });
 
@@ -2955,7 +2957,7 @@ describe('StudentRubricCard: the Flags menu (#40)', () => {
     }
     render(<Harness />);
     expect(screen.getByRole('button', { name: 'Restore saved grade' })).toBeInTheDocument();
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Publish to Schoology' })).toBeEnabled());
     fireEvent.click(screen.getByRole('button', { name: 'Publish to Schoology' }));
     await waitFor(() => expect(writeMasteryScores).toHaveBeenCalledTimes(1));
@@ -3152,7 +3154,7 @@ describe('StudentRubricCard: a final flag publishes the comment only (#177)', ()
   it('Send all: a warning on a published result shows on the card (the marker not settled)', () => {
     const handlers = {};
     renderCard({ student: { ...makeStudent(), exception: 6 }, registerCard: (uid, h) => { handlers[uid] = h; }, unregisterCard: () => {} });
-    fireEvent.click(screen.getByTitle('Set Topic 1 to Developing'));
+    fireEvent.click(screen.getByLabelText('Set Topic 1 to Developing'));
     act(() => handlers['uid-1'].applyResult(true, { uid: 'uid-1', ok: true, warning: 'Levels published to Schoology; Prism could not read the flag back.' }));
     expect(screen.getByText('error: Levels published to Schoology; Prism could not read the flag back.')).toBeInTheDocument();
     expect(screen.queryByText(/pending change/)).toBeNull();

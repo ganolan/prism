@@ -8,7 +8,7 @@ it('one segment per level, best first, sized by count, with the full counts as i
   render(<LevelBar levels={levels} />);
   const bar = screen.getByRole('img', { name: 'Exhibiting Depth 2, Developing 4, Not marked 1' });
   const segs = [...bar.querySelectorAll('.level-seg')];
-  expect(segs.map(s => s.getAttribute('title'))).toEqual(['Exhibiting Depth: 2', 'Developing: 4', 'Not marked: 1']);
+  expect(segs.map(s => s.getAttribute('aria-label'))).toEqual(['Exhibiting Depth: 2', 'Developing: 4', 'Not marked: 1']);
   expect(segs.map(s => s.style.flexGrow)).toEqual(['2', '4', '1']);
 });
 

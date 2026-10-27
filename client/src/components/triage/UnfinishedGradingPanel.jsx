@@ -3,6 +3,7 @@ import CourseLine from './CourseLine.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
 import { assessmentLink } from '../../lib/triage.js';
 import { formatDate } from '../../lib/formatDate.js';
+import { Tip } from '../HelpDot.jsx';
 
 // Unfinished grading: grading work with no clock, per task (server/services/unfinishedGrading.js):
 // Prism drafts not yet published, feedback the student cannot see (a comment with Display off, or
@@ -38,9 +39,9 @@ export default function UnfinishedGradingPanel({ rows, showCourse, scope }) {
         <div key={r.assignmentId} className="triage-row triage-row--plain">
           <div className="triage-row__text">
             <div className="triage-row__line">
-              <Link className="triage-row__title" to={assessmentLink(r, { filter: filterFor(r) })} title={r.title}>
+              <Tip as={Link} className="triage-row__title" to={assessmentLink(r, { filter: filterFor(r) })} named={false} clipped text={r.title}>
                 {r.title}
-              </Link>
+              </Tip>
               {!r.aligned && <span className="badge badge-formative triage-row__tag">F</span>}
             </div>
             <div className="triage-row__sub">

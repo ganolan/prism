@@ -25,8 +25,8 @@ describe('PsAlertBadges (#117)', () => {
 
   it('names the source, and the read date day-first, on hover', () => {
     render(<PsAlertBadges alerts={ALERTS} syncedAt="2026-10-07T03:00:00.000Z" />);
-    expect(screen.getByText('ILP')).toHaveAttribute('title', 'Individual learning plan. From PowerSchool, read 07/10/2026');
-    expect(screen.getByText('EpiPen')).toHaveAttribute('title', 'EpiPen. From PowerSchool, read 07/10/2026');
+    expect(screen.getByText('ILP')).toHaveAttribute('aria-label', 'Individual learning plan. From PowerSchool, read 07/10/2026');
+    expect(screen.getByText('EpiPen')).toHaveAttribute('aria-label', 'EpiPen. From PowerSchool, read 07/10/2026');
   });
 
   it('renders nothing for no alerts, or when the feature is off (no field)', () => {

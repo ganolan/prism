@@ -52,7 +52,7 @@ describe('TagResultsDrawer', () => {
     const table = await screen.findByRole('table', { name: 'By student' });
     const head = within(table).getAllByRole('columnheader');
     expect(head.map(h => h.textContent)).toEqual(['Student', '1', '2', '3', 'Total', '%']);
-    expect(head[1]).toHaveAttribute('title', 'Ep 1 Theory Test');
+    expect(head[1]).toHaveAttribute('aria-label', 'Ep 1 Theory Test');
     const rows = within(table).getAllByRole('row').slice(1);
     expect(rows.map(r => within(r).getAllByRole('cell').map(c => c.textContent))).toEqual([
       ['Ben Lee', '0/2', '0/1', '-', '0/3', '0%'],

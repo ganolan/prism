@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { writeMasteryOverride } from '../services/api.js';
 import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
+import { Tip } from './HelpDot.jsx';
 
 /**
  * Modal for setting/clearing Schoology's per-(student, objective) outcome override.
@@ -78,8 +79,10 @@ export default function OverridePopup({
             const c = LEVEL_COLORS[lvl];
             const active = currentLevel === lvl;
             return (
-              <button
+              <Tip
+                as="button"
                 key={lvl}
+                text={LEVEL_LABELS[lvl]}
                 disabled={saving}
                 onClick={() => save(lvl)}
                 style={{
@@ -90,10 +93,9 @@ export default function OverridePopup({
                   cursor: saving ? 'wait' : 'pointer',
                   fontSize: '0.85rem',
                 }}
-                title={LEVEL_LABELS[lvl]}
               >
                 {lvl}
-              </button>
+              </Tip>
             );
           })}
         </div>

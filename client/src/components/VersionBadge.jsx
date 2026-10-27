@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getVersion } from '../services/api.js';
+import { Tip } from './HelpDot.jsx';
 
 /**
  * Which build is answering /api — small and quiet, at the foot of the sidebar.
@@ -32,8 +33,8 @@ export default function VersionBadge() {
       : 'Development clone: no release deployed';
 
   return (
-    <div className="version-badge" title={title}>
+    <Tip as="div" className="version-badge" role="img" tabIndex={0} text={`${label}. ${title}`} pop={title}>
       {label}
-    </div>
+    </Tip>
   );
 }

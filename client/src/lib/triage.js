@@ -2,7 +2,7 @@
 
 export const TONE_BADGE = { red: 'badge-red', amber: 'badge-amber', green: 'badge-gray' };
 
-// Tooltip on the ≈ marker of a weekday-fallback count.
+// The ≈ marker of a weekday-fallback count: its popover text and aria-label.
 export const APPROX_TITLE = 'Approximate: counted as weekdays (no PowerSchool calendar for these dates)';
 
 // Course chip text. Sections of one course share a name, so the block tells

@@ -8,9 +8,10 @@ import ReferralHistory from './ReferralHistory.jsx';
 import { cardLink } from './ResubmissionsPanel.jsx';
 import EmailMenu, { MailLink } from './EmailMenu.jsx';
 import ReferPanel from '../ReferPanel.jsx';
+import { Tip } from '../HelpDot.jsx';
 
 // Late summative work, worst first, counted in school days late (referral at `limit`).
-// The action column: work still missing stacks Refer (red rows, title "Mark referred")
+// The action column: work still missing stacks Refer (red rows, popover "Mark referred")
 // or the days-left label above Extend; work handed in late past the limit has Refer and
 // Waive instead (the work is in, so there's no deadline left to extend: Waive records
 // the decision not to refer it, with an optional note). Extend opens the shared
@@ -73,21 +74,21 @@ export default function LateWorkPanel({
             <UrgencyRing day={r.day} limit={limit} tone={r.tone} approx={r.approx} size={28} />
             <div className="triage-row__text">
               <div className="triage-row__line">
-                <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
+                <Tip as={Link} to={cardLink(r)} className="triage-row__name" named={false} clipped text={r.studentName}>{r.studentName}</Tip>
                 <MailLink row={r} kind="late" />
                 {r.kind === 'submitted_late' && <span className="badge badge-amber triage-row__tag">submitted {r.submittedDay - 1} school day{r.submittedDay - 1 === 1 ? '' : 's'} late</span>}
                 {r.extension && <ExtensionTag extension={r.extension} />}
               </div>
               {showCourse && <CourseLine row={r} />}
-              <div className="triage-row__task" title={r.title}>{r.title}</div>
+              <Tip as="div" className="triage-row__task" named={false} clipped text={r.title}>{r.title}</Tip>
             </div>
             <div className="triage-row__actions">
               {red
-                ? <button className="primary danger btn-sm" title="Mark referred" aria-expanded={handedIn ? undefined : refer}
-                    onClick={() => (handedIn ? onRecord(r, 'referred') : openRefer())}>Refer</button>
+                ? <Tip as="button" className="primary danger btn-sm" named={false} text="Mark referred" aria-expanded={handedIn ? undefined : refer}
+                    onClick={() => (handedIn ? onRecord(r, 'referred') : openRefer())}>Refer</Tip>
                 : <span className="text-sm text-muted">{daysLeft(r.day, limit)}</span>}
               {handedIn
-                ? <button className="secondary btn-sm" title="Don't refer: record why" onClick={() => { setWaiveNote(''); setWaiving(waive ? null : k); setExtending(null); }}>Waive</button>
+                ? <Tip as="button" className="secondary btn-sm" named={false} text="Don't refer: record why" onClick={() => { setWaiveNote(''); setWaiving(waive ? null : k); setExtending(null); }}>Waive</Tip>
                 : <button className="secondary btn-sm" onClick={() => { setExtending(open ? null : k); setWaiving(null); setReferring(null); }}>Extend</button>}
             </div>
             {refer && (

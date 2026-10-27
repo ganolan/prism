@@ -7,6 +7,7 @@ import { EMAIL_FORMATS, emailText } from '../lib/emailFormats.js';
 import { FILTER_TYPES, filterValueLabel, filterValueTitle, rosterFilterQuery, keepHeldValues } from '../lib/rosterFilters.js';
 import { usePrivateDetails } from '../lib/privateDetails.js';
 import { PrivateHidden } from '../components/PrivateDetails.jsx';
+import { Tip } from '../components/HelpDot.jsx';
 
 const GROUP_COLORS = [
   'var(--badge-blue-bg)', 'var(--badge-green-bg)', 'var(--warning-light)',
@@ -160,11 +161,13 @@ function RosterFilters({ courseIds, filters, setFilters }) {
               {data.facets[id].length === 0 && <span className="text-sm text-muted">None stored</span>}
               {data.facets[id].map(({ value, count }) => {
                 const on = (filters[id] ?? []).includes(value);
+                // A level code (ED, EX) names itself with its full label, the instant popover too.
+                const tip = filterValueTitle(id, value);
                 return (
-                  <button key={value} className={`filter-btn${on ? ' active' : ''}`} aria-pressed={on}
-                    title={filterValueTitle(id, value)} onClick={() => toggle(id, value)}>
+                  <Tip as="button" key={value} className={`filter-btn${on ? ' active' : ''}`} aria-pressed={on}
+                    text={tip ? `${tip} (${count})` : undefined} pop={tip} onClick={() => toggle(id, value)}>
                     {filterValueLabel(id, value)} ({count})
-                  </button>
+                  </Tip>
                 );
               })}
             </div>

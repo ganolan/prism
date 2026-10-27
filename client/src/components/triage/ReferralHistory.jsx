@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getReferrals, undoReferral, getExtensions, undoExtension, getResubmissions, undoResubmission } from '../../services/api.js';
 import { formatDate } from '../../lib/formatDate.js';
+import { Tip } from '../HelpDot.jsx';
 import CourseLine from './CourseLine.jsx';
 import StatusLineModal from '../StatusLineModal.jsx';
 import ReferPanel, { canClearInSchoology } from '../ReferPanel.jsx';
@@ -157,9 +158,9 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
       {rows?.map((r) => (
         <div key={`${r.kind}:${r.id}`} className="triage-row triage-row--history">
           <div className="triage-row__text">
-            <span className="triage-row__name" title={r.studentName}>{r.studentName}</span>
+            <Tip className="triage-row__name" named={false} clipped text={r.studentName}>{r.studentName}</Tip>
             <CourseLine row={r} />
-            <div className="triage-row__task" title={r.title}>{r.title}</div>
+            <Tip as="div" className="triage-row__task" named={false} clipped text={r.title}>{r.title}</Tip>
           </div>
           <div className="triage-row__actions">
             {r.kind === 'referral' && (

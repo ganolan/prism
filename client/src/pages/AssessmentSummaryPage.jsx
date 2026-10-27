@@ -30,7 +30,7 @@ import { isFinalFlag } from '../lib/flags.js';
 import { afterRefresh } from '../lib/assessmentFreshness.js';
 import SyncStatus from '../components/SyncStatus.jsx';
 import SyncHelp from '../components/SyncHelp.jsx';
-import { useHelpPop } from '../components/HelpDot.jsx';
+import { useHelpPop, Tip } from '../components/HelpDot.jsx';
 import { useSyncFacts } from '../hooks/useSyncFacts.js';
 import { useBackgroundSync } from '../hooks/useBackgroundSync.js';
 import SyncDialog from '../components/SyncDialog.jsx';
@@ -79,13 +79,13 @@ function ReviewerAnalysisBody({ topics, feedbackRows, analysis }) {
                 {total > 0 && LEVELS.filter(l => counts[l] > 0).map(l => {
                   const showLabel = counts[l] / total >= 0.12;
                   return (
-                    <div key={l} title={`${counts[l]} ${l}`} style={{
+                    <Tip as="div" key={l} role="img" text={`${counts[l]} ${l}`} style={{
                       flex: counts[l], display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: '0.56rem', fontWeight: 700, color: CELL_TEXT,
                       background: LEVEL_COLORS[l].headerFill,
                     }}>
                       {showLabel ? `${counts[l]} ${l}` : counts[l]}
-                    </div>
+                    </Tip>
                   );
                 })}
               </div>
@@ -627,12 +627,12 @@ function AssessmentSummaryBody() {
           {/* The due date stands out on its own (17/10/2026): the cards' timelines leave
               it out and say only how late each submission was. */}
           {assignment.due_date && (
-            <span className="due-chip" title="Due date in Schoology">
+            <Tip className="due-chip" named={false} text="Due date in Schoology">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
                 <rect x="2" y="3" width="12" height="11" rx="2" /><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3" />
               </svg>
               Due {lineDate(assignment.due_date.slice(0, 10))} {assignment.due_date.slice(11, 16)}
-            </span>
+            </Tip>
           )}
           <p className="text-sm text-muted" style={{ margin: 0 }}>
             {students.length} students · {scoreScale ? scoreScale.name : `${alignedTopics.length} measurement topics`}
@@ -678,9 +678,10 @@ function AssessmentSummaryBody() {
             </div>
           )}
           {workLinksNote && (
-            <span className="text-sm text-muted" style={{ fontSize: '0.75rem' }} title={workLinksNote.title}>
+            <Tip className="text-sm text-muted" style={{ fontSize: '0.75rem' }}
+              text={workLinksNote.title ? `${workLinksNote.text}. ${workLinksNote.title}` : undefined} pop={workLinksNote.title || undefined}>
               {workLinksNote.text}
-            </span>
+            </Tip>
           )}
 
           {/* Rubric view toggle (Task 13) — Descriptors (default) shows the
@@ -718,9 +719,11 @@ function AssessmentSummaryBody() {
           )}
 
           {hasAnalysis && (
-            <button
+            <Tip
+              as="button"
               onClick={() => setDrawerOpen(true)}
-              title="Reviewer Analysis: not student-facing"
+              named={false}
+              text="Reviewer Analysis: not student-facing"
               style={{
                 marginLeft: 'auto', border: '1px solid var(--ai-suggest)', background: 'var(--ai-suggest-wash)',
                 color: 'var(--ai-suggest)', borderRadius: 7, padding: '0.32rem 0.7rem',
@@ -730,7 +733,7 @@ function AssessmentSummaryBody() {
             >
               <AiSparkle size={14} style={{ color: 'var(--ai-suggest)' }} />
               Reviewer Analysis
-            </button>
+            </Tip>
           )}
         </div>
         <AssessmentFilterBar
@@ -897,26 +900,30 @@ function AssessmentSummaryBody() {
             {visibilityPop.popover('Show or hide every comment. This switch does not hide grades.')}
 
             {openScaleSuggestions > 0 && (
-              <button
+              <Tip
+                as="button"
                 className="secondary"
                 onClick={handleAcceptAllSuggestions}
                 disabled={bulkSaving}
-                title="Select each agent-suggested level for review. Nothing is sent until you publish."
+                named={false}
+                text="Select each agent-suggested level for review. Nothing is sent until you publish."
                 style={{ color: 'var(--ai-suggest)', borderColor: 'var(--ai-suggest)' }}
               >
                 <AiSparkle size={13} /> Accept all suggestions ({openScaleSuggestions})
-              </button>
+              </Tip>
             )}
             {bulkLevel && (
-              <button
+              <Tip
+                as="button"
                 className="secondary"
                 onClick={() => handleMarkAll(bulkLevel)}
                 onMouseLeave={() => setMarkAllArmed(false)}
                 disabled={bulkSaving}
-                title={`Select ${bulkLevel.label} for every shown student without a grade. Nothing is sent until you publish.`}
+                named={false}
+                text={`Select ${bulkLevel.label} for every shown student without a grade. Nothing is sent until you publish.`}
               >
                 {markAllArmed ? `Click again to mark all ${bulkLevel.label}` : `Mark all ${bulkLevel.label}`}
-              </button>
+              </Tip>
             )}
             <button
               className="primary"
@@ -929,11 +936,13 @@ function AssessmentSummaryBody() {
                   ? `Publish all to Schoology (${totalPending})`
                   : 'Publish all to Schoology'}
             </button>
-            <button
+            <Tip
+              as="button"
               onClick={handleDiscardAll}
               onMouseLeave={() => setDiscardAllArmed(false)}
               disabled={bulkSaving || totalUnsaved === 0}
-              title="Discard all unsaved changes across every student"
+              named={false}
+              text="Discard all unsaved changes across every student"
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
                 padding: '0.4rem 0.75rem', borderRadius: 7,
@@ -949,7 +958,7 @@ function AssessmentSummaryBody() {
                 <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
               </svg>
               {discardAllArmed ? 'Click again to confirm' : 'Discard all'}
-            </button>
+            </Tip>
             {!bulkSaving && totalUnsaved > 0 && (
               <span className="text-sm text-muted">
                 {totalUnsaved} student{totalUnsaved !== 1 ? 's' : ''} with unsaved changes

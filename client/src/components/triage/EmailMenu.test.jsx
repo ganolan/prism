@@ -41,12 +41,18 @@ describe('EmailMenu', () => {
     expect(screen.getByText('By assessment')).toBeInTheDocument();
   });
 
-  it('a menu item carries the full "label (count)" as its title, with the count in its own element', () => {
+  it('a menu item reads "label (count)", with the count in its own element; a cut-off label pops in full (#199)', () => {
     render(<EmailMenu kind="late" rows={ROWS} />);
     openMenu();
     const item = screen.getByRole('menuitem', { name: 'Red (1)' });
-    expect(item).toHaveAttribute('title', 'Red (1)');
+    expect(item).not.toHaveAttribute('title');
     expect(item.querySelector('.email-menu__count')).toHaveTextContent('(1)');
+    const label = item.querySelector('.email-menu__label');
+    fireEvent.mouseEnter(label); // it fits (jsdom measures 0 by 0): nothing new to say
+    expect(document.querySelector('.help-pop')).toBeNull();
+    Object.defineProperty(label, 'scrollWidth', { configurable: true, value: 300 });
+    fireEvent.mouseEnter(label);
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Red (1)');
   });
 
   it('copies "; "-joined addresses and says how many, noting students with no email', async () => {

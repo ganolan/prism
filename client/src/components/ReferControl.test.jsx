@@ -103,7 +103,9 @@ describe('ReferControl (assessment card)', () => {
     const { rerender } = render(<ReferControl student={student({ referral: { id: 3, action: 'referred' } })} assignmentId={30} />);
     expect(screen.getByText('Referred')).toHaveClass('badge-red');
     rerender(<ReferControl student={student({ referral: { id: 4, action: 'waived', note: 'pre-approved' } })} assignmentId={30} />);
-    expect(screen.getByText('Referral waived')).toHaveAttribute('title', 'pre-approved');
+    expect(screen.getByText('Referral waived')).toHaveAttribute('aria-label', 'Referral waived: pre-approved');
+    fireEvent.mouseEnter(screen.getByText('Referral waived'));
+    expect(document.querySelector('.help-pop')).toHaveTextContent('pre-approved');
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(api.undoReferral).toHaveBeenCalledWith(4));
   });

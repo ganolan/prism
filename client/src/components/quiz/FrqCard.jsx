@@ -6,6 +6,7 @@ import { saveFrqMark } from '../../services/api.js';
 import { sanitizeAnswerHtml } from '../../lib/sanitizeHtml.js';
 import FrqRubricGrid from './FrqRubricGrid.jsx';
 import AttemptLink from './AttemptLink.jsx';
+import { Tip } from '../HelpDot.jsx';
 
 const STATE_LABEL = { suggested: 'Suggested', accepted: 'Accepted', edited: 'Edited' };
 const WRITEBACK = { pending: ['Waiting to post', 'badge-amber'], posted: ['Posted', 'badge-green'], failed: ['Post failed', 'badge-red'] };
@@ -60,7 +61,10 @@ export default function FrqCard({ groupId, student, question, response, onSaved,
             <AttemptLink link={{ url: student.attempt_url, completedAt: student.completed_at }} name={student.name} />
           </>
         )}
-        {stateChips(response).map(c => <span key={c.key} className={`badge ${c.tone}`} title={c.key === 'writeback' && mark?.writeback?.error ? mark.writeback.error : undefined}>{c.label}</span>)}
+        {stateChips(response).map((c) => {
+          const error = c.key === 'writeback' ? mark?.writeback?.error : null;
+          return <Tip key={c.key} className={`badge ${c.tone}`} text={error ? `${c.label}: ${error}` : undefined} pop={error || undefined}>{c.label}</Tip>;
+        })}
         {mark?.suggestion_revised && <span className="badge badge-pink">Revised suggestion</span>}
       </div>
       {response.answer_html

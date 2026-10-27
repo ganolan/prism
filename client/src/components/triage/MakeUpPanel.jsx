@@ -6,6 +6,7 @@ import ExtendEditor, { ExtensionTag } from './ExtendEditor.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
 import { cardLink } from './ResubmissionsPanel.jsx';
 import EmailMenu, { MailLink } from './EmailMenu.jsx';
+import { Tip } from '../HelpDot.jsx';
 
 // Students who missed a Schoology test or quiz and must sit it (or their * copy)
 // ASAP, longest first. A row clears itself once an attempt syncs. Extend records
@@ -50,12 +51,12 @@ export default function MakeUpPanel({ rows, settings, showCourse, scope, uncheck
             <UrgencyRing day={r.day} limit={red} tone={r.tone} approx={r.approx} size={28} />
             <div className="triage-row__text">
               <div className="triage-row__line">
-                <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
+                <Tip as={Link} to={cardLink(r)} className="triage-row__name" named={false} clipped text={r.studentName}>{r.studentName}</Tip>
                 <MailLink row={r} kind="makeUps" />
                 {r.extension && <ExtensionTag extension={r.extension} />}
               </div>
               {showCourse && <CourseLine row={r} />}
-              <div className="triage-row__task" title={r.title}>{r.title}</div>
+              <Tip as="div" className="triage-row__task" named={false} clipped text={r.title}>{r.title}</Tip>
             </div>
             <div className="triage-row__actions">
               <button className="secondary btn-sm" onClick={() => { setConfirmIgnore(null); setExtending(isExtending ? null : k); }}>Extend</button>

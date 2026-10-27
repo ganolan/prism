@@ -1,4 +1,4 @@
-import HelpDot from './HelpDot.jsx';
+import HelpDot, { Tip } from './HelpDot.jsx';
 import { timelineParts, CLOCK_HELP } from '../lib/submissionTimeline.js';
 
 // The full submission picture on one compact, wrapping row (the /assessment/ card,
@@ -13,12 +13,12 @@ export default function SubmissionTimeline({ timeline, help = true, showDue = tr
   return (
     <div className="submission-timeline" data-testid="submission-timeline">
       {parts.map((p, i) => (
-        <span
-          key={p.key} title={p.title}
+        <Tip
+          key={p.key} text={p.title ? `${p.text}. ${p.title}` : undefined} pop={p.title}
           className={`submission-timeline__part${p.tone ? ` submission-timeline__part--${p.tone}` : ''}${i === parts.length - 1 ? ' submission-timeline__part--last' : ''}`}
         >
           {p.text}
-        </span>
+        </Tip>
       ))}
       {help && <HelpDot text={CLOCK_HELP(timeline.limit)} />}
     </div>

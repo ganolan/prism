@@ -3,11 +3,12 @@ import UrgencyRing from './UrgencyRing.jsx';
 import CourseLine from './CourseLine.jsx';
 import { PanelHead, ShowAllToggle, useShowAll, limitRows } from './panelParts.jsx';
 import { assessmentLink, FEEDBACK_OWED_FILTER } from '../../lib/triage.js';
+import { Tip } from '../HelpDot.jsx';
 
 // Assessments with ungraded submissions, longest wait first. The ring shows the
 // school-day number of the oldest wait; day 1 = the start of the wait (the due
 // date, or a late student's submission date). Overdue after day `limit`. The
-// count sits right-aligned as "X/Y" (title: "X of Y ungraded"); no row actions. A title
+// count sits right-aligned as "X/Y" ("X of Y ungraded" in its popover); no row actions. A title
 // opens the task's page with its whole Needs action row selected.
 // Ids are fixed (triage-feedback) for the Dashboard stats tiles.
 export default function FeedbackOwedPanel({ rows, settings, showCourse, scope, includeFormative, onToggleFormative }) {
@@ -30,15 +31,15 @@ export default function FeedbackOwedPanel({ rows, settings, showCourse, scope, i
           <UrgencyRing day={r.day} limit={limit} tone={r.tone} approx={r.approx} size={28} />
           <div className="triage-row__text">
             <div className="triage-row__line">
-              <Link className="triage-row__title" to={assessmentLink(r, { filter: FEEDBACK_OWED_FILTER })} title={r.title}>
+              <Tip as={Link} className="triage-row__title" to={assessmentLink(r, { filter: FEEDBACK_OWED_FILTER })} named={false} clipped text={r.title}>
                 {r.title}
-              </Link>
+              </Tip>
               {!r.aligned && <span className="badge badge-formative triage-row__tag">F</span>}
             </div>
             {showCourse && <CourseLine row={r} />}
           </div>
           <div className="triage-row__actions">
-            <span className="triage-row__count" title={`${r.owed} of ${r.submittedTotal} ungraded`}>{r.owed}/{r.submittedTotal}</span>
+            <Tip className="triage-row__count" text={`${r.owed} of ${r.submittedTotal} ungraded`}>{r.owed}/{r.submittedTotal}</Tip>
           </div>
         </div>
       ))}

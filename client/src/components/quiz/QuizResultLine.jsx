@@ -2,6 +2,7 @@
 // levels, live from Prism's copy. When the overall suggestion's comment no longer matches the
 // numbers or the template, "Numbers changed" with Update numbers rebuilds it.
 import { useState } from 'react';
+import { Tip } from '../HelpDot.jsx';
 
 const frqText = (f) => {
   if (!f.confirmed) return f.reason;
@@ -29,10 +30,10 @@ export default function QuizResultLine({ result, onRebuild }) {
       <span>{quizLineText(result)}</span>
       {result.overall?.stale && (result.overall.edited ? (
         // The stored comment was reworded (no page edits it since #122): flag it, never overwrite it.
-        <span className="badge badge-amber" title="The numbers changed after the comment was edited. Write the overall result again to update it.">Numbers changed</span>
+        <Tip className="badge badge-amber" text="The numbers changed after the comment was edited. Write the overall result again to update it.">Numbers changed</Tip>
       ) : (
         <>
-          <span className="badge badge-amber" title="The suggested comment shows older numbers, or an older template">Numbers changed</span>
+          <Tip className="badge badge-amber" text="The suggested comment shows older numbers, or an older template">Numbers changed</Tip>
           <button className="ghost accent" disabled={busy} onClick={rebuild}>Update numbers</button>
         </>
       ))}

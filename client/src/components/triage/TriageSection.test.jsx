@@ -42,6 +42,15 @@ const PAYLOAD = {
 const latePanel = async () => screen.findByLabelText('Overdue work');
 const makeUpPanel = async () => screen.findByLabelText('Make-up tests');
 const rowOf = (el) => el.closest('.triage-row');
+// The instant popover's text on hover (#199), then hover off. `clipped`: the element's text is cut off
+// (jsdom measures nothing, so a truncated name says so through its scrollWidth).
+const popText = (el, { clipped = false } = {}) => {
+  if (clipped) Object.defineProperty(el, 'scrollWidth', { configurable: true, value: 500 });
+  fireEvent.mouseEnter(el);
+  const text = document.querySelector('.help-pop')?.textContent ?? null;
+  fireEvent.mouseLeave(el);
+  return text;
+};
 const referButtons = () => screen.getAllByRole('button', { name: 'Refer' });
 
 const FLAG_ROW = {
@@ -96,7 +105,7 @@ describe('TriageSection', () => {
     expect(await screen.findByText('Maya Chen')).toBeInTheDocument();
     expect(screen.getByText('2 to refer')).toBeInTheDocument();
     expect(screen.getByText('submitted 10 school days late')).toBeInTheDocument();
-    expect(screen.getByTitle('18 of 22 ungraded')).toHaveTextContent('18/22');
+    expect(screen.getByLabelText('18 of 22 ungraded')).toHaveTextContent('18/22');
     expect(screen.getAllByText('AP CSP').length).toBeGreaterThan(0);
     expect(screen.getAllByText('[BK 7] AP CSP')).toHaveLength(2); // one late row + one feedback row
     expect(screen.getByText('ext → 15/10/2026')).toBeInTheDocument();
@@ -327,16 +336,16 @@ describe('TriageSection', () => {
     expect(container.querySelector('.triage')).toBeNull();
   });
 
-  it('history rows: name and title truncate, so each carries its full text as a title', async () => {
+  it('history rows: name and title truncate, so each shows its full text in the instant popover while cut off', async () => {
     api.getReferrals.mockResolvedValue([
       { id: 3, action: 'referred', daysLate: 9, day: 10, createdAt: '2026-10-01 07:42:00', studentName: 'Maya Chen', courseName: 'AP CSP', blockNumber: '7', title: 'CP2 - A very long assignment title', note: null },
     ]);
     renderSection();
     fireEvent.click(await screen.findByText(/Referred \/ waived \/ extended \(2\)/));
     const history = await screen.findByLabelText('Referral history');
-    expect(await within(history).findByText('Maya Chen')).toHaveAttribute('title', 'Maya Chen');
-    expect(within(history).getByText('CP2 - A very long assignment title')).toHaveAttribute('title', 'CP2 - A very long assignment title');
-    expect(within(history).getByText('[BK 7] AP CSP')).toHaveAttribute('title', '[BK 7] AP CSP');
+    expect(popText(await within(history).findByText('Maya Chen'), { clipped: true })).toBe('Maya Chen');
+    expect(popText(within(history).getByText('CP2 - A very long assignment title'), { clipped: true })).toBe('CP2 - A very long assignment title');
+    expect(popText(within(history).getByText('[BK 7] AP CSP'), { clipped: true })).toBe('[BK 7] AP CSP');
   });
 
   it('history rows show the block; a failed undo shows the error inline', async () => {
@@ -428,7 +437,7 @@ describe('TriageSection — deep link to the student card (Task 10)', () => {
 describe('TriageSection — compact rows', () => {
   const textOf = (row) => row.querySelector('.triage-row__text');
 
-  it('late-work row: 28px ring, then name (link) + tag / course / title, each one line with a full-text title', async () => {
+  it('late-work row: 28px ring, then name (link) + tag / course / title, each one line, its full text in the popover while cut off', async () => {
     renderSection();
     const panel = await latePanel();
     const row = rowOf(within(panel).getByText('Aiden Li'));
@@ -438,12 +447,13 @@ describe('TriageSection — compact rows', () => {
     expect(lines.map((el) => el.className)).toEqual(['triage-row__line', 'triage-row__course', 'triage-row__task']);
     const name = within(lines[0]).getByRole('link', { name: 'Aiden Li' });
     expect(name).toHaveAttribute('href', '/course/6/assessment/a9?student=3');
-    expect(name).toHaveAttribute('title', 'Aiden Li');
+    expect(popText(name)).toBeNull(); // it fits: nothing new to say
+    expect(popText(name, { clipped: true })).toBe('Aiden Li');
     expect(lines[0]).toHaveTextContent('Aiden Liext → 15/10/2026'); // the tag sits beside the name
     expect(lines[1]).toHaveTextContent('[BK 7] AP CSP');
-    expect(lines[1]).toHaveAttribute('title', '[BK 7] AP CSP');
+    expect(popText(lines[1], { clipped: true })).toBe('[BK 7] AP CSP');
     expect(lines[2]).toHaveTextContent(/^CP2$/);
-    expect(lines[2]).toHaveAttribute('title', 'CP2');
+    expect(popText(lines[2], { clipped: true })).toBe('CP2');
   });
 
   it('red late-work row: the submitted-day tag beside the name; an inline primary Refer button', async () => {
@@ -453,7 +463,7 @@ describe('TriageSection — compact rows', () => {
     expect(row.querySelector('.triage-row__line')).toHaveTextContent('Ethan Wongsubmitted 10 school days late');
     expect(row.querySelector('.triage-row__task')).toHaveTextContent(/^CP2$/);
     const refer = within(row.querySelector('.triage-row__actions')).getByRole('button', { name: 'Refer' });
-    expect(refer).toHaveAttribute('title', 'Mark referred');
+    expect(popText(refer)).toBe('Mark referred');
     expect(refer).toHaveClass('primary', 'btn-sm');
   });
 
@@ -512,7 +522,7 @@ describe('TriageSection — compact rows', () => {
     expect(within(panel).getByText('school days waiting · overdue at 10')).toBeInTheDocument();
   });
 
-  it('feedback row: ring, then title (link, full-text title) / course, then the count right-aligned as "X/Y"', async () => {
+  it('feedback row: ring, then title (link, full text in the popover while cut off) / course, then the count right-aligned as "X/Y"', async () => {
     renderSection();
     const panel = await screen.findByLabelText('Feedback owed');
     const row = rowOf(within(panel).getByText('Model Card'));
@@ -521,10 +531,10 @@ describe('TriageSection — compact rows', () => {
     expect(lines.map((el) => el.className)).toEqual(['triage-row__line', 'triage-row__course']);
     const title = within(lines[0]).getByRole('link', { name: 'Model Card' });
     expect(title).toHaveAttribute('href', '/course/6/assessment/a4?filter=action');
-    expect(title).toHaveAttribute('title', 'Model Card');
+    expect(popText(title, { clipped: true })).toBe('Model Card');
     expect(lines[1]).toHaveTextContent('[BK 7] AP CSP');
     expect(lines[1]).not.toHaveTextContent(/ungraded/);
-    const count = within(row.querySelector('.triage-row__actions')).getByTitle('18 of 22 ungraded');
+    const count = within(row.querySelector('.triage-row__actions')).getByLabelText('18 of 22 ungraded');
     expect(count).toHaveTextContent(/^18\/22$/);
     expect(row.lastElementChild).toBe(row.querySelector('.triage-row__actions'));
     expect(within(row).queryByRole('button')).not.toBeInTheDocument(); // feedback rows have no row actions

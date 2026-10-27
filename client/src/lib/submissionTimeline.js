@@ -111,5 +111,5 @@ export function timelineParts(t, { showDue = true } = {}) {
   ].filter(Boolean);
 }
 
-// One string per line, for a hover tooltip.
+// One string per line (the gradebook cell splits it into its hover lines).
 export const timelineSummary = (t, opts) => timelineParts(t, opts).map((p) => p.text).join('\n');

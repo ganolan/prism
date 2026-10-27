@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import VersionBadge from './VersionBadge.jsx';
 import { getVersion } from '../services/api.js';
 
@@ -36,7 +36,9 @@ describe('VersionBadge', () => {
     // render 9/23/2026, which does not contain this string.
     const expected = new Date('2026-09-23T01:06:43Z').toLocaleDateString('en-GB');
     const badge = await screen.findByText('1e96c01');
-    expect(badge).toHaveAttribute('title', expect.stringContaining(expected));
+    expect(badge).toHaveAttribute('aria-label', expect.stringContaining(expected));
+    fireEvent.mouseEnter(badge);
+    expect(document.querySelector('.help-pop')).toHaveTextContent(expected);
   });
 
   it('says dev on a clone with no release deployed', async () => {

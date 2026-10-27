@@ -6,6 +6,7 @@
 // an agent's suggestion (PrisMCP scale_level) gets the fuchsia suggestion ring.
 import { LEVEL_COLORS, CELL_TEXT, LEVELS } from '../lib/masteryLevels.js';
 import AiSparkle from './AiSparkle.jsx';
+import { Tip } from './HelpDot.jsx';
 
 // Colour key into the shared 5-level palette. GAS codes use their own colour;
 // other scales map by rank so best reads green and worst reads red.
@@ -33,13 +34,15 @@ export default function ScaleLevelPicker({ scale, syncedCode = null, pendingCode
         const isSynced = level.code === syncedCode && pendingCode == null;
         const isSuggested = level.code === suggestedCode;
         return (
-          <button
+          <Tip
+            as="button"
             key={level.code}
             type="button"
+            named={false}
             aria-pressed={isPending || isSynced}
             disabled={locked}
             onClick={() => { if (!locked) onSelect(level.code); }}
-            title={isSynced ? 'Current grade in Schoology' : isPending ? 'Not yet published' : undefined}
+            text={isSynced ? 'Current grade in Schoology' : isPending ? 'Not yet published' : undefined}
             style={{
               // Column flex pins the label to the top: a bare <button> centres its
               // content, so levels with shorter descriptors drifted down (#41).
@@ -65,7 +68,7 @@ export default function ScaleLevelPicker({ scale, syncedCode = null, pendingCode
                 {level.descriptor}
               </span>
             )}
-          </button>
+          </Tip>
         );
       })}
     </div>

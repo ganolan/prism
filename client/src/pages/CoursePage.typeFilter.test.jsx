@@ -32,7 +32,7 @@ describe('AssessmentsView: unpublished assessments', () => {
     renderList();
     fireEvent.click(pill('Unpublished'));
     expect(screen.getByText('Draft test')).toBeInTheDocument();
-    expect(screen.getByTitle('Not published on Schoology')).toHaveTextContent('Unpublished');
+    expect(screen.getByLabelText('Not published on Schoology')).toHaveTextContent('Unpublished');
     expect(pill('Summative')).toHaveTextContent('Summative2');
   });
 

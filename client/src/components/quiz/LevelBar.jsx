@@ -3,6 +3,7 @@
 // (LEVEL_COLORS); any other level name, and "Not marked", is neutral. `mini` is the thin
 // version for a question row: no labels inside it. `legend` adds swatches with full names.
 import { LEVEL_COLORS, masteryCodeForLevel } from '../../lib/masteryLevels.js';
+import { Tip } from '../HelpDot.jsx';
 
 // A segment carries its label only when it has room: at least this share of the bar.
 const LABEL_SHARE = 0.12;
@@ -19,9 +20,9 @@ export default function LevelBar({ levels, mini = false, legend = false }) {
     <div className={mini ? 'level-bar level-bar--mini' : 'level-bar'}>
       <div className="level-bar__track" role="img" aria-label={summary}>
         {shown.map(l => (
-          <span key={l.name} className="level-seg" title={`${l.name}: ${l.count}`} style={{ flexGrow: l.count, background: fill(l.name) }}>
+          <Tip key={l.name} className="level-seg" tabIndex={-1} text={`${l.name}: ${l.count}`} style={{ flexGrow: l.count, background: fill(l.name) }}>
             {!mini && l.count / total >= LABEL_SHARE && `${levelShort(l.name)} ${l.count}`}
-          </span>
+          </Tip>
         ))}
       </div>
       {legend && (

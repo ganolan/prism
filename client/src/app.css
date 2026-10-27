@@ -739,6 +739,10 @@ button.comment-dot--corner .comment-bubble-icon { width: 9px; height: 9px; }
 .comment-vis--on { background: var(--badge-green-bg); color: var(--badge-green-text); }
 .comment-vis--off { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
 .comment-hover__label { font-size: 0.64rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 3px; }
+/* A gradebook cell's own lines (status, signals, timeline) above its comment, in the same overlay (#199). */
+.cell-hover__lines { white-space: normal; }
+.cell-hover__lines:not(:last-child) { border-bottom: 1px solid var(--border); margin-bottom: 6px; padding-bottom: 5px; }
+.cell-hover__lines + .comment-hover__thread { border-top: 0; margin-top: 0; padding-top: 0; }
 .comment-hover__thread { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 5px; color: var(--accent); font-weight: 600; white-space: normal; }
 .comment-hover__thread--wrote { color: var(--badge-amber-text); }
 /* /assessment/ filter rows (Needs action, Watch, Refine) and the matching reason
@@ -1260,9 +1264,11 @@ button.triage-panel__more { padding: 0.15rem 0.4rem; font-size: 0.75rem; font-we
 
 /* Linked quizzes: Questions tab rows open from anywhere on their first line; the
    collapsed stem is one line, cut by an ellipsis at whatever width is left. */
-/* Quiz group chip ("2 linked tests"): the count only; titles in a .help-pop list on click. */
+/* Quiz group chip ("2 linked tests"): the count only; the result task and the titles in a .help-pop
+   list on hover, focus or click (#199). */
 .quiz-chip { border: 1px solid var(--accent); background: var(--accent-subtle); color: var(--accent); cursor: pointer; font-size: 0.68rem; font-weight: 600; flex-shrink: 0; }
-.quiz-chip-pop { margin: 0; padding-left: 1.6rem; max-width: 420px; }
+.quiz-chip-pop { max-width: 420px; }
+.quiz-chip-pop__heading { font-weight: 600; margin-bottom: 0.25rem; }
 .question-row-head { cursor: pointer; }
 /* Questions tab charts: thin percent bars, the score chart (ScoreDots) and the level bar (LevelBar). */
 .pct-bar { display: inline-block; width: 70px; height: 8px; border-radius: 4px; background: var(--bg-subtle); overflow: hidden; vertical-align: middle; }
@@ -1720,7 +1726,7 @@ img.file-viewer-media { background: transparent; }
 .flags-pill--sm.flags-pill--exempt, .flags-pill--sm.flags-pill--late, .flags-pill--sm.flags-pill--absent,
 .flags-pill--sm.flags-pill--incomplete, .flags-pill--sm.flags-pill--missing { padding-left: 0.3rem; }
 /* Compact (#174, Triage's Flags panel rows): the symbol and caret only; the name is the button's
-   accessible name and tooltip. */
+   accessible name and its instant popover. */
 .flags-pill.flags-pill--compact, .flags-pill--compact.flags-pill--sm { padding: 0 0.4rem; gap: 0.2rem; }
 .flags-pill--busy, .flags-pill:disabled { opacity: 0.6; cursor: progress; }
 .flags-error { color: var(--danger); }

@@ -580,7 +580,7 @@ describe('StudentRubricCard: Add update on the comment', () => {
 
 describe('StudentRubricCard: view mode', () => {
   const ONE_TOPIC = { topics: [T1], rubric: { ...RUBRIC, topicByCriterion: [RUBRIC.topicByCriterion[0]] } };
-  const setTitles = () => [...document.querySelectorAll('[title]')].filter((el) => /^Set /.test(el.title));
+  const setTitles = () => [...document.querySelectorAll('[aria-label]')].filter((el) => /^Set /.test(el.getAttribute('aria-label')));
 
   it('view mode draws the grid read-only', () => {
     const { unmount } = renderCard({ ...ONE_TOPIC, student: studentWith({ scores: { t1: { grade: 'EX' } } }) });
@@ -617,6 +617,40 @@ describe('StudentRubricCard: view mode', () => {
     fireEvent.click(within(row).getAllByRole('cell')[1]);
     expect(within(row).getAllByRole('cell')[1]).toHaveTextContent('');
     expect(within(row).getByText('EX')).toBeInTheDocument();
+  });
+
+  // #199: hover text is an instant popover, never a native title.
+  it('edit mode: a compact rubric cell is named by its action, shown in an instant popover inside the cell', () => {
+    renderCard({ topics: [T1], viewMode: 'compact', student: studentWith({}) });
+    const cell = screen.getByRole('cell', { name: 'Set Select, analyze to Developing' });
+    expect(cell).not.toHaveAttribute('title');
+    fireEvent.mouseEnter(cell);
+    const pop = document.querySelector('.help-pop');
+    expect(pop).toHaveTextContent('Set Select, analyze to Developing');
+    expect(cell).toContainElement(pop); // a <span> beside a <td> is invalid in a <tr>
+    fireEvent.mouseLeave(cell);
+    expect(document.querySelector('.help-pop')).toBeNull();
+  });
+
+  it('edit mode: a descriptor cell is named by its action, its descriptor the description', () => {
+    renderCard({ ...ONE_TOPIC, student: studentWith({}) });
+    const cell = screen.getByText('Clear and usable.').closest('td');
+    expect(cell.getAttribute('aria-label')).toMatch(/^Set Select, analyze to /);
+    expect(cell).toHaveAttribute('aria-description', 'Clear and usable.');
+    fireEvent.mouseEnter(cell);
+    expect(cell.querySelector('.help-pop')).toHaveTextContent(cell.getAttribute('aria-label'));
+  });
+
+  it('edit mode: Add update explains itself in the popover, and its click still adds the line', () => {
+    renderCard({ student: studentWith({ grade_comment: 'Good work.' }) });
+    const add = screen.getByRole('button', { name: 'Add update' });
+    expect(add).not.toHaveAttribute('title');
+    fireEvent.mouseEnter(add);
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Add a dated update line above the comment, for example after a grade appeal');
+    const box = screen.getByRole('textbox');
+    const before = box.value;
+    fireEvent.click(add);
+    expect(box.value).not.toBe(before);
   });
 
   it('view mode locks the overall scale picker', () => {
@@ -722,7 +756,7 @@ describe('StudentRubricCard: view mode', () => {
       student: studentWith({ late_work: { tone: 'red' } }),
     };
     const controls = () => ({
-      refer: screen.queryByTitle('Refer to the academic office') != null,
+      refer: screen.queryByRole('button', { name: 'Refer' }) != null,
       flags: screen.queryByRole('button', { name: /Flags/ }) != null,
       extend: screen.queryByRole('button', { name: 'Extend' }) != null,
       resubmit: screen.queryByRole('button', { name: /Ask to resubmit/ }) != null,

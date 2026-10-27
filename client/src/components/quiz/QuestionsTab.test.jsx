@@ -144,7 +144,10 @@ describe('QuestionsTab', () => {
     render(<QuestionsTab groupId={7} />);
     const line = await screen.findByText(/Takers 18 of 19/);
     expect(line).toHaveTextContent('Takers 18 of 19 (16 + 2 across 2 tests)');
-    expect(line.querySelector('[title]')).toHaveAttribute('title', 'Ep 1: 16\nEp 1 *: 2');
+    const split = within(line).getByRole('img', { name: 'Takers by test: Ep 1: 16, Ep 1 *: 2' });
+    expect(split).not.toHaveAttribute('title');
+    fireEvent.mouseEnter(split);
+    expect([...document.querySelectorAll('.help-pop li')].map((li) => li.textContent)).toEqual(['Ep 1: 16', 'Ep 1 *: 2']);
   });
 
   it('opens a question from its stem text, not only from the number', async () => {
@@ -168,7 +171,11 @@ describe('QuestionsTab', () => {
     const row = (await screen.findAllByTestId('question-row'))[0];
     const stem = row.querySelector('.question-stem-line');
     expect(stem.textContent).toBe(long);
-    expect(stem).toHaveAttribute('title', long);
+    // Cut off by CSS, the whole stem is in the instant popover (#199: no native title).
+    expect(stem).not.toHaveAttribute('title');
+    Object.defineProperty(stem, 'scrollWidth', { configurable: true, value: 900 });
+    fireEvent.mouseEnter(stem);
+    expect(document.querySelector('.help-pop').textContent).toBe(long);
   });
 
   it('drops the letter Schoology writes at the start of an option', async () => {
@@ -198,8 +205,16 @@ describe('QuestionsTab', () => {
   it('shows a tag\'s full text on hover, on the question row and in the tag table', async () => {
     render(<QuestionsTab groupId={7} />);
     const row = (await screen.findAllByTestId('question-row'))[1];
-    expect(within(row).getByText('CRD-2.G')).toHaveAttribute('title', 'Describe the purpose of a code segment.');
-    expect(within(screen.getByRole('table', { name: 'By tag' })).getByText('CRD-2.G')).toHaveAttribute('title', 'Describe the purpose of a code segment.');
+    const hoverText = (el) => {
+      fireEvent.mouseEnter(el);
+      const text = document.querySelector('.help-pop')?.textContent;
+      fireEvent.mouseLeave(el);
+      return text;
+    };
+    const onRow = within(row).getByText('CRD-2.G');
+    expect(onRow).toHaveAttribute('aria-label', 'CRD-2.G: Describe the purpose of a code segment.');
+    expect(hoverText(onRow)).toBe('Describe the purpose of a code segment.');
+    expect(hoverText(within(screen.getByRole('table', { name: 'By tag' })).getByText('CRD-2.G'))).toBe('Describe the purpose of a code segment.');
   });
 
   it('draws a percent bar for each tag', async () => {
@@ -212,7 +227,10 @@ describe('QuestionsTab', () => {
     render(<QuestionsTab groupId={7} courseId={3} />);
     const table = await screen.findByRole('table', { name: 'By tag' });
     const tag = within(table).getByRole('button', { name: 'CRD-2.G' });
-    expect(tag).toHaveAttribute('title', 'Describe the purpose of a code segment.\nOpen this tag across the course');
+    fireEvent.mouseEnter(tag);
+    expect([...document.querySelectorAll('.help-pop > div')].map((d) => d.textContent))
+      .toEqual(['Describe the purpose of a code segment.', 'Open this tag across the course']);
+    fireEvent.mouseLeave(tag);
     fireEvent.click(tag);
     const dialog = screen.getByRole('dialog', { name: 'CRD-2.G across the course' });
     expect(getTagResults).toHaveBeenCalledWith(3, 'CRD-2.G');

@@ -25,6 +25,7 @@ import { preferredFirstName } from '../lib/studentNames.js';
 import { usePrivateDetails } from '../lib/privateDetails.js';
 import { PrivateHidden } from '../components/PrivateDetails.jsx';
 import StudentTags from '../components/StudentTags.jsx';
+import { Tip } from '../components/HelpDot.jsx';
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
@@ -36,11 +37,11 @@ function CopyButton({ text, label }) {
     });
   }
   return (
-    <button
+    <Tip
+      as="button"
       className="tap-target"
       onClick={handleCopy}
-      title={label || 'Copy'}
-      aria-label={label || 'Copy'}
+      text={label || 'Copy'}
       style={{
         background: 'none', border: 'none', cursor: 'pointer',
         padding: label ? '0.15rem 0.3rem' : '0 0.2rem',
@@ -55,7 +56,7 @@ function CopyButton({ text, label }) {
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>
       )}
       {label && <span>{copied ? 'Copied!' : label}</span>}
-    </button>
+    </Tip>
   );
 }
 
@@ -556,13 +557,13 @@ export default function StudentPage() {
                     const badge = formatGradeBadge(student.grad_year);
                     if (!badge) return null;
                     return (
-                      <span className="badge badge-blue" title={`Graduating ${student.grad_year}`}>
+                      <Tip className="badge badge-blue" text={`${badge.label}, graduating ${student.grad_year}`} pop={`Graduating ${student.grad_year}`}>
                         {badge.label}
-                      </span>
+                      </Tip>
                     );
                   })()}
                   {student.email && student.email.includes('@') && (
-                    <span className="text-sm text-muted" title="Student ID">ID: {student.email.split('@')[0]}</span>
+                    <Tip className="text-sm text-muted" named={false} text="Student ID">ID: {student.email.split('@')[0]}</Tip>
                   )}
                 </div>
                 {privateOn && (student.ps_alerts?.length || 0) + revealOnlyCount > 0 && (
@@ -661,17 +662,17 @@ export default function StudentPage() {
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: addingNote || student.notes.length > 0 ? '0.75rem' : 0 }}>
           <h3 style={{ margin: 0 }}>Notes</h3>
           {!addingNote && (
-            <button
+            <Tip
+              as="button"
               className="note-add-btn"
               onClick={() => setAddingNote(true)}
-              aria-label="Add new note"
-              title="Add new note"
+              text="Add new note"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M13.488 2.513a1.75 1.75 0 0 0-2.475 0L6.75 6.774a2.75 2.75 0 0 0-.596.892l-.848 2.047a.75.75 0 0 0 .98.98l2.047-.848a2.75 2.75 0 0 0 .892-.596l4.261-4.262a1.75 1.75 0 0 0 0-2.474Z"/>
                 <path d="M4.75 3.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25V9a.75.75 0 0 1 1.5 0v2.25A2.75 2.75 0 0 1 11.25 14h-6.5A2.75 2.75 0 0 1 2 11.25v-6.5A2.75 2.75 0 0 1 4.75 2H7a.75.75 0 0 1 0 1.5H4.75Z"/>
               </svg>
-            </button>
+            </Tip>
           )}
         </div>
         {addingNote && (

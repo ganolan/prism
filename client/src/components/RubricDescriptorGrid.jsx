@@ -3,6 +3,7 @@ import { categoryColor } from '../lib/rubricColors.js';
 import { LEVEL_LABELS } from '../lib/masteryLevels.js';
 import { categoryLabels } from '../lib/categoryAbbr.js';
 import { TopicSource } from './CategoryTag.jsx';
+import { Tip } from './HelpDot.jsx';
 
 // Without `onSelect` the grid is read-only (the grade card's view mode, #176): no
 // click, no pointer, no "Set ... to ..." hint; the awarded cell keeps its fill.
@@ -65,9 +66,11 @@ export default function RubricDescriptorGrid({
                 outline: '2px dotted #ef4444', outlineOffset: '-1px', background: '#fff' });
               else if (st.suggested) base.background = 'var(--ai-suggest-wash)';
               return (
-                <td key={l} style={base} data-awarded={st.final ? 'true' : undefined}
+                // A cell to click is named by what the click does, its descriptor the description (#199).
+                <Tip as="td" key={l} style={base} data-awarded={st.final ? 'true' : undefined}
                     onClick={onSelect ? () => onSelect(topic.id, l) : undefined}
-                    title={onSelect ? `Set ${topic.title} to ${LEVEL_LABELS[l]}` : undefined}>
+                    aria-description={onSelect && text ? text : undefined}
+                    text={onSelect ? `Set ${topic.title} to ${LEVEL_LABELS[l]}` : undefined}>
                   {/* Corner marks FLOAT (first, before the text) rather than sit
                       absolutely on top: the descriptor's first line wraps around
                       the mark instead of running underneath it. */}
@@ -82,7 +85,7 @@ export default function RubricDescriptorGrid({
                     ? <span style={{ color: '#999', fontStyle: 'italic' }}>{text}</span>
                     : text)}
                   {st.final && awardedMark && <span className="rubric-cell-mark">{awardedMark}</span>}
-                </td>
+                </Tip>
               );
             })}
           </tr>

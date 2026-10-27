@@ -1,3 +1,5 @@
+import { Tip } from './HelpDot.jsx';
+
 // A compact "open this outside Prism" affordance: an external-link glyph with an
 // optional visible label, linking out to a Schoology `web_url` (or, for #120, a
 // student's OneDrive file — the defaults below are Schoology's). Renders nothing
@@ -8,7 +10,8 @@
 export default function SchoologyLink({ url, label, ariaLabel, title, size = 14, style }) {
   if (!url) return null;
   return (
-    <a
+    <Tip
+      as="a"
       href={url}
       target="_blank"
       rel="noopener noreferrer"
@@ -16,14 +19,15 @@ export default function SchoologyLink({ url, label, ariaLabel, title, size = 14,
       // When there's a visible label the label IS the accessible name, unless an
       // explicit ariaLabel extends it (it should begin with the visible label,
       // e.g. "Open" → "Open Ada's work in OneDrive"); icon-only links carry the
-      // name on aria-label.
+      // name on aria-label. `title` is the instant popover's text (#199).
+      named={false}
       aria-label={ariaLabel || (label ? undefined : 'View in Schoology')}
-      title={title || ariaLabel || label || 'View in Schoology'}
+      text={title || ariaLabel || label || 'View in Schoology'}
       style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', flexShrink: 0, ...style }}
     >
       <ExternalLinkIcon size={size} />
       {label && <span>{label}</span>}
-    </a>
+    </Tip>
   );
 }
 

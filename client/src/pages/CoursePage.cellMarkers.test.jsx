@@ -69,7 +69,7 @@ describe('gradebook cell: the late clock is the submission only', () => {
     const clock = document.querySelector('.late-clock');
     expect(clock).toHaveClass('late-clock--corner');
     expect(clock).not.toHaveClass('late-clock--flagged');
-    expect(clock).toHaveAttribute('title', '3 school days late');
+    expect(clock).toHaveAttribute('aria-label', '3 school days late');
     expect(cell().querySelector('.flag-symbol')).toBeNull();
   });
 
@@ -103,7 +103,7 @@ describe('gradebook cell: flag symbols', () => {
     expect(clocks).toHaveLength(1);
     expect(clocks[0]).toHaveClass('late-clock--corner');
     expect(clocks[0]).not.toHaveClass('late-clock--flagged');
-    expect(clocks[0]).toHaveAttribute('title', '3 school days late');
+    expect(clocks[0]).toHaveAttribute('aria-label', '3 school days late');
   });
 
   it.each([1, 6])('any flag (%i) with a late submission keeps the corner clock, even with no timeline', (exception) => {
@@ -137,7 +137,7 @@ describe('gradebook cell: the Overdue letter (#40)', () => {
     renderGrid({ score: null, exception: null, submission_type: null });
     const badge = cell().querySelector('.badge');
     expect(badge).toHaveTextContent(/^O$/);
-    expect(badge).toHaveAttribute('title', 'Overdue');
+    expect(badge).toHaveAttribute('aria-label', 'Overdue');
     expect(cell().querySelectorAll('.badge')).toHaveLength(1);
     expect(badge).not.toHaveTextContent('M');
   });

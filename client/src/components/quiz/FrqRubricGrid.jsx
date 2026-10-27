@@ -2,6 +2,7 @@
 // (spec §12). The final cell is filled in its level colour; the AI's cell carries the
 // fuchsia sparkle; Schoology's current cell carries a small "S". Clicking sets the final cell.
 import AiSparkle from '../AiSparkle.jsx';
+import { Tip } from '../HelpDot.jsx';
 import { LEVEL_COLORS, masteryCodeForLevel } from '../../lib/masteryLevels.js';
 
 const colorsFor = (name) => LEVEL_COLORS[masteryCodeForLevel(name)] || null;
@@ -33,7 +34,7 @@ export default function FrqRubricGrid({ rubric, final = null, suggested = null, 
                     <span className="frq-cell__head" style={c ? { background: c.headerFill } : undefined}>
                       {l.name} <span className="frq-cell__pts">{l.points}</span>
                       {isAi && <AiSparkle size={14} />}
-                      {isSchoology && <span className="frq-cell__s" title="Schoology's current mark">S</span>}
+                      {isSchoology && <Tip className="frq-cell__s" tabIndex={-1} text="Schoology's current mark">S</Tip>}
                     </span>
                     <span className="frq-cell__desc">{descriptionOf(l)}</span>
                   </button>

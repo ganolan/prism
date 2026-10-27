@@ -7,6 +7,7 @@ import { getQuizStats, setQuizTags } from '../../services/api.js';
 import ScoreDots from './ScoreDots.jsx';
 import LevelBar, { levelShort } from './LevelBar.jsx';
 import TagResultsDrawer from './TagResultsDrawer.jsx';
+import { Tip } from '../HelpDot.jsx';
 
 // Stem and option HTML is the teacher's own Schoology question text, rendered as-is in this local app.
 // DOMParser is inert (no scripts, no image loads), so reading textContent here runs nothing.
@@ -17,10 +18,11 @@ const FLAG_CLASS = { critical: 'badge badge-red', warning: 'badge badge-amber', 
 // button that opens the tag's course-wide results.
 function Tag({ tag, text, badge = false, onOpen }) {
   const cls = [badge && 'badge', text && 'tag-has-text', onOpen && 'tag-btn'].filter(Boolean).join(' ') || undefined;
-  if (!onOpen) return <span className={cls} title={text || undefined}>{tag}</span>;
+  if (!onOpen) return <Tip className={cls} text={text ? `${tag}: ${text}` : undefined} pop={text || undefined}>{tag}</Tip>;
   return (
-    <button type="button" className={cls} aria-haspopup="dialog" onClick={(e) => onOpen(tag, e.currentTarget)}
-      title={text ? `${text}\nOpen this tag across the course` : 'Open this tag across the course'}>{tag}</button>
+    <Tip as="button" type="button" className={cls} aria-haspopup="dialog" onClick={(e) => onOpen(tag, e.currentTarget)}
+      named={false} text={text ? `${text}. Open this tag across the course` : 'Open this tag across the course'}
+      pop={text ? <><div>{text}</div><div>Open this tag across the course</div></> : undefined}>{tag}</Tip>
   );
 }
 
@@ -66,7 +68,7 @@ function QuestionRow({ q, groupId, tagTexts, onTagsSaved, onOpenTag }) {
             <button className="secondary" onClick={saveTags}>Save tags</button>
           </>
         )}
-        <span className="text-sm question-stem-line" title={stemText}>{stemText}</span>
+        <Tip className="text-sm question-stem-line" named={false} clipped text={stemText}>{stemText}</Tip>
         {pct != null && (
           <>
             <span aria-hidden="true" className="pct-bar pct-bar--row"><span style={{ width: `${pct}%` }} /></span>
@@ -132,9 +134,10 @@ export default function QuestionsTab({ groupId, courseId = null, reloadKey }) {
   }
   // Counts only on the line; the test titles (often long and near-identical) show on hover.
   const split = stats.byMember.length > 1 && (
-    <span title={stats.byMember.map(m => `${m.title}: ${m.takers}`).join('\n')} style={{ cursor: 'help' }}>
+    <Tip text={`Takers by test: ${stats.byMember.map(m => `${m.title}: ${m.takers}`).join(', ')}`} style={{ cursor: 'help' }}
+      pop={<ul className="help-pop__list">{stats.byMember.map(m => <li key={m.title}>{`${m.title}: ${m.takers}`}</li>)}</ul>}>
       {` (${stats.byMember.map(m => m.takers).join(' + ')} across ${stats.byMember.length} tests)`}
-    </span>
+    </Tip>
   );
 
   return (

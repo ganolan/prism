@@ -9,6 +9,7 @@ import { formatDate } from '../../lib/formatDate.js';
 import { assessmentLink } from '../../lib/triage.js';
 import UnsubmitFailedNote from '../UnsubmitFailedNote.jsx';
 import EmailMenu, { MailLink } from './EmailMenu.jsx';
+import { Tip } from '../HelpDot.jsx';
 
 // Resubmissions: per student × assessment (spec Amendment B). "arrived" = a
 // resubmission still awaiting visible feedback (day 1 = its date, regrade by day
@@ -63,22 +64,22 @@ export default function ResubmissionsPanel({
             <UrgencyRing day={r.day} limit={r.limit} tone={r.tone} approx={r.approx} size={28} />
             <div className="triage-row__text">
               <div className="triage-row__line">
-                <Link to={resubLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
+                <Tip as={Link} to={resubLink(r)} className="triage-row__name" named={false} clipped text={r.studentName}>{r.studentName}</Tip>
                 <MailLink row={r} kind="resubmissions" />
                 {arrived
                   ? <span className="badge badge-resubmitted triage-row__tag">↩ arrived · awaiting feedback</span>
-                  : <span className="badge badge-resubmit triage-row__tag" title={r.note || undefined}>⟳ by {formatDate(`${r.until}T00:00:00`)}</span>}
+                  : <Tip className="badge badge-resubmit triage-row__tag" text={r.note ? `Resubmission due ${formatDate(`${r.until}T00:00:00`)}: ${r.note}` : undefined} pop={r.note || undefined}>⟳ by {formatDate(`${r.until}T00:00:00`)}</Tip>}
                 {r.source === 'schoology_unsubmit' && <span className="badge badge-gray triage-row__tag">unsubmitted in Schoology</span>}
                 {r.afterDeadline && <span className="badge badge-amber triage-row__tag">after deadline</span>}
               </div>
               {showCourse && <CourseLine row={r} />}
-              <div className="triage-row__task" title={r.title}>{r.title}</div>
+              <Tip as="div" className="triage-row__task" named={false} clipped text={r.title}>{r.title}</Tip>
               {r.unsubmitError && <UnsubmitFailedNote url={r.unsubmitUrl} error={r.unsubmitError} uncertain={r.unsubmitUncertain} className="text-sm" />}
             </div>
             {!arrived && (
               <div className="triage-row__actions">
                 {r.tone === 'red'
-                  ? <button className="primary btn-sm" title="Missed deadline · grade stands" onClick={() => onGradeStands(r)}>Grade stands</button>
+                  ? <Tip as="button" className="primary btn-sm" named={false} text="Missed deadline · grade stands" onClick={() => onGradeStands(r)}>Grade stands</Tip>
                   : <span className="text-sm text-muted">{left(r)}</span>}
                 <button className="secondary btn-sm" onClick={() => setExtending(isExtending ? null : k)}>Extend</button>
               </div>

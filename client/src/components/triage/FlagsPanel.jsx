@@ -7,6 +7,7 @@ import { cardLink } from './ResubmissionsPanel.jsx';
 import FlagsMenu from '../FlagsMenu.jsx';
 import { FlagDisc } from '../FlagSymbol.jsx';
 import { formatDate } from '../../lib/formatDate.js';
+import { Tip } from '../HelpDot.jsx';
 
 // Schoology flags waiting on the teacher (#174, spec 2026-10-23-triage-flags-panel-design.md). On
 // this account a flag leaves the task out of the grade, and in Schoology it looks handled: each row
@@ -49,12 +50,12 @@ function FlagRow({ r, showCourse, onChange }) {
       <UrgencyRing day={r.day} limit={r.limit} tone={r.tone} approx={r.approx} size={28} />
       <div className="triage-row__text">
         <div className="triage-row__line">
-          <Link to={cardLink(r)} className="triage-row__name" title={r.studentName}>{r.studentName}</Link>
+          <Tip as={Link} to={cardLink(r)} className="triage-row__name" named={false} clipped text={r.studentName}>{r.studentName}</Tip>
           {r.kind === 'flag' && <FlagDisc code={r.flag} />}
           {r.submittedAfter && <span className="badge badge-amber triage-row__tag">Submitted after the flag</span>}
         </div>
         {showCourse && <CourseLine row={r} />}
-        <div className="triage-row__task" title={r.title}>{r.title}</div>
+        <Tip as="div" className="triage-row__task" named={false} clipped text={r.title}>{r.title}</Tip>
         <div className="triage-row__advice text-sm text-muted">{r.advice}</div>
       </div>
       <div className="triage-row__actions">

@@ -9,6 +9,7 @@ import { createPortal } from 'react-dom';
 import { getTagResults } from '../../services/api.js';
 import { formatDate } from '../../lib/formatDate.js';
 import ScoreDots from './ScoreDots.jsx';
+import { Tip } from '../HelpDot.jsx';
 
 const FOCUSABLE = 'button:not([disabled]), select:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -115,7 +116,7 @@ export default function TagResultsDrawer({ courseId, tag: initialTag, groupId, o
                       <table aria-label="By student" className="text-sm tag-drawer__table">
                         <thead><tr>
                           <th>Student</th>
-                          {data.tests.map((t, i) => <th key={t.group_id} title={t.title}>{i + 1}</th>)}
+                          {data.tests.map((t, i) => <Tip as="th" key={t.group_id} text={t.title}>{i + 1}</Tip>)}
                           <th>Total</th><th>%</th>
                         </tr></thead>
                         <tbody>{data.students.map(s => (
@@ -123,7 +124,7 @@ export default function TagResultsDrawer({ courseId, tag: initialTag, groupId, o
                             <td>{s.name}</td>
                             {data.tests.map(t => {
                               const r = s.tests[t.group_id];
-                              return <td key={t.group_id} title={r ? undefined : 'Did not sit it'}>{r ? `${r.correct}/${r.total}` : '-'}</td>;
+                              return <Tip as="td" key={t.group_id} text={r ? undefined : 'Did not sit it'}>{r ? `${r.correct}/${r.total}` : '-'}</Tip>;
                             })}
                             <td>{`${s.correct}/${s.total}`}</td>
                             <td><PercentCell pct={s.percent} /></td>

@@ -464,7 +464,7 @@ describe('Dashboard: the first run (#171)', () => {
     const card = (await screen.findByText('Course 12')).closest('a');
     expect(card).toHaveAttribute('href', '/course/12');
     expect(within(card).getByText('Sync failed')).toHaveClass('badge', 'badge-red');
-    expect(within(card).getByText('Sync failed')).toHaveAttribute('title', 'Schoology API 500'); // the first read's error
+    expect(within(card).getByText('Sync failed')).toHaveAttribute('aria-label', 'Sync failed: Schoology API 500'); // the first read's error
     expect(within(screen.getByText('Course 9').closest('a')).queryByText('Sync failed')).toBeNull();
     expect(screen.queryByText(/Getting your courses/)).toBeNull(); // none pending: no line
   });
@@ -513,7 +513,7 @@ describe('Dashboard: the first run (#171)', () => {
     expect(card).toHaveAttribute('href', '/course/1');
     expect(within(card).getByText('Sync failed')).toHaveClass('badge', 'badge-red');
     // #172: never tried (no error), so the badge says so rather than carrying an empty title.
-    expect(within(card).getByText('Sync failed')).toHaveAttribute('title', 'Not read yet');
+    expect(within(card).getByText('Sync failed')).toHaveAttribute('aria-label', 'Sync failed: Not read yet');
     await waitFor(() => expect(api.getCoursesByView.mock.calls.length).toBeGreaterThan(0));
     await act(() => vi.advanceTimersByTimeAsync(100)); // the run's end reloads once
     const calls = api.getCoursesByView.mock.calls.length;

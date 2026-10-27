@@ -659,6 +659,31 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
       }))} />
   );
 
+  // A cell's instant hover (#36; #199 folded the old native title into it): its lines (status
+  // badges' names, resubmission and mismatch signals, the submission timeline), then the overall
+  // comment and the submission thread when there are any. One overlay, so a cell never opens two;
+  // the lines are the cell's aria-description too. Dropped below the cell, but flipped above when
+  // the cell sits low in the viewport so a long comment grows upward instead of off-screen.
+  const cellHover = (s, { lines = [], comment = null, thread = null }) => {
+    const shown = lines.filter(Boolean);
+    const withThread = thread?.count > 0 ? thread : null;
+    if (!shown.length && !comment && !withThread) return {};
+    return {
+      'aria-description': shown.length ? shown.join('. ') : undefined,
+      onMouseEnter: (e) => {
+        const r = e.currentTarget.getBoundingClientRect();
+        const below = r.bottom < window.innerHeight * 0.55;
+        setCommentOverlay({
+          lines: shown, comment, thread: withThread, studentName: preferredFirstName(s),
+          left: Math.max(8, Math.min(r.left, window.innerWidth - 296)),
+          ...(below ? { top: r.bottom + 4 } : { bottom: window.innerHeight - r.top + 4 }),
+        });
+      },
+      onMouseLeave: () => setCommentOverlay(null),
+    };
+  };
+  const tlLines = (tlText) => (tlText ? tlText.split('\n') : []);
+
   if (!data || !data.assignments.length) {
     return <div className="card"><p className="text-muted">No assignments yet.</p></div>;
   }
@@ -674,13 +699,13 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
   // #76: cell marker for an lti_submission assignment whose document fetch
   // failed at the last sync (assignment.lti_fetch_status === 'failed'). Replaces
   // the old misleading "Ungraded" dot — Prism has no submission status here, so
-  // the teacher should re-sync. Hover explains via the shared header popover.
+  // the teacher should re-sync. Hover explains via the shared header popover (instant; no native
+  // title as well, #199).
   const unavailableMark = () => (
     <span
       className="lti-unavailable"
       role="img"
       aria-label="Submission status unavailable"
-      title="Submission status unavailable: re-sync to refresh"
       onMouseEnter={(e) => {
         const r = e.currentTarget.getBoundingClientRect();
         setPopover({
@@ -875,7 +900,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                 // render as a grayed dash with no badges or grade logic (#54).
                 if (a.assignees && !a.assignees.includes(s.id)) {
                   return (
-                    <td key={a.id} style={{ textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-subtle)' }} title="Not assigned to this student">-</td>
+                    <Tip as="td" key={a.id} style={{ textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-subtle)' }} text="Not assigned to this student">-</Tip>
                   );
                 }
                 const g = grades[s.id]?.[a.id];
@@ -895,11 +920,15 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                     is_lti_submission: a.is_lti_submission, lti_submission_state: null,
                     due_date: a.due_date, accepts_submissions: a.accepts_submissions, is_test: a.is_test,
                   });
-                  if (!empty.length) return <td key={a.id} style={{ textAlign: 'center', position: 'relative' }} title={tlText || undefined}>-{commentBubble(a, s)}</td>;
+                  const emptyHover = cellHover(s, {
+                    lines: [...empty.map(b => b.label), ...tlLines(tlText)],
+                    thread: commentSums?.[a.schoology_assignment_id]?.[s.id] || null,
+                  });
+                  if (!empty.length) return <td key={a.id} style={{ textAlign: 'center', position: 'relative' }} {...emptyHover}>-{commentBubble(a, s)}</td>;
                   return (
-                    <td key={a.id} style={{ textAlign: 'center', whiteSpace: 'nowrap', position: 'relative' }} title={tlText || undefined}>
+                    <td key={a.id} style={{ textAlign: 'center', whiteSpace: 'nowrap', position: 'relative' }} {...emptyHover}>
                       {empty.map(b => (
-                        <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone]}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
+                        <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone]}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} role="img" aria-label={b.label}>
                           {SHORT_BADGE[b.kind] || b.label[0]}
                         </span>
                       ))}
@@ -972,7 +1001,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                   ? <MiniRubricStrip topics={rubricTopics} labels={categoryLabelMap} onClick={openModal} />
                   : opensModal
                     ? <button type="button" className="cell-open" onClick={openModal}
-                        aria-label={`${lbl.text}: show feedback`} title="Show the comment and submission detail">{scoreText}</button>
+                        aria-label={`${lbl.text}: show feedback`}>{scoreText}</button>
                     : scoreText;
                 // #76: an ungraded cell whose lti document fetch failed shows the
                 // re-sync marker in place of the pending dash.
@@ -980,39 +1009,29 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                   is_lti_submission: a.is_lti_submission, lti_fetch_status: a.lti_fetch_status,
                   score: g.score, exception: g.exception,
                 });
-                // The grade comment is surfaced via the corner indicator + the
-                // instant hover overlay (#36); the native title is reserved for
-                // the resubmission / mismatch signals only.
+                // The cell's instant hover (#36, #199): the status badges' names, the
+                // resubmission / mismatch signals and the timeline, then the grade comment
+                // (also marked by the corner indicator) and the submission thread.
                 const signalTitle = [
                   g.resubmit_requested ? 'Re-submit requested' : null,
                   g.resubmitted ? 'Resubmitted since last graded' : null,
                 ].filter(Boolean).join(' · ');
-                const cellTitle = [
-                  signalTitle,
-                  lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale: check Schoology' : '',
-                  tlText,
-                ].filter(Boolean).join('\n');
+                const hover = cellHover(s, {
+                  lines: [
+                    ...inlineBadges.map(b => b.label),
+                    signalTitle,
+                    lbl.kind === 'mismatch' ? 'Score does not match any defined level on this grading scale: check Schoology' : '',
+                    ...tlLines(tlText),
+                    isLate && !tl?.submission ? lateText(tl) : '',
+                  ],
+                  comment: (hasComment || hasThread) ? { text: g.grade_comment || '', visible: g.comment_status === 1 } : null,
+                  thread,
+                });
                 return (
                   <td
                     key={a.id}
                     style={cellStyle}
-                    title={cellTitle}
-                    onMouseEnter={(hasComment || hasThread) ? (e) => {
-                      const r = e.currentTarget.getBoundingClientRect();
-                      // Drop the overlay below the cell, but flip it above when
-                      // the cell sits low in the viewport so a long comment
-                      // grows upward instead of off-screen.
-                      const below = r.bottom < window.innerHeight * 0.55;
-                      setCommentOverlay({
-                        text: g.grade_comment || '', visible: g.comment_status === 1,
-                        thread: hasThread ? thread : null, studentName: preferredFirstName(s),
-                        left: Math.max(8, Math.min(r.left, window.innerWidth - 296)),
-                        ...(below
-                          ? { top: r.bottom + 4 }
-                          : { bottom: window.innerHeight - r.top + 4 }),
-                      });
-                    } : undefined}
-                    onMouseLeave={(hasComment || hasThread) ? () => setCommentOverlay(null) : undefined}
+                    {...hover}
                   >
                     {hasComment && !hasThread && (
                       <span className="overall-comment-mark" role="img" aria-label="Has an overall comment">
@@ -1021,10 +1040,10 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
                         </svg>
                       </span>
                     )}
-                    {isLate && <LateClock variant="corner" title={lateText(tl)} />}
+                    {isLate && <LateClock variant="corner" text={lateText(tl)} passive />}
                     {ltiUnavailable ? unavailableMark() : inner}
                     {inlineBadges.map(b => (
-                      <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone] || 'badge-gray'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} title={b.label}>
+                      <span key={b.kind} className={`badge ${BADGE_TONE_CLASS[b.tone] || 'badge-gray'}`} style={{ fontSize: '0.55rem', marginLeft: 3 }} role="img" aria-label={b.label}>
                         {SHORT_BADGE[b.kind] || b.label[0]}
                       </span>
                     ))}
@@ -1058,7 +1077,7 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
       />
     )}
     {commentOverlay && (
-      <div
+      <div className="cell-hover"
         style={{
           position: 'fixed',
           left: commentOverlay.left,
@@ -1072,17 +1091,26 @@ export function GradebookView({ data, courseId, mastery, filter = DEFAULT_TYPE_F
           whiteSpace: 'pre-wrap', pointerEvents: 'none',
         }}
       >
-        <div className="comment-hover__label">
-          Your overall comment
-          {commentOverlay.text && (
-            <span className={`comment-vis comment-vis--${commentOverlay.visible ? 'on' : 'off'}`}>
-              {commentOverlay.visible ? 'Visible to student' : 'Hidden from student'}
-            </span>
-          )}
-        </div>
-        {commentOverlay.text
-          ? <div>{commentOverlay.text}</div>
-          : <div className="text-muted" style={{ fontStyle: 'italic' }}>No overall comment yet.</div>}
+        {commentOverlay.lines?.length > 0 && (
+          <div className="cell-hover__lines">
+            {commentOverlay.lines.map((line, i) => <div key={i}>{line}</div>)}
+          </div>
+        )}
+        {commentOverlay.comment && (
+          <>
+            <div className="comment-hover__label">
+              Your overall comment
+              {commentOverlay.comment.text && (
+                <span className={`comment-vis comment-vis--${commentOverlay.comment.visible ? 'on' : 'off'}`}>
+                  {commentOverlay.comment.visible ? 'Visible to student' : 'Hidden from student'}
+                </span>
+              )}
+            </div>
+            {commentOverlay.comment.text
+              ? <div>{commentOverlay.comment.text}</div>
+              : <div className="text-muted" style={{ fontStyle: 'italic' }}>No overall comment yet.</div>}
+          </>
+        )}
         {commentOverlay.thread && (
           <div className={`comment-hover__thread${(commentOverlay.thread.student_text || commentOverlay.thread.student_files > 0) ? ' comment-hover__thread--wrote' : ''}`}>
             {commentOverlay.thread.unread > 0
@@ -1133,10 +1161,12 @@ function TypeFilterToggle({ label, count, active, type, compact = false, title, 
         opacity: 0.7,
       };
   return (
-    <button
+    <Tip
+      as="button"
       onClick={onClick}
       aria-pressed={active}
-      title={title || (active ? `Hide ${label.toLowerCase()} assessments` : `Show ${label.toLowerCase()} assessments`)}
+      named={false}
+      text={title || (active ? `Hide ${label.toLowerCase()} assessments` : `Show ${label.toLowerCase()} assessments`)}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: compact ? '0.3rem' : '0.4rem',
         padding: compact ? '0.15rem 0.5rem' : '0.3rem 0.7rem', borderRadius: 999, border: 'none',
@@ -1151,7 +1181,7 @@ function TypeFilterToggle({ label, count, active, type, compact = false, title, 
       }} />
       {label}
       <span style={{ fontWeight: 700, opacity: 0.75 }}>{count}</span>
-    </button>
+    </Tip>
   );
 }
 
@@ -1159,17 +1189,19 @@ function TypeFilterToggle({ label, count, active, type, compact = false, title, 
 // `label` ("Test 2") names which member it is and `title` is that test's full title.
 function MakeUpChip({ a, onFlip, label, title }) {
   return (
-    <button
+    <Tip
+      as="button"
       type="button"
       className={`badge makeup-chip ${a.makeup_ignored ? 'badge-gray' : 'badge-blue'}`}
       aria-pressed={!a.makeup_ignored}
-      title={a.makeup_ignored
+      named={false}
+      text={a.makeup_ignored
         ? `Ignored for make-ups (all students)${title ? `: ${title}` : ''}. Click to track it again.`
         : `Students who miss ${title ? `"${title}"` : 'this test'} show under Make-up tests. Click to ignore it for all students.`}
       onClick={() => onFlip(a)}
     >
       {label ? `Make-ups (${label})` : 'Make-ups'}: {a.makeup_ignored ? 'ignored' : 'tracked'}
-    </button>
+    </Tip>
   );
 }
 
@@ -1317,13 +1349,13 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                     borderBottom: '1px solid var(--border)',
                   }}
                 >
-                  <span
+                  <Tip
                     className={`badge ${isSummative ? 'badge-summative' : 'badge-formative'}`}
                     style={{ fontSize: '0.62rem', flexShrink: 0 }}
-                    title={isSummative ? 'Summative' : 'Formative'}
+                    text={isSummative ? 'Summative' : 'Formative'}
                   >
                     {isSummative ? 'S' : 'F'}
-                  </span>
+                  </Tip>
                   {/* Title + its outbound Schoology link travel together (#76);
                       the group flexes so the due date stays right-aligned. */}
                   {/* The row wraps its chips to a second line before the title gets narrower than this. */}
@@ -1338,9 +1370,9 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                     <SchoologyLink url={a.web_url} ariaLabel={`View "${a.title}" in Schoology`} />
                     <QuizChip group={groupByCanonical.get(String(a.schoology_assignment_id))} />
                     {unpublished && (
-                      <span className="badge badge-gray" style={{ fontSize: '0.62rem', flexShrink: 0 }} title="Not published on Schoology">
+                      <Tip className="badge badge-gray" style={{ fontSize: '0.62rem', flexShrink: 0 }} text="Not published on Schoology">
                         Unpublished
-                      </span>
+                      </Tip>
                     )}
                     {/* #138: Publish where it is needed; Unpublish stays quiet until hover or focus. */}
                     {onSetPublished && (
@@ -1370,10 +1402,10 @@ export function AssessmentsView({ data, courseId, waits = {}, feedbackLimit = 10
                   {waits[a.schoology_assignment_id] && (() => {
                     const w = waits[a.schoology_assignment_id];
                     return (
-                      <span className="triage-wait" title={`Oldest wait: ${w.day - 1} school days since the due date (or a late submission); overdue at ${feedbackLimit}`}>
+                      <Tip className="triage-wait" named={false} text={`Oldest wait: ${w.day - 1} school days since the due date (or a late submission); overdue at ${feedbackLimit}`}>
                         <UrgencyRing day={w.day} limit={feedbackLimit} tone={w.tone} approx={w.approx} />
                         <span className="text-sm">{w.owed}/{w.submittedTotal} ungraded</span>
-                      </span>
+                      </Tip>
                     );
                   })()}
                   {a.due_date && (

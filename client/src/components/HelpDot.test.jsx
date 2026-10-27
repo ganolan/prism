@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import HelpDot from './HelpDot.jsx';
+import HelpDot, { Tip, useHelpPop, hoverOnly } from './HelpDot.jsx';
 
 const TEXT = 'Late counts school days from the due date.';
 const pop = (container) => container.querySelector('.help-pop');
@@ -85,5 +85,61 @@ describe('HelpDot with children', () => {
     fireEvent.click(dot);
     expect(container.querySelector('.help-pop li')).toHaveTextContent('One');
     expect(container.querySelector('.help-pop')).not.toHaveTextContent('Plain words');
+  });
+});
+
+describe('Tip (#199)', () => {
+  it('a table cell holds its popover inside itself', () => {
+    render(<table><tbody><tr><Tip as="td" text="Not assigned to this student">-</Tip></tr></tbody></table>);
+    const cell = screen.getByRole('cell', { name: 'Not assigned to this student' });
+    fireEvent.mouseEnter(cell);
+    expect(cell.querySelector('.help-pop')).toHaveTextContent('Not assigned to this student');
+  });
+
+  it('with no text and no pop it is the plain element: no popover, no role, no name', () => {
+    render(<Tip className="badge" text={undefined}>Referred</Tip>);
+    const el = screen.getByText('Referred');
+    expect(el).not.toHaveAttribute('role');
+    expect(el).not.toHaveAttribute('aria-label');
+    fireEvent.mouseEnter(el);
+    expect(document.querySelector('.help-pop')).toBeNull();
+  });
+
+  it("the element's own handlers still run after the popover's", () => {
+    const onClick = vi.fn();
+    const onMouseLeave = vi.fn();
+    render(<Tip as="button" named={false} text="Hint" onClick={onClick} onMouseLeave={onMouseLeave}>Go</Tip>);
+    const btn = screen.getByRole('button', { name: 'Go' });
+    fireEvent.click(btn);
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Hint');
+    fireEvent.mouseLeave(btn);
+    expect(onMouseLeave).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.help-pop')).toBeNull();
+  });
+
+  it('an unnamed span stays a plain span; clipped pops only while its text is cut off', () => {
+    render(<Tip className="name" named={false} clipped text="A very long name">A very long name</Tip>);
+    const el = screen.getByText('A very long name');
+    expect(el).not.toHaveAttribute('role');
+    expect(el).not.toHaveAttribute('tabindex');
+    fireEvent.mouseEnter(el);
+    expect(document.querySelector('.help-pop')).toBeNull();
+    Object.defineProperty(el, 'scrollWidth', { configurable: true, value: 400 });
+    fireEvent.mouseEnter(el);
+    expect(document.querySelector('.help-pop')).toHaveTextContent('A very long name');
+  });
+
+  it('hoverOnly drops the tap, for a trigger whose click opens something', () => {
+    function Chip() {
+      const { handlers, popover } = useHelpPop();
+      return <><button type="button" {...hoverOnly(handlers)}>Files</button>{popover('Submitted files: none')}</>;
+    }
+    render(<Chip />);
+    const btn = screen.getByRole('button', { name: 'Files' });
+    fireEvent.click(btn);
+    expect(document.querySelector('.help-pop')).toBeNull();
+    fireEvent.mouseEnter(btn);
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Submitted files: none');
   });
 });

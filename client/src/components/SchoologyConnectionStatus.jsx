@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getMasteryLoginStatus } from '../services/api.js';
+import { Tip } from './HelpDot.jsx';
 
 // The saved Schoology browser session (mastery sync, OneDrive links, the Ask modal's
 // unsubmit): is it still live? GET /api/mastery/login-status does one cheap
@@ -63,7 +64,7 @@ export default function SchoologyConnectionStatus({ connection, className = '' }
   return (
     <span className={`schoology-connection ${className}`.trim()} role="status">
       <span className={`schoology-connection__dot schoology-connection__dot--${tone}`} aria-hidden="true" />
-      <span className="schoology-connection__text" title={status?.message || undefined}>{text}</span>
+      <Tip className="schoology-connection__text" text={status?.message ? `${text}. ${status.message}` : undefined} pop={status?.message || undefined}>{text}</Tip>
       {state !== 'none' && (
         <button type="button" className="ghost btn-sm schoology-connection__check" disabled={loading} onClick={refresh}>
           {loading && status ? 'Checking…' : 'Check now'}

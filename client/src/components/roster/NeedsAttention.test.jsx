@@ -217,6 +217,19 @@ describe('Needs attention', () => {
     expect(await within(ethan).findByText('Referral waived')).toBeInTheDocument();
   });
 
+  it('Extend "From today" on an overdue row reaches the confirm and the write (#201)', async () => {
+    renderTab({ onTriageChanged: vi.fn() });
+    const aiden = rowOf(cardOf('Aiden Li'), 'Essay');
+    fireEvent.click(within(aiden).getByRole('button', { name: 'Extend' }));
+    expect(within(aiden).getByRole('button', { name: 'From due date Wed 14/10' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(within(aiden).getByRole('button', { name: 'From today' }));
+    fireEvent.click(within(aiden).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('dialog')).toHaveTextContent('counted from today');
+    await waitFor(() => expect(api.getStatusLineUntil).toHaveBeenCalledWith(expect.objectContaining({ kind: 'extension', countFrom: 'today' })));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Publish new due date' }));
+    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith(expect.objectContaining({ studentId: 3, lessons: 3, countFrom: 'today' })));
+  });
+
   it('Extend opens the editor under its row, publishes through the confirm, and Undo removes it', async () => {
     renderTab({ onTriageChanged: vi.fn() });
     const aiden = rowOf(cardOf('Aiden Li'), 'Essay');
@@ -228,7 +241,7 @@ describe('Needs attention', () => {
     fireEvent.click(screen.getByRole('dialog'));
     expect(screen.queryByText(/Student page/)).not.toBeInTheDocument();
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Publish new due date' }));
-    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith(expect.objectContaining({ studentId: 3, assignmentId: 10, lessons: 3 })));
+    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith(expect.objectContaining({ studentId: 3, assignmentId: 10, lessons: 3, countFrom: 'due_date' })));
     expect(await within(aiden).findByText('Extended to 20/10/2026')).toBeInTheDocument();
 
     fireEvent.click(within(aiden).getByRole('button', { name: 'Undo' }));

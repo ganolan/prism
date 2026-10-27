@@ -39,17 +39,42 @@ export function mergeCalendarDays(byDate, days) {
 // one of those. Verified 2026-10-06 against the teacher's timetable
 // (scripts/probe-section-meeting-days.js; .claude/powerschool-api-reference.md).
 export function extractMeetingDates(sectionInfo) {
+  return extractMeetings(sectionInfo).map((m) => m.date);
+}
+
+// A bell schedule item's startTime / endTime → 'HH:MM' (24-hour, school time), or null when it cannot be
+// read. Accepted: seconds after midnight (a number or a digit string), 'HH:MM' or 'HH:MM:SS', and 'h:mm AM'.
+export function bellTime(v) {
+  if (v == null || v === '') return null;
+  const hhmm = (h, m) => (h >= 0 && h < 24 && m >= 0 && m < 60 ? `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}` : null);
+  if (typeof v === 'number' || /^\d+$/.test(String(v).trim())) {
+    const sec = Number(v);
+    return Number.isFinite(sec) && sec >= 0 && sec < 86400 ? hhmm(Math.floor(sec / 3600), Math.floor((sec % 3600) / 60)) : null;
+  }
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])?$/.exec(String(v).trim());
+  if (!m) return null;
+  let h = Number(m[1]);
+  if (m[3]) {
+    if (h < 1 || h > 12) return null;
+    h = (h % 12) + (/p/i.test(m[3]) ? 12 : 0);
+  }
+  return hhmm(h, Number(m[2]));
+}
+
+// The section's lessons: [{ date, start, end }], one per date it meets (as above), with the start and end
+// time of the section's period in that day's bell schedule (#187), null when the item gives none.
+export function extractMeetings(sectionInfo) {
   const own = new Set(Object.keys(sectionInfo?.periodIdToPsmPeriodIdMap || {}).map(String));
-  const bells = new Set(
-    (sectionInfo?.bellScheduleItems || [])
-      .filter((i) => own.has(String(i.periodId)))
-      .map((i) => String(i.bellScheduleId)),
-  );
-  if (bells.size === 0) return [];
+  const items = new Map();
+  for (const i of sectionInfo?.bellScheduleItems || []) {
+    if (own.has(String(i.periodId)) && !items.has(String(i.bellScheduleId))) items.set(String(i.bellScheduleId), i);
+  }
+  if (items.size === 0) return [];
   return extractCalendarDays(sectionInfo)
-    .filter((d) => d.inSession && bells.has(String(JSON.parse(d.raw)?.bellScheduleId)))
-    .map((d) => d.date)
-    .sort();
+    .map((d) => ({ d, item: d.inSession ? items.get(String(JSON.parse(d.raw)?.bellScheduleId)) : null }))
+    .filter(({ item }) => item)
+    .map(({ d, item }) => ({ date: d.date, start: bellTime(item.startTime), end: bellTime(item.endTime) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // A section's term: the first and last school day of its calendar, which spans the section's whole

@@ -42,7 +42,7 @@ import { getDb } from '../db/index.js';
 import { pickBlockNumber, loopTimeBudgetExceeded } from '../lib/psBlockNumber.js';
 import { currentSchoolYearEndYear, gradeLevelToGradYear } from '../lib/psGradeLevel.js';
 import { readGradeLevels } from './psGradeLevelRead.js';
-import { extractCalendarDays, mergeCalendarDays, extractMeetingDates, termRange } from '../lib/psCalendar.js';
+import { extractCalendarDays, mergeCalendarDays, extractMeetings, termRange } from '../lib/psCalendar.js';
 import { storeSchoolDays, storeClassMeetings } from './schoolCalendar.js';
 import { cookieJar } from './schoologyWeb.js';
 import { PowerSchoolWeb } from './powerschoolWeb.js';
@@ -287,7 +287,7 @@ export async function syncPsAttendance({ onProgress, courseIds, db = getDb(), de
       const { status, first } = await reader.sectionInfo(c.schoology_section_id, sectionDcid);
       if (first && !isTargetedSync) mergeCalendarDays(calendarByDate, extractCalendarDays(first));
       if (first) {
-        const meetings = storeClassMeetings(db, c.id, extractMeetingDates(first), now);
+        const meetings = storeClassMeetings(db, c.id, extractMeetings(first), now);
         if (meetings) log(`${c.course_name}: ${meetings} lesson dates`);
         // The course's term, for semester ends (#174). Per course, so a targeted sync stores it too.
         const term = termRange(first);

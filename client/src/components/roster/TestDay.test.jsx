@@ -16,6 +16,7 @@ vi.mock('../../services/api.js', () => ({
   getExtraTime: vi.fn(),
   setExtraTime: vi.fn(),
   clearExtraTime: vi.fn(),
+  getClassTimes: vi.fn(),
 }));
 
 const A = {
@@ -64,6 +65,7 @@ beforeEach(() => {
     throw Object.assign(new Error('Not this student'), { code: 'NO_ALERT' });
   });
   api.setExtraTime.mockImplementation(async (id, percent) => ({ percent, updatedAt: '2026-10-25T02:00:00Z' }));
+  api.getClassTimes.mockResolvedValue({ meetings: [] });
 });
 
 describe('Test day', () => {
@@ -226,5 +228,46 @@ describe('Test day', () => {
     renderTab({ students: [NOAH] });
     expect(await screen.findByText('No student in this class has a learning plan.')).toBeInTheDocument();
     expect(api.getExtraTime).not.toHaveBeenCalled();
+  });
+
+  // #187: with the lesson's bell-schedule times on the test's date, clock times beside the minutes.
+  describe('clock times', () => {
+    const quizDay = inDays(2).slice(0, 10);
+    it('the bar names the lesson and when the test ends; each card when the student finishes', async () => {
+      api.getClassTimes.mockResolvedValue({ meetings: [{ date: quizDay, start: '08:35', end: '09:45' }] });
+      renderTab();
+      const clock = await screen.findByText(/The lesson on/);
+      expect(clock).toHaveTextContent('runs 8:35 AM to 9:45 AM. A 50-minute test that starts with the lesson ends at 9:25 AM.');
+      expect(api.getClassTimes).toHaveBeenCalledWith('5', localIsoDate(new Date()), expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+      const maya = (await screen.findByRole('link', { name: 'Maya Chen' })).closest('.test-day-card');
+      expect(within(maya).getByText('63 minutes, 13 more')).toBeInTheDocument();
+      expect(within(maya).getByText('ends 9:38 AM')).toHaveClass('test-day-card__muted');
+    });
+
+    it('a student who runs past the lesson\'s end is marked with the minutes over', async () => {
+      api.getClassTimes.mockResolvedValue({ meetings: [{ date: quizDay, start: '08:35', end: '09:45' }] });
+      renderTab();
+      const maya = (await screen.findByRole('link', { name: 'Maya Chen' })).closest('.test-day-card');
+      await within(maya).findByText('ends 9:38 AM');
+      for (let i = 0; i < 2; i += 1) fireEvent.click(screen.getByRole('button', { name: /increase/i }));
+      expect(await within(maya).findByText('ends 9:50 AM, 5 minutes after the lesson ends')).toHaveClass('test-day-card__over');
+      expect(screen.getByText(/The lesson on/)).toHaveTextContent('A 60-minute test that starts with the lesson ends at 9:35 AM.');
+    });
+
+    it('no lesson on the test\'s date, no time read, or a failed read: minutes only', async () => {
+      for (const answer of [
+        async () => ({ meetings: [{ date: inDays(3).slice(0, 10), start: '08:35', end: '09:45' }] }),
+        async () => ({ meetings: [{ date: quizDay, start: null, end: null }] }),
+        async () => { throw new Error('offline'); },
+      ]) {
+        api.getClassTimes.mockImplementationOnce(answer);
+        const { unmount } = renderTab();
+        const maya = (await screen.findByRole('link', { name: 'Maya Chen' })).closest('.test-day-card');
+        expect(within(maya).getByText('63 minutes, 13 more')).toBeInTheDocument();
+        expect(screen.queryByText(/The lesson on/)).toBeNull();
+        expect(within(maya).queryByText(/^ends /)).toBeNull();
+        unmount();
+      }
+    });
   });
 });

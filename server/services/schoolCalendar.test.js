@@ -3,7 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
-import { storeSchoolDays, loadCalendar, storeClassMeetings, loadClassMeetings } from './schoolCalendar.js';
+import { storeSchoolDays, loadCalendar, storeClassMeetings, loadClassMeetings, loadClassTimes } from './schoolCalendar.js';
 
 const day = (date, inSession, letter = null) => ({ date, inSession, cycleLetter: letter, raw: '{}' });
 
@@ -57,6 +57,19 @@ describe('storeClassMeetings / loadClassMeetings', () => {
     expect(loadClassMeetings(db, courseId)).toEqual(['2026-10-06', '2026-10-08']);
     storeClassMeetings(db, courseId, ['2026-10-12']);
     expect(loadClassMeetings(db, courseId)).toEqual(['2026-10-12']);
+  });
+
+  // #187: a lesson's times from the day's bell schedule.
+  test('stores each lesson\'s start and end, and reads a range back with them', () => {
+    const db = getDb();
+    storeClassMeetings(db, courseId, [
+      { date: '2026-10-08', start: '12:30', end: '13:40' }, { date: '2026-10-06', start: '08:35', end: '09:45' },
+      { date: '2026-10-12', start: null, end: null }, '2026-10-14',
+    ]);
+    expect(loadClassMeetings(db, courseId)).toEqual(['2026-10-06', '2026-10-08', '2026-10-12', '2026-10-14']);
+    expect(loadClassTimes(db, courseId, '2026-10-07', '2026-10-12')).toEqual([
+      { date: '2026-10-08', start: '12:30', end: '13:40' }, { date: '2026-10-12', start: null, end: null },
+    ]);
   });
 
   test('an empty fetch keeps the stored dates', () => {

@@ -143,7 +143,7 @@ export default function RosterTab({ course = null, students, mastery = null, mas
           onChanged={onTriageChanged} onFlagChanged={onFlagChanged} card={card} />
         : <PrivateHidden title="Overdue work, referrals and comments are private." />)}
       {current === 'testday' && (
-        <TestDay on={on} students={active} gradebook={gradebook} locked={<PrivateHidden title="Extra time for learning plans is private." />} />
+        <TestDay on={on} students={active} gradebook={gradebook} courseId={courseId} locked={<PrivateHidden title="Extra time for learning plans is private." />} />
       )}
       {current === 'mastery' && (
         <MasteryView on={on} locked={<PrivateHidden title="Levels and grades are private." />} mastery={mastery} failed={masteryFailed} students={active}

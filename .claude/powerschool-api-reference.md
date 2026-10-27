@@ -268,6 +268,15 @@ Tue 06, Thu 08, Mon 12, Wed 14, Fri 16 Oct 2026 and Blocks 2/6 on Mon 05, Wed 07
 irregular pattern. Implemented as `extractMeetingDates` (`server/lib/psCalendar.js`), stored per course in
 `class_meetings` on every block sync; used only for "N lessons from today" hints (all clocks count school days).
 
+**Lesson times: `bellScheduleItems[].startTime` / `endTime` are seconds after midnight, as JSON numbers (verified
+2026-10-28, #187, `scripts/probe-ps-bell-times.js`, read-only, all 9 active sections, school timetable only).**
+`minutesAttended` (a number) is their difference in minutes. Examples: AI & ML (Block 1) "Day 1" `30900` to `35100`
+(8:35 to 9:45, 70); "Early Release Day 3" `33600` to `36000` (40); PCG "PCG Day 5" `42600` to `45000` (40);
+"PSAT Community Day" carries its own times (PCG `30900` to `40500`, 160). Each section has 16 to 25 own items, one per
+bell schedule, and a lesson's times are the item whose `bellScheduleId` is the day's. Not yet compared with the
+published bell schedule. Stored with each lesson as `class_meetings.start_time` / `end_time` ('HH:MM', school time;
+`extractMeetings`, `bellTime`), served by `GET /api/courses/:id/class-times`, used by Test day's clock times.
+
 **A section's term = its calendar's first and last school day (2026-10-23, #174).** Because `calenderDays` span the
 section's whole term, the first and last date that is a school day (`inSession` and a `cycleDay`) are the term's
 start and end. Read live for all 9 active courses on a dev copy, 23 Oct 2026: semester sections 2026-08-13 to

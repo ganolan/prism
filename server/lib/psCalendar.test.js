@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { extractCalendarDays, mergeCalendarDays, extractMeetingDates, termRange } from './psCalendar.js';
+import { extractCalendarDays, mergeCalendarDays, extractMeetingDates, extractMeetings, bellTime, termRange } from './psCalendar.js';
 
 describe('extractCalendarDays', () => {
   test('reads calenderDays (PS spelling): date, inSession, letter, raw', () => {
@@ -64,6 +64,32 @@ describe('extractMeetingDates', () => {
     expect(extractMeetingDates({ calenderDays: section.calenderDays })).toEqual([]);
     expect(extractMeetingDates(null)).toEqual([]);
   });
+
+  // #187: bell times are seconds after midnight, as numbers (scripts/probe-ps-bell-times.js, 2026-10-28:
+  // e.g. "Day 1" 30900 to 35100 for Block 1, minutesAttended 70).
+  test('extractMeetings gives each lesson the start and end of the day\'s bell schedule item', () => {
+    const timed = {
+      ...section,
+      bellScheduleItems: [
+        { bellScheduleId: 4223, periodId: 4451, startTime: 30900, endTime: 35100 },
+        { bellScheduleId: 4262, periodId: 4451, startTime: 45000, endTime: null },
+        { bellScheduleId: 9999, periodId: 1234, startTime: 1, endTime: 2 },
+      ],
+    };
+    expect(extractMeetings(timed)).toEqual([
+      { date: '2026-10-06', start: '08:35', end: '09:45' },
+      { date: '2026-10-08', start: '12:30', end: null },
+    ]);
+    expect(extractMeetings(section).map((m) => m.start)).toEqual([null, null]); // items without times
+  });
+});
+
+describe('bellTime', () => {
+  test.each([
+    [30900, '08:35'], [54000, '15:00'], ['30900', '08:35'], [0, '00:00'],
+    ['08:35', '08:35'], ['8:35:00', '08:35'], ['1:05 PM', '13:05'], ['12:10 am', '00:10'],
+    [null, null], ['', null], [86400, null], [-1, null], ['25:00', null], ['13:00 PM', null], ['soon', null],
+  ])('%j → %j', (v, want) => expect(bellTime(v)).toBe(want));
 });
 
 // #174: a section's calendar spans its whole term (verified 2026-10-06), so its first and last

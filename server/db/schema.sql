@@ -666,6 +666,8 @@ CREATE TABLE IF NOT EXISTS school_days (
 CREATE TABLE IF NOT EXISTS class_meetings (
   course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
   date TEXT NOT NULL,                   -- 'YYYY-MM-DD'
+  start_time TEXT,                      -- 'HH:MM' school time, the day's bell schedule (#187); null when unread
+  end_time TEXT,                        -- 'HH:MM'
   synced_at TEXT,
   PRIMARY KEY (course_id, date)
 );

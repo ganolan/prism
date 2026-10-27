@@ -84,6 +84,19 @@ beforeEach(() => {
   ).run(studentId, assignmentId);
 });
 
+describe('GET /api/courses/:id/class-times (#187)', () => {
+  test('the class\'s lessons in the range with their times; from and to are required', async () => {
+    const db = getDb();
+    db.prepare(`DELETE FROM class_meetings`).run();
+    const add = db.prepare(`INSERT INTO class_meetings (course_id, date, start_time, end_time) VALUES (?, ?, ?, ?)`);
+    add.run(courseId, '2026-10-28', '08:35', '09:45');
+    add.run(courseId, '2026-11-20', '08:35', '09:45');
+    const r = await get(`/api/courses/${courseId}/class-times?from=2026-10-28&to=2026-11-11`);
+    expect(r).toEqual({ status: 200, body: { meetings: [{ date: '2026-10-28', start: '08:35', end: '09:45' }] } });
+    expect((await get(`/api/courses/${courseId}/class-times?from=2026-10-28`)).status).toBe(400);
+  });
+});
+
 describe('assignments deleted in Schoology (removed_at)', () => {
   test('are left out of the assignment list and the gradebook', async () => {
     const db = getDb();

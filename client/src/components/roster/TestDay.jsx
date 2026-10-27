@@ -5,8 +5,9 @@ import { Photo } from './RosterCard.jsx';
 import { forRoster } from '../../lib/psAlerts.js';
 import { studentFullName } from '../../lib/studentNames.js';
 import { formatDate } from '../../lib/formatDate.js';
-import { upcomingTests, extraMinutes, planLine } from '../../lib/testDay.js';
-import { getAlertDetail, getExtraTime, setExtraTime } from '../../services/api.js';
+import { upcomingTests, extraMinutes, planLine, lessonOn, testClock, clockText, TEST_WINDOW_DAYS } from '../../lib/testDay.js';
+import { localIsoDate } from '../../lib/formatDate.js';
+import { getAlertDetail, getExtraTime, getClassTimes, setExtraTime } from '../../services/api.js';
 
 // Test day on the Roster tab (#160; spec "Test day"): each learning plan's extra time for a chosen
 // test. The test picker and length show with Private details off; the students only with it on (with
@@ -16,12 +17,15 @@ import { getAlertDetail, getExtraTime, setExtraTime } from '../../services/api.j
 // course). Plan text is read live, only for students with no confirmed figure, one after another, from
 // the student's first learning alert (getAlertDetail, which suggests a percentage); a confirmed student
 // is read only when the teacher asks for the plan line. A refused read or an ended session stops every
-// later read, on request too, until Test day is opened again (STOPS_READS). Prism holds no lesson
-// times, so everything is in minutes ("63 minutes, 13 more"), never a clock time. With no test chosen
-// the percentage leads ("50% extra time"), with the minutes for a test of the chosen length under it as
-// an example (#192); with a test chosen, its minutes lead.
+// later read, on request too, until Test day is opened again (STOPS_READS). Times are in minutes ("63
+// minutes, 13 more"); when the class meets on the test's date and Prism has that lesson's bell-schedule
+// times (#187), the bar shows the lesson's start and end and when the test ends, and each card when the
+// student finishes ("ends 11:08 AM"), with the minutes past the lesson's end when it runs over. With no
+// test chosen the percentage leads ("50% extra time"), with the minutes for a test of the chosen length
+// under it as an example (#192); with a test chosen, its minutes lead.
 // Props: on (Private details), students (enrolled ones), gradebook (CoursePage's getGradebook), locked
-// (what shows in place of the list with Private details off), today (for tests; default now).
+// (what shows in place of the list with Private details off), courseId (for the lesson times), today
+// (for tests; default now).
 
 const NO_TEST = 'none';
 const FIRST_GUESS = 25; // where Set extra time starts when the notes give no figure
@@ -44,7 +48,7 @@ function PlanLine({ read, confirmed, onShow }) {
   return <span>{lineFrom(read.detail) ?? 'The plan has no notes.'}</span>;
 }
 
-function TimeControls({ student, length, hasTest, confirmed, read, stopped, draft, setDraft, onSave, saving, saveError }) {
+function TimeControls({ student, length, hasTest, lesson, confirmed, read, stopped, draft, setDraft, onSave, saving, saveError }) {
   const name = studentFullName(student);
   if (draft != null) {
     return (
@@ -63,6 +67,7 @@ function TimeControls({ student, length, hasTest, confirmed, read, stopped, draf
         {hasTest ? (
           <>
             <b className="test-day-card__total">{length + more} minutes, {more ? `${more} more` : 'no extra time'}</b>
+            {lesson && <FinishTime lesson={lesson} minutes={length + more} />}
             <span className="test-day-card__muted">{confirmed.percent}% extra</span>
           </>
         ) : (
@@ -95,7 +100,17 @@ function TimeControls({ student, length, hasTest, confirmed, read, stopped, draf
   );
 }
 
-function PlanList({ plans, length, hasTest }) {
+// When this student finishes a test started at the lesson's start (#187).
+function FinishTime({ lesson, minutes }) {
+  const { ends, over } = testClock(lesson, minutes);
+  return (
+    <span className={over ? 'test-day-card__over' : 'test-day-card__muted'}>
+      ends {clockText(ends)}{over ? `, ${over} minutes after the lesson ends` : ''}
+    </span>
+  );
+}
+
+function PlanList({ plans, length, hasTest, lesson = null }) {
   const [extra, setExtra] = useState(null); // { [student id]: { percent, updatedAt } } once read
   const [extraError, setExtraError] = useState(null);
   const [reads, setReads] = useState({}); // { [student id]: { loading } | { detail } | { error } }
@@ -188,7 +203,7 @@ function PlanList({ plans, length, hasTest }) {
               <span className="test-day-card__plans">{planNames}</span>
             </span>
             <span className="test-day-card__time">
-              <TimeControls student={student} length={length} hasTest={hasTest} confirmed={extra[id]} read={reads[id]}
+              <TimeControls student={student} length={length} hasTest={hasTest} lesson={hasTest ? lesson : null} confirmed={extra[id]} read={reads[id]}
                 stopped={Boolean(stopped)} draft={drafts[id] ?? null} setDraft={setDraft(id)} onSave={(percent) => save(id, percent)}
                 saving={Boolean(saving[id])} saveError={saveErrors[id]} />
             </span>
@@ -203,12 +218,33 @@ function PlanList({ plans, length, hasTest }) {
   );
 }
 
-export default function TestDay({ on, students, gradebook = null, locked = null, today }) {
+// The class's lessons in the test window, with their times (#187). The schedule is not private; a failed
+// read leaves Test day in minutes.
+function useClassTimes(courseId, today) {
+  const [meetings, setMeetings] = useState([]);
+  const from = typeof today === 'string' ? today.slice(0, 10) : localIsoDate(today ?? new Date());
+  useEffect(() => {
+    if (courseId == null) return undefined;
+    let live = true;
+    const [y, m, d] = from.split('-').map(Number);
+    const to = new Date(Date.UTC(y, m - 1, d + TEST_WINDOW_DAYS)).toISOString().slice(0, 10);
+    new Promise((resolve) => resolve(getClassTimes(courseId, from, to))) // a throw is a failed read too
+      .then((r) => { if (live) setMeetings(r?.meetings || []); })
+      .catch(() => { if (live) setMeetings([]); });
+    return () => { live = false; };
+  }, [courseId, from]);
+  return meetings;
+}
+
+export default function TestDay({ on, students, gradebook = null, locked = null, courseId = null, today }) {
   const tests = useMemo(() => upcomingTests(gradebook?.assignments, today), [gradebook, today]);
   const [choice, setChoice] = useState(null); // null: the nearest test
   const testId = choice ?? tests[0]?.schoologyAssignmentId ?? NO_TEST;
   const test = tests.find((t) => t.schoologyAssignmentId === testId) || null;
   const [length, setLength] = useState(50);
+  const meetings = useClassTimes(courseId, today);
+  const lesson = test ? lessonOn(meetings, test.dueDate) : null;
+  const clock = lesson ? testClock(lesson, length) : null;
 
   // Students with a learning alert, and the first one's key (its read covers a student without the
   // Support Summary alert). Built only with Private details on.
@@ -233,13 +269,20 @@ export default function TestDay({ on, students, gradebook = null, locked = null,
           <NumberStepper value={length} onChange={setLength} min={5} max={300} step={5} suffix="min" aria-label="Test length in minutes" />
         </span>
       </div>
+      {lesson && (
+        <p className="test-day__clock">
+          The lesson on {formatDate(lesson.date)} runs {clockText(lesson.start)}{lesson.end ? ` to ${clockText(lesson.end)}` : ''}.
+          {' '}A {length}-minute test that starts with the lesson ends at {clockText(clock.ends)}
+          {clock.over ? `, ${clock.over} minutes after the lesson ends.` : '.'}
+        </p>
+      )}
       {!test && (
         <div className="test-day__none">
           <b>{tests.length ? 'No test chosen.' : 'No test is set in the next two weeks.'}</b>
           <span>The list shows each student&apos;s extra time, with the minutes for a {length}-minute test as an example.</span>
         </div>
       )}
-      {on ? <PlanList plans={plans} length={length} hasTest={Boolean(test)} /> : locked}
+      {on ? <PlanList plans={plans} length={length} hasTest={Boolean(test)} lesson={lesson} /> : locked}
     </div>
   );
 }

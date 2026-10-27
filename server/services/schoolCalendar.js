@@ -24,14 +24,24 @@ export function loadCalendar(db) {
 
 // Replace one course's meeting dates (its lessons). Empty is a no-op, so a
 // failed or odd fetch never wipes a good timetable.
-export function storeClassMeetings(db, courseId, dates, now = new Date().toISOString()) {
-  if (!dates.length) return 0;
-  const insert = db.prepare('INSERT OR IGNORE INTO class_meetings (course_id, date, synced_at) VALUES (?, ?, ?)');
+// `meetings`: dates ('YYYY-MM-DD') or { date, start, end } (psCalendar.extractMeetings, #187).
+export function storeClassMeetings(db, courseId, meetings, now = new Date().toISOString()) {
+  if (!meetings.length) return 0;
+  const insert = db.prepare('INSERT OR IGNORE INTO class_meetings (course_id, date, start_time, end_time, synced_at) VALUES (?, ?, ?, ?, ?)');
   db.transaction(() => {
     db.prepare('DELETE FROM class_meetings WHERE course_id = ?').run(courseId);
-    for (const d of dates) insert.run(courseId, d, now);
+    for (const m of meetings) {
+      const { date, start = null, end = null } = typeof m === 'string' ? { date: m } : m;
+      insert.run(courseId, date, start, end, now);
+    }
   })();
-  return dates.length;
+  return meetings.length;
+}
+
+// A class's lessons from `from` to `to` (inclusive), with their times: [{ date, start, end }] (#187).
+export function loadClassTimes(db, courseId, from, to) {
+  return db.prepare(`SELECT date, start_time AS start, end_time AS "end" FROM class_meetings
+    WHERE course_id = ? AND date >= ? AND date <= ? ORDER BY date`).all(courseId, from, to);
 }
 
 export function loadClassMeetings(db, courseId) {

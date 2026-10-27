@@ -220,7 +220,8 @@ Private: the test picker and length show with the switch off; the list of studen
 - **Length:** a `NumberStepper` in minutes (5-minute steps), starting at 50. Prism holds lesson dates
   (`class_meetings`) and lacks lesson times, so the first version shows durations rather than clock times: "63 minutes, 13
   more". Clock times are a follow-up once Prism stores bell times (`section_info.bellScheduleItems`, already in the
-  API reference).
+  API reference). **Built 27 Oct 2026 (#187):** each lesson's start and end are stored with its date, and Test day
+  shows the lesson's times and each student's finishing time when the class meets on the test's date.
 - **No test:** a dashed box, "No test is set in the next two weeks.", and the list still shows each plan's extra
   minutes for the length chosen. As built, when tests exist and **No test** is picked the box says "No test
   chosen." instead (the other sentence would be false).

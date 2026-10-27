@@ -1993,6 +1993,9 @@ a.roster-attention__email:hover { background: var(--accent-subtle); border-color
 .test-day-card__time { grid-area: tm; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 10px; min-width: 0; }
 .test-day-card__total { font-size: 1.1rem; font-weight: 750; font-variant-numeric: tabular-nums; }
 .test-day-card__muted { font-size: 0.8rem; color: var(--text-muted); }
+/* #187: the lesson's clock times on the test's date, and a student who runs past the lesson's end. */
+.test-day__clock { margin: 0; font-size: 0.84rem; color: var(--text-muted); }
+.test-day-card__over { font-size: 0.8rem; font-weight: 600; color: var(--badge-amber-text); }
 button.test-day-card__btn { padding: 0.3rem 0.75rem; font-size: 0.78rem; }
 .test-day-card__line { grid-area: ln; min-width: 0; font-size: 0.8rem; color: var(--text-muted); border-left: 3px solid var(--border); padding-left: 8px; overflow-wrap: anywhere; }
 .test-day-card__line:empty { display: none; }

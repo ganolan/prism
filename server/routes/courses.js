@@ -14,6 +14,7 @@ import { toSchoologyWebUrl } from '../lib/schoologyWebUrl.js';
 import { timelineContext } from '../services/submissionTimeline.js';
 import { setPublished, PublishError } from '../services/assessmentPublish.js';
 import { waitingCopies, flagLines } from '../services/savedGrades.js';
+import { loadClassTimes } from '../services/schoolCalendar.js';
 
 const router = Router();
 
@@ -145,6 +146,18 @@ router.get('/:id/students', (req, res) => {
   }));
 
   res.json(enriched);
+});
+
+// GET /api/courses/:id/class-times?from=YYYY-MM-DD&to=YYYY-MM-DD — the class's lessons in that range with
+// their start and end times from PowerSchool's bell schedule (#187, Test day's clock times):
+// { meetings: [{ date, start: 'HH:MM' | null, end }] }. A lesson Prism has no time for has nulls.
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+router.get('/:id/class-times', (req, res) => {
+  const { from, to } = req.query;
+  if (!ISO_DAY.test(String(from || '')) || !ISO_DAY.test(String(to || ''))) {
+    return res.status(400).json({ error: 'from and to are required, as YYYY-MM-DD' });
+  }
+  res.json({ meetings: loadClassTimes(getDb(), Number(req.params.id), from, to) });
 });
 
 // GET /api/courses/:id/assignments — assignments for a course (published only)

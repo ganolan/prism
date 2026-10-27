@@ -140,10 +140,23 @@ describe('get_test_day', () => {
     expect(r.tests.map((t) => t.title)).toEqual(['Unit 2 Test', 'Unit 3 Test']);
     expect(r.test).toEqual({ schoology_assignment_id: 's1', title: 'Unit 2 Test', due_date: '2026-10-28 08:00:00' });
     expect(r.length_minutes).toBe(60);
+    expect(r.lesson).toBeNull(); // no lesson times stored
     expect(r.students).toEqual([
-      { student_id: ana, name: 'Ana Lee', plans: ['Accommodation plan'], extra_time_percent: 25, extra_minutes: 15, total_minutes: 75 },
-      { student_id: ben, name: 'Ben Ng', plans: ['Learning support 1'], extra_time_percent: null, extra_minutes: null, total_minutes: null },
+      { student_id: ana, name: 'Ana Lee', plans: ['Accommodation plan'], extra_time_percent: 25, extra_minutes: 15, total_minutes: 75, ends_at: null, minutes_after_lesson: null },
+      { student_id: ben, name: 'Ben Ng', plans: ['Learning support 1'], extra_time_percent: null, extra_minutes: null, total_minutes: null, ends_at: null, minutes_after_lesson: null },
     ]);
+  });
+
+  // #187: with the lesson's bell-schedule times on the test's date, the clock times as the roster shows them.
+  test('the lesson on the test\'s date gives the test\'s end and each student\'s, with the minutes past the lesson', () => {
+    const db = getDb();
+    seedTests(db);
+    db.exec('DELETE FROM class_meetings');
+    db.prepare(`INSERT INTO class_meetings (course_id, date, start_time, end_time) VALUES (?, '2026-10-28', '08:35', '09:45')`).run(course);
+    const r = getTestDayTool(db, { course, today: '2026-10-25', length_minutes: 60 });
+    expect(r.lesson).toEqual({ date: '2026-10-28', start: '08:35', end: '09:45', test_ends_at: '09:35' });
+    expect(r.students[0]).toMatchObject({ total_minutes: 75, ends_at: '09:50', minutes_after_lesson: 5 });
+    expect(r.students[1]).toMatchObject({ ends_at: null, minutes_after_lesson: null });
   });
 
   test('a test chosen by part of its title; one that matches nothing is refused with the list', () => {

@@ -258,6 +258,9 @@ const MIGRATIONS = [
     END`,
   // #73: PowerSchool gender (section student list), for Class Tools' roster filter.
   `ALTER TABLE students ADD COLUMN gender TEXT`,
+  // #187: a lesson's start and end time from its day's bell schedule (Test day's clock times).
+  `ALTER TABLE class_meetings ADD COLUMN start_time TEXT`,
+  `ALTER TABLE class_meetings ADD COLUMN end_time TEXT`,
 ];
 
 // Remove mastery score rows with no level. The full mastery sync stored an

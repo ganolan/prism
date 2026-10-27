@@ -1981,3 +1981,12 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Tests:** `masterySyncReads.test.js` (`overrideMasteryLevel`: write and read-back, CHANGED, MISMATCH, clear, IE, unchanged, per course, archived and excluded), `routes/mastery.test.js` (status per code), `OverridePopup.test.jsx`, `MasteryView.test.jsx` (archived).
 - **Live check:** not yet run; it needs one override Graham approves on a target he names, then a read-back and a clear.
 
+## Test day: finishing clock times (#187, 2026-10-27)
+
+- **Probe (read-only, 28 Oct HKT):** `scripts/probe-ps-bell-times.js`: `bellScheduleItems[].startTime` / `endTime` are seconds after midnight (numbers); see the PowerSchool API reference.
+- **Sync:** `extractMeetings` (`server/lib/psCalendar.js`) gives each lesson `{ date, start, end }` ('HH:MM', `bellTime`); `storeClassMeetings` stores them in `class_meetings.start_time` / `end_time` (schema + MIGRATIONS). `extractMeetingDates` is the dates of the same list.
+- **API:** `GET /api/courses/:id/class-times?from&to` (`loadClassTimes`).
+- **Client:** Test day reads the 14-day window's lessons (`getClassTimes`, a failed read leaves minutes only); `lessonOn`, `testClock`, `addMinutes`, `clockText` in `client/src/lib/testDay.js`. The bar line and each confirmed card's "ends 9:38 AM" (amber with the minutes past the lesson's end).
+- **PrisMCP:** `get_test_day` gives `lesson` { date, start, end, test_ends_at } and each student's `ends_at` and `minutes_after_lesson`.
+- **Tests:** psCalendar (extractMeetings, bellTime), schoolCalendar (store and range read), courses route, rosterTools (get_test_day), testDay lib, TestDay (bar, finish, over, minutes-only cases).
+

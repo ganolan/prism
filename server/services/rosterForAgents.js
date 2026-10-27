@@ -10,7 +10,8 @@ import { getScaleTable } from '../lib/proficiencyScale.js';
 import { todayLocal } from '../lib/schoolDays.js';
 import { categoryTracks, studentMastery } from '../../client/src/lib/masteryCompare.js';
 import { makeScaleHelpers } from '../../client/src/lib/masteryLevels.js';
-import { upcomingTests, extraMinutes, TEST_WINDOW_DAYS } from '../../client/src/lib/testDay.js';
+import { upcomingTests, extraMinutes, TEST_WINDOW_DAYS, lessonOn, testClock } from '../../client/src/lib/testDay.js';
+import { loadClassTimes } from './schoolCalendar.js';
 import { genderTag } from '../../client/src/lib/genderTag.js';
 
 // GET /api/mastery/:courseId's answer: the course's topics, categories and scores, every category
@@ -106,7 +107,9 @@ const LEARNING = 'learning';
 // the chosen one (`test`: a Schoology assignment id or part of a title; default the nearest), and each
 // current student with a learning plan (PowerSchool alerts, never health ones) with the extra time the
 // teacher confirmed and the minutes it gives a test of `lengthMinutes`. A student with no confirmed
-// figure has nulls: Prism does not read plan text here.
+// figure has nulls: Prism does not read plan text here. When the class meets on the test's date and
+// Prism has that lesson's bell-schedule times (#187), `lesson` gives its start and end, the test's end
+// started at the bell, and each student's `ends_at` and `minutes_after_lesson`; else those are null.
 export function testDayForCourse(db, courseId, { test = null, lengthMinutes = 50, today = todayLocal() } = {}) {
   const assignments = db.prepare(`
     SELECT schoology_assignment_id, title, due_date, is_test, published, removed_at
@@ -123,6 +126,8 @@ export function testDayForCourse(db, courseId, { test = null, lengthMinutes = 50
     }
     chosen = hits[0];
   }
+  const lesson = chosen ? lessonOn(loadClassTimes(db, Number(courseId), String(chosen.dueDate).slice(0, 10), String(chosen.dueDate).slice(0, 10)), chosen.dueDate) : null;
+  const clock = (minutes) => (lesson && minutes != null ? testClock(lesson, minutes) : null);
   const roster = getRoster(db, courseId);
   const alerts = psAlertFieldsForAgents(db, roster.map((s) => s.id));
   const extra = confirmedExtraTime(db, roster.map((s) => s.id));
@@ -138,6 +143,8 @@ export function testDayForCourse(db, courseId, { test = null, lengthMinutes = 50
       extra_time_percent: percent,
       extra_minutes: more,
       total_minutes: more == null ? null : lengthMinutes + more,
+      ends_at: clock(more == null ? null : lengthMinutes + more)?.ends ?? null,
+      minutes_after_lesson: clock(more == null ? null : lengthMinutes + more)?.over ?? null,
     };
   }).filter(Boolean);
   const shape = (t) => ({ schoology_assignment_id: t.schoologyAssignmentId, title: t.title, due_date: t.dueDate });
@@ -146,6 +153,7 @@ export function testDayForCourse(db, courseId, { test = null, lengthMinutes = 50
     tests: tests.map(shape),
     test: chosen ? shape(chosen) : null,
     length_minutes: lengthMinutes,
+    lesson: lesson ? { date: lesson.date, start: lesson.start, end: lesson.end ?? null, test_ends_at: clock(lengthMinutes).ends } : null,
     students,
   };
 }

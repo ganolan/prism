@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { upcomingTests, extraMinutes, planLine } from './testDay.js';
+import { upcomingTests, extraMinutes, planLine, addMinutes, clockText, lessonOn, testClock } from './testDay.js';
 
 const task = (id, dueDate, over = {}) => ({
   schoology_assignment_id: id, title: `Test ${id}`, due_date: dueDate, is_test: 1, published: 1, removed_at: null, ...over,
@@ -91,3 +91,30 @@ describe('planLine', () => {
     expect(planLine(null)).toBeNull();
   });
 });
+
+// #187: clock times from the lesson's bell-schedule times.
+describe('clock helpers', () => {
+  it('addMinutes and clockText', () => {
+    expect(addMinutes('08:35', 63)).toBe('09:38');
+    expect(addMinutes('11:50', 15)).toBe('12:05');
+    expect(clockText('09:38')).toBe('9:38 AM');
+    expect(clockText('12:05')).toBe('12:05 PM');
+    expect(clockText('13:40')).toBe('1:40 PM');
+    expect(clockText('00:10')).toBe('12:10 AM');
+  });
+
+  it('lessonOn finds the lesson on a due date\'s day, with a start time only', () => {
+    const meetings = [{ date: '2026-10-28', start: '08:35', end: '09:45' }, { date: '2026-10-30', start: null, end: null }];
+    expect(lessonOn(meetings, '2026-10-28 10:15:00')).toEqual(meetings[0]);
+    expect(lessonOn(meetings, '2026-10-30 10:15:00')).toBeNull();
+    expect(lessonOn(meetings, '2026-10-29')).toBeNull();
+    expect(lessonOn(null, '2026-10-28')).toBeNull();
+  });
+
+  it('testClock: the end, and the minutes past the lesson (0 when it fits or the end is unknown)', () => {
+    expect(testClock({ start: '08:35', end: '09:45' }, 50)).toEqual({ ends: '09:25', over: 0 });
+    expect(testClock({ start: '08:35', end: '09:45' }, 76)).toEqual({ ends: '09:51', over: 6 });
+    expect(testClock({ start: '08:35', end: null }, 76)).toEqual({ ends: '09:51', over: 0 });
+  });
+});
+

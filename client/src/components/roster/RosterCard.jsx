@@ -5,12 +5,11 @@ import { gradeText } from '../PersonSub.jsx';
 import { preferredFirstName, studentFullName } from '../../lib/studentNames.js';
 import { formatDate } from '../../lib/formatDate.js';
 import { alertChipLabel } from '../../lib/rosterVitals.js';
-import StudentTags from './StudentTags.jsx';
 import { Tip } from '../HelpDot.jsx';
 
 // One student on the Roster tab (#160). Left: the photo, then the name line: the one name the student
-// goes by, and (Private details only) a small group of tags right after it, today the gender code
-// (F, M, NB or ?, full label on hover; see StudentTags), kept on the same line so the card gains none.
+// goes by. The card shows no gender or age tag: those are on the student page only (Graham, 27 Oct 2026;
+// components/StudentTags.jsx), and the roster keeps its Gender filter and sort.
 // Under it one line: grade, student number (the email's local part) and an Email copy button. Right, only with
 // Private details on: the unread comments count and the alert chips, in fixed-width slots so they line
 // up down the page. With Private details off those slots are not drawn at all.
@@ -76,7 +75,7 @@ export default function RosterCard({ student, showPrivate, unread = null, alerts
   const grade = gradeText(student.grad_year);
   const open = (e) => {
     // Needs attention's rows hold editors and panels: a tap there never leaves the page.
-    if (e.target.closest('a, button, input, select, textarea, label, .roster-tag, .roster-card__items')) return;
+    if (e.target.closest('a, button, input, select, textarea, label, .roster-card__items')) return;
     navigate(`/student/${student.id}`);
   };
   return (
@@ -85,7 +84,6 @@ export default function RosterCard({ student, showPrivate, unread = null, alerts
       <span className="roster-card__id">
         <span className="roster-card__nameline">
           <Link className="roster-card__name" to={`/student/${student.id}`}>{studentFullName(student)}</Link>
-          {showPrivate && <StudentTags student={student} />}{/* not in the DOM with Private details off */}
         </span>
         <span className="roster-card__meta">
           {grade && <span>{grade}</span>}

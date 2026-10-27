@@ -300,7 +300,7 @@ describe('RosterTab pop-ups', () => {
   });
 });
 
-// Gender on the card, the Gender filter row and the sort (25 Oct 2026, #160).
+// Gender: the Gender filter row and the sort (25 Oct 2026, #160); no tag on the card since 27 Oct.
 const SORTABLE = [
   student(1, { first_name: 'Ben', last_name: 'Cole', gender: 'M' }),
   student(2, { first_name: 'Amy', last_name: 'Dunn', gender: 'F' }),
@@ -314,59 +314,28 @@ const sortGroup = () => screen.getByRole('group', { name: 'Sort by' });
 const sortBtn = (name) => within(sortGroup()).getByRole('button', { name });
 
 describe('RosterTab gender', () => {
-  const tagOf = (name) => cardOf(name).querySelector('.roster-tag');
   const metaOf = (name) => cardOf(name).querySelector('.roster-card__meta').textContent;
 
-  it('with Private details on, the tag after the name reads F, M, NB or ? for F, M, X and a blank value', () => {
-    renderTab('/course/5', { students: [
+  // Graham, 27 Oct 2026: the gender tag (and #191's age) is on the student page only; the roster keeps the
+  // Gender filter row and the Gender sort.
+  it('no card shows a gender tag or label, with Private details off or on; the Gender row is there when on', () => {
+    const { container } = renderTab('/course/5', { students: [
       student(1, { first_name: 'Ana', last_name: 'Lee', gender: 'F' }),
       student(2, { first_name: 'Bo', last_name: 'Mur', gender: 'M' }),
       student(3, { first_name: 'Cy', last_name: 'Nox', gender: 'X' }),
       student(4, { first_name: 'Di', last_name: 'Orr', gender: null }),
     ] });
+    const noTags = () => {
+      expect(container.querySelector('.student-tags, .student-tag, .roster-tags, .roster-tag')).toBeNull();
+      for (const name of ['Ana Lee', 'Bo Mur', 'Cy Nox', 'Di Orr']) {
+        expect(cardOf(name).querySelector('.roster-card__nameline')).toHaveTextContent(new RegExp(`^${name}$`));
+        expect(within(cardOf(name)).queryByRole('img', { name: /Female|Male|Recorded in PowerSchool|Not recorded/ })).toBeNull();
+      }
+    };
+    noTags();
     toggle();
-    expect(tagOf('Ana Lee')).toHaveTextContent(/^F$/);
-    expect(tagOf('Bo Mur')).toHaveTextContent(/^M$/);
-    expect(tagOf('Cy Nox')).toHaveTextContent(/^NB$/);
-    expect(tagOf('Di Orr')).toHaveTextContent(/^\?$/);
-  });
-
-  it('the tag is named in full and shows that label in an instant popover on hover, focus and tap', () => {
-    renderTab('/course/5', { students: [student(1, { first_name: 'Cy', last_name: 'Nox', gender: 'X' }), student(2, { first_name: 'Di', last_name: 'Orr', gender: null })] });
-    toggle();
-    const nb = within(cardOf('Cy Nox')).getByRole('img', { name: 'Recorded in PowerSchool as "X"' });
-    expect(nb).toHaveAttribute('tabindex', '0');
-    expect(within(cardOf('Di Orr')).getByRole('img', { name: 'Not recorded in PowerSchool' })).toBeInTheDocument();
-    expect(nb).not.toHaveAttribute('title'); // an instant popover, not a native title delay
-    expect(document.querySelector('.help-pop')).toBeNull();
-    fireEvent.mouseEnter(nb);
-    expect(document.querySelector('.help-pop')).toHaveTextContent('Recorded in PowerSchool as "X"');
-    fireEvent.mouseLeave(nb);
-    expect(document.querySelector('.help-pop')).toBeNull();
-    fireEvent.focus(nb);
-    expect(document.querySelector('.help-pop')).toHaveTextContent('Recorded in PowerSchool as "X"');
-    fireEvent.blur(nb);
-    expect(document.querySelector('.help-pop')).toBeNull();
-    fireEvent.click(nb); // a phone has no hover
-    expect(document.querySelector('.help-pop')).toHaveTextContent('Recorded in PowerSchool as "X"');
-  });
-
-  it('tapping a tag shows its popover and does not open the student page', () => {
-    renderTab();
-    toggle();
-    fireEvent.click(within(cardOf('Annie Lee')).getByRole('img', { name: 'Female' }));
-    expect(screen.queryByText(/Student page/)).not.toBeInTheDocument();
-    expect(document.querySelector('.help-pop')).toHaveTextContent('Female');
-  });
-
-  it('the tag sits on the name line, inside the element that holds the name, so the card gains no line', () => {
-    renderTab();
-    toggle();
-    const name = cardOf('Annie Lee').querySelector('.roster-card__name');
-    const tag = tagOf('Annie Lee');
-    expect(name.parentElement).toBe(tag.closest('.roster-card__nameline'));
-    expect(name.nextElementSibling).toBe(tag.closest('.roster-tags')); // right after the name
-    expect(cardOf('Annie Lee').querySelector('.roster-card__meta')).not.toContainElement(tag);
+    noTags();
+    expect(screen.getByRole('group', { name: 'Gender' })).toBeInTheDocument();
   });
 
   it('the meta line is grade, student number, Email: no gender', () => {
@@ -376,18 +345,6 @@ describe('RosterTab gender', () => {
     expect(metaOf('First2 Last2')).toBe(`${gradeText(2027)}27002Email`);
     expect(metaOf('First4 Last4')).toBe(`${gradeText(2027)}27004Email`);
     expect(cardOf('First4 Last4').querySelector('.roster-card__gender')).toBeNull();
-  });
-
-  it('with Private details off, no tag is in the DOM; turning it on draws one, off removes it', () => {
-    const { container } = renderTab();
-    expect(container.querySelector('.roster-tags, .roster-tag')).toBeNull();
-    expect(container).not.toHaveTextContent(/Female|Male|Recorded in PowerSchool|Not recorded/);
-    toggle();
-    expect(container.querySelectorAll('.roster-tag').length).toBeGreaterThan(0);
-    toggle();
-    expect(container.querySelector('.roster-tags, .roster-tag')).toBeNull();
-    expect(container).not.toHaveTextContent(/Female|Male|Recorded in PowerSchool|Not recorded/);
-    expect(container.querySelector('[aria-label="Female"]')).toBeNull();
   });
 
   it('the Gender row lists the F, M and ? codes with counts; the dropped student is never counted', () => {

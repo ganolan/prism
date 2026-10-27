@@ -1773,6 +1773,13 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
 .student-profile__info { flex: 1; }
 .student-photo { width: 144px; height: 144px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid var(--border); cursor: zoom-in; }
 .student-name-row { display: flex; align-items: center; gap: 0.5rem; }
+/* Student page header, Private details only: small muted tags after the name (gender; age is meant to be
+   the first, #191). The popover is the shared .help-pop. */
+.student-tags { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+.student-tag { display: inline-flex; align-items: center; padding: 0 5px; border-radius: 6px; background: var(--bg-subtle);
+  border: 1px solid var(--border); color: var(--text-muted); font-size: 0.72rem; font-weight: 650; line-height: 1.35;
+  white-space: nowrap; cursor: help; user-select: none; }
+.student-tag:hover, .student-tag:focus-visible { color: var(--text); border-color: var(--text-muted); outline: none; }
 .contact-email { display: flex; align-items: center; gap: 0.15rem; }
 .parent-detail-input { font-size: 0.8rem; padding: 0.3rem 0.5rem; }
 /* #173: a guardian's details from PowerSchool, then the teacher's own, labelled. */
@@ -1900,15 +1907,10 @@ button.private-details-switch[aria-pressed="true"] { background: var(--badge-amb
 .roster-card__name { font-size: 1.14rem; font-weight: 650; letter-spacing: -0.01em; color: var(--text); text-decoration: none;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .roster-card__name:hover { color: var(--accent); }
-/* The name line: the name, then (Private details) a small muted tag group. One line always: the name shrinks first
-   (its ellipsis), the tags never wrap, so the card gains no height. The popover is the shared .help-pop. */
+/* The name line: the name alone (its ellipsis), so the card gains no height. Gender and age tags are on
+   the student page only (27 Oct 2026; .student-tags). */
 .roster-card__nameline { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .roster-card__nameline > .roster-card__name { flex: 0 1 auto; min-width: 0; }
-.roster-tags { display: inline-flex; align-items: center; gap: 4px; flex: none; }
-.roster-tag { display: inline-flex; align-items: center; padding: 0 5px; border-radius: 6px; background: var(--bg-subtle);
-  border: 1px solid var(--border); color: var(--text-muted); font-size: 0.68rem; font-weight: 650; line-height: 1.35;
-  white-space: nowrap; cursor: help; user-select: none; }
-.roster-tag:hover, .roster-tag:focus-visible { color: var(--text); border-color: var(--text-muted); outline: none; }
 /* One line: grade, number, Email. The dot trails each part (the timeline's pattern), so a wrapped
    line never starts with one; it is drawn, not a character. */
 .roster-card__meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 8px; font-size: 0.78rem; color: var(--text-muted); min-width: 0; }

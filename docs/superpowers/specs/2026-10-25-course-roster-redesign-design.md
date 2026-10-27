@@ -402,6 +402,8 @@ Where the build departs from the text above, or settled what it left open (each 
   label as popover and `aria-label`, and the Gender sort is F, M, NB, ?, then last name. Class Tools (#73) keeps its own
   words. Code: `lib/genderTag.js`, `components/roster/StudentTags.jsx`, `RosterCard.jsx`, `RosterFilters.jsx`,
   `useHelpPop` in `components/HelpDot.jsx`.
+  **Superseded 27 Oct 2026 (Graham):** the tag (and #191's age) moved to the student page header
+  (`components/StudentTags.jsx`); the card shows neither. The Gender filter pills and the Gender sort stay.
 
 ## Left to the builder
 

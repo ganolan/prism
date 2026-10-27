@@ -49,7 +49,7 @@ export function confirmedExtraTime(db, studentIds) {
     .all(...ids).map((r) => [r.student_id, r.percent]));
 }
 
-// A stored gender value as the roster shows it: { code: 'F' | 'M' | 'NB' | '?', value } where value is
+// A stored gender value as Prism shows it (the roster's Gender filter, the student page tag): { code: 'F' | 'M' | 'NB' | '?', value } where value is
 // PowerSchool's own, verbatim (null when blank).
 export function genderForAgents(raw) {
   const value = typeof raw === 'string' && raw.trim() ? raw.trim() : null;

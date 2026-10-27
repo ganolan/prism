@@ -1,5 +1,5 @@
-// How the Roster tab shows gender (25 Oct 2026, #160): a short code, never a word. The full label is for
-// the tag's hover popover and aria-label (components/roster/StudentTags.jsx) and the Gender filter pills.
+// How Prism shows gender (25 Oct 2026, #160): a short code, never a word. The full label is for
+// the tag's hover popover and aria-label on the student page (components/StudentTags.jsx) and the roster's Gender filter pills.
 //   F  Female            M  Male
 //   NB any value other than F or M that PowerSchool sends; the label quotes that value exactly
 //      (Recorded in PowerSchool as "X"), so the roster never assumes what it means (Graham, 25 Oct 2026)

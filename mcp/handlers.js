@@ -181,7 +181,7 @@ export function listStudents(db, { course_id, include_dropped = false }) {
     preferred_first_name: preferredFirstName(st),
     email: st.email ?? null,
     grad_year: st.grad_year ?? null,
-    // #195: as the roster shows it (F, M, NB, ?), with PowerSchool's own value.
+    // #195: the code the roster's Gender filter and the student page show (F, M, NB, ?), with PowerSchool's own value.
     gender: genderForAgents(st.gender),
   });
   const extra = (rows) => {

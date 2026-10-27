@@ -34,4 +34,22 @@ describe('OverridePopup', () => {
     expect(screen.queryByText(/Override Schoology to/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Clear override' })).toBeDisabled();
   });
+
+  // #188: the server refuses when Schoology changed, and checks its read-back; the pop-up says why, stays
+  // open, and re-reads the levels Prism stored from Schoology.
+  it('a refusal shows in the pop-up, which stays open; CHANGED re-reads the levels, a plain failure does not', async () => {
+    const p = props({ suggestedLevel: 'EX' });
+    api.writeMasteryOverride.mockRejectedValueOnce(Object.assign(new Error("Schoology's level changed since Prism last read it (now EX). Nothing was written: look at it again before overriding."), { code: 'CHANGED' }));
+    const { rerender } = render(<OverridePopup {...p} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Override Schoology to EX' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("Schoology's level changed since Prism last read it");
+    expect(p.onSaved).toHaveBeenCalledTimes(1);
+    expect(p.onClose).not.toHaveBeenCalled();
+    api.writeMasteryOverride.mockRejectedValueOnce(new Error('Request failed: 500'));
+    rerender(<OverridePopup {...p} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Override Schoology to EX' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Request failed: 500'));
+    expect(p.onSaved).toHaveBeenCalledTimes(1);
+    expect(p.onClose).not.toHaveBeenCalled();
+  });
 });

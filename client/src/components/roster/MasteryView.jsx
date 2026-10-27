@@ -20,8 +20,8 @@ import { categoryTracks, studentMastery, classMastery, nextSort, sortedBy, missi
 //
 // Two layouts: All reporting categories (one card per student, a line per category, then the grades)
 // and one reporting category (a short row per student under a sticky header that sorts). The class
-// average comes first in both. A set of linked sections (#178) refuses Schoology writes, so there the
-// chip is disabled with the reason.
+// average comes first in both. A set of linked sections (#178) and an archived course (#188) refuse
+// Schoology writes, so there the chip is disabled with the reason (internally `linked` holds that reason).
 //
 // A category shows as its short label (P, CRC: lib/categoryAbbr.js, #192), never its number. Every hover
 // text here is the instant popover (Tip, HelpDot), never a native title; a "-" grade's popover names the
@@ -30,9 +30,11 @@ import { categoryTracks, studentMastery, classMastery, nextSort, sortedBy, missi
 // Private: with Private details off only `locked` is rendered (no level or grade in the page, and the
 // scale is not read). The OverridePopup lives here, so it goes with the switch.
 // Props: on, locked, mastery (getMasteryForCourse), failed (its last read failed), students (enrolled), courseId, linked,
-// onMasteryChanged (re-reads mastery after an override).
+// archived, onMasteryChanged (re-reads mastery after an override).
 
 export const LINKED_REASON = 'Prism does not write to Schoology for linked sections. Make this change in Schoology.';
+export const ARCHIVED_REASON = 'Prism does not write to Schoology for an archived course. Make this change in Schoology.';
+const reasonText = (linked) => (typeof linked === 'string' ? linked : LINKED_REASON);
 const HELP = "Schoology's level is the one students and report cards see. Faint means it matches Prism. "
   + "Highlighted means it differs: tap it to set Schoology's override to Prism's level.";
 // The same help as a short list, for the popover (#192: wrapped, never one long line).
@@ -82,7 +84,7 @@ function SchoologyChip({ track, cell, linked, scale, onOpen }) {
   const p = cell.prism.level;
   const held = s ? `${scale.levelLabel(s.level)}${s.isOverride ? ' (an override)' : ''}` : 'no level';
   let tip;
-  if (linked) tip = LINKED_REASON;
+  if (linked) tip = reasonText(linked);
   else if (cell.differs) tip = `Schoology holds ${held}, Prism calculates ${scale.levelLabel(p)}. Tap to override Schoology to ${p}.`;
   else tip = `Schoology holds ${held}${p ? ', the same as Prism' : ''}. Tap to override.`;
   return (
@@ -98,7 +100,7 @@ function SchoologyChip({ track, cell, linked, scale, onOpen }) {
 // waiting for. When Schoology's levels, the ones students see, translate to another grade (or none), an
 // amber "!" says so and how to correct it: override Schoology's level (#193 follow-up, Graham 25 Oct 2026).
 export function mismatchText({ prism, schoology }, missing, linked) {
-  const fix = linked ? LINKED_REASON : "To correct it, override Schoology's level: click a highlighted Schoology level.";
+  const fix = linked ? reasonText(linked) : "To correct it, override Schoology's level: click a highlighted Schoology level.";
   const seen = schoology == null
     ? `Schoology holds no level for ${listNames(missing)}, so students see a blank grade.`
     : `Students see Schoology's levels, so their grade translates to ${schoology}, not ${prism}.`;
@@ -311,7 +313,7 @@ function MasteryOn({ mastery, students, courseId, linked, onMasteryChanged }) {
           </button>
         ))}
       </div>
-      {linked && <p className="text-sm text-muted">{LINKED_REASON}</p>}
+      {linked && <p className="text-sm text-muted">{reasonText(linked)}</p>}
       {one
         ? <OneCategory key={one.id} track={one} rows={rows} classRow={classRow} linked={linked} scale={scale} onOverride={onOverride} />
         : (
@@ -339,7 +341,8 @@ function MasteryOn({ mastery, students, courseId, linked, onMasteryChanged }) {
 
 // `failed`: the last mastery read failed (#189). With nothing to show it says so instead of "No mastery
 // data yet"; after a failed re-read (an override) the levels already read stay, under a warning.
-export default function MasteryView({ on, locked = null, mastery, failed = false, students, courseId, linked = false, onMasteryChanged }) {
+export default function MasteryView({ on, locked = null, mastery, failed = false, students, courseId, linked = false, archived = false, onMasteryChanged }) {
+  const blocked = linked ? LINKED_REASON : archived ? ARCHIVED_REASON : null; // why Schoology writes are refused here
   if (!on) return locked;
   const has = categoryTracks(mastery).length > 0;
   const warning = failed && (
@@ -351,7 +354,7 @@ export default function MasteryView({ on, locked = null, mastery, failed = false
   return (
     <>
       {warning}
-      <MasteryOn mastery={mastery} students={students} courseId={courseId} linked={linked} onMasteryChanged={onMasteryChanged} />
+      <MasteryOn mastery={mastery} students={students} courseId={courseId} linked={blocked} onMasteryChanged={onMasteryChanged} />
     </>
   );
 }

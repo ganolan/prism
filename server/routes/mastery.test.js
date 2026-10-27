@@ -13,7 +13,7 @@ vi.mock('../services/masterySync.js', () => ({
   syncMasteryForAssignment: vi.fn(),
   writeMasteryScores: vi.fn(),
   writeMasteryScoresBatch: vi.fn(),
-  writeMasteryOverride: vi.fn(),
+  overrideMasteryLevel: vi.fn(),
   getMasteryForCourse: vi.fn(),
   getRubricScoresForStudent: vi.fn(),
   readPairLevels: vi.fn(),
@@ -39,7 +39,7 @@ import { enqueue } from '../services/syncQueue.js';
 import triageRouter from './triage.js';
 import { getDb } from '../db/index.js';
 import { saveRowLevels } from '../services/feedbackRows.js';
-import { getMasteryForCourse, writeMasteryScoresBatch, writeMasteryOverride } from '../services/masterySync.js';
+import { getMasteryForCourse, writeMasteryScoresBatch, overrideMasteryLevel } from '../services/masterySync.js';
 import { getSectionGrades, getAssignmentGrades, pushGradeUpdates } from '../services/schoology.js';
 import { getAssignmentFiles } from '../services/oneDriveLinks.js';
 import { getLtiSubmissionApp, getSubmittedDocuments } from '../services/ltiSubmissionApps.js';
@@ -1560,119 +1560,71 @@ describe('POST /api/mastery/:courseId/send-all — batched bulk send (#51)', () 
 
 describe('POST /api/mastery/:courseId/override — level-based input', () => {
   let COURSE;
-  let UID;
-  let OBJ;
+  const UID = 'uid-ov';
+  const OBJ = 'obj-ov-1';
 
   beforeEach(() => {
     const db = getDb();
     db.pragma('foreign_keys = OFF');
-    db.exec(
-      'DELETE FROM feedback_snapshots; DELETE FROM mastery_rollups; DELETE FROM mastery_scores; ' +
-      'DELETE FROM mastery_alignments; DELETE FROM measurement_topics; ' +
-      'DELETE FROM reporting_categories; DELETE FROM enrolments; ' +
-      'DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;'
-    );
+    db.exec('DELETE FROM mastery_rollups; DELETE FROM enrolments; DELETE FROM assignments; DELETE FROM students; DELETE FROM courses;');
     db.pragma('foreign_keys = ON');
-    COURSE = db.prepare(
-      `INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-ov', 'Override Course')`
-    ).run().lastInsertRowid;
-    db.prepare(
-      `INSERT INTO students (schoology_uid, first_name, last_name) VALUES ('uid-ov', 'Over', 'Rider')`
-    ).run();
-    UID = 'uid-ov';
-    OBJ = 'obj-ov-1';
-
-    writeMasteryOverride.mockReset();
-    writeMasteryOverride.mockResolvedValue({ data: { outcome_override: { grade_scaled_rounded: 3 } } });
+    COURSE = db.prepare(`INSERT INTO courses (schoology_section_id, course_name) VALUES ('sec-ov', 'Override Course')`).run().lastInsertRowid;
+    overrideMasteryLevel.mockReset();
+    overrideMasteryLevel.mockResolvedValue({ rollup: 37.5, override: 62.5, unchanged: false });
   });
+  const sent = () => overrideMasteryLevel.mock.calls[0][1];
 
-  test('override route maps a level to grade_scaled', async () => {
-    const { status } = await post(`/api/mastery/${COURSE}/override`, {
-      studentUid: UID,
-      objectiveId: OBJ,
-      level: 'EX',
-    });
+  test('maps a level to grade_scaled, and answers with what Schoology read back', async () => {
+    const { status, body } = await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: OBJ, level: 'EX' });
     expect(status).toBe(200);
-    expect(writeMasteryOverride).toHaveBeenCalledWith(
-      expect.objectContaining({ gradeScaled: '62.50' })
-    );
+    expect(sent()).toEqual({ courseId: Number(COURSE), studentUid: UID, objectiveId: OBJ, gradeScaled: '62.50' });
+    expect(body).toEqual({ ok: true, override: 62.5, rollup: 37.5, unchanged: false });
   });
 
-  test('override route rejects an out-of-scale value', async () => {
-    const { status } = await post(`/api/mastery/${COURSE}/override`, {
-      studentUid: UID,
-      objectiveId: OBJ,
-      gradeScaled: '50.00',
-    });
+  test('rejects an out-of-scale value', async () => {
+    const { status } = await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: OBJ, gradeScaled: '50.00' });
     expect(status).toBe(400);
+    expect(overrideMasteryLevel).not.toHaveBeenCalled();
   });
 
-  test('override route accepts a valid raw gradeScaled (transitional path)', async () => {
-    const { status } = await post(`/api/mastery/${COURSE}/override`, {
-      studentUid: UID,
-      objectiveId: OBJ,
-      gradeScaled: '87.50',
-    });
+  test('accepts a valid raw gradeScaled (transitional path)', async () => {
+    const { status } = await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: OBJ, gradeScaled: '87.50' });
     expect(status).toBe(200);
-    expect(writeMasteryOverride).toHaveBeenCalledWith(
-      expect.objectContaining({ gradeScaled: '87.50' })
-    );
+    expect(sent().gradeScaled).toBe('87.50');
   });
 
-  test('override route clears an override when both level and gradeScaled are omitted', async () => {
-    const { status } = await post(`/api/mastery/${COURSE}/override`, {
-      studentUid: UID,
-      objectiveId: OBJ,
-    });
+  test('clears an override when both level and gradeScaled are omitted', async () => {
+    const { status } = await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: OBJ });
     expect(status).toBe(200);
-    expect(writeMasteryOverride).toHaveBeenCalledWith(
-      expect.objectContaining({ gradeScaled: null })
-    );
+    expect(sent().gradeScaled).toBeNull();
   });
 
-  test('override route returns 400 for an unrecognised level (typo), does not clear', async () => {
+  test('returns 400 for an unrecognised level (typo), does not clear', async () => {
     // A typo'd level (e.g. 'EXX') previously fell through to a clear because
     // levelToGradeScaled returned null, which bypassed the valid.has check.
-    const { status, body } = await post(`/api/mastery/${COURSE}/override`, {
-      studentUid: UID,
-      objectiveId: OBJ,
-      level: 'EXX',
-    });
+    const { status, body } = await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: OBJ, level: 'EXX' });
     expect(status).toBe(400);
     expect(body.error).toMatch(/Unknown level/);
-    expect(writeMasteryOverride).not.toHaveBeenCalled();
+    expect(overrideMasteryLevel).not.toHaveBeenCalled();
   });
 
-  // #160: the Roster's Mastery view reads category rollups only (is_category = 1). An override
-  // written where Schoology had no category level yet must land as a category row, or the
-  // view keeps showing "-" for Schoology after the write.
-  test('the override mirror marks a new rollup row as a category when the objective is a reporting category', async () => {
-    const db = getDb();
-    db.prepare(`INSERT INTO reporting_categories (id, course_id, title) VALUES ('cat-ov', ?, 'Design')`).run(COURSE);
-    const isCategory = (obj) => db.prepare(
-      'SELECT is_category FROM mastery_rollups WHERE student_uid = ? AND objective_id = ? AND course_id = ?',
-    ).get(UID, obj, COURSE)?.is_category;
-
-    await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: 'cat-ov', level: 'EX' });
-    await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: OBJ, level: 'EX' });
-
-    expect(isCategory('cat-ov')).toBe(1);
-    expect(isCategory(OBJ)).toBe(0); // a measurement topic stays a topic row
+  // #188: each refusal keeps its code and message; 409 when nothing was written, 502 for a read-back mismatch.
+  test.each([
+    ['NOT_FOUND', 404], ['NOT_WRITABLE', 409], ['LINKED_SECTION', 409], ['CHANGED', 409], ['MISMATCH', 502],
+  ])('a %s refusal answers %i with its code and message', async (code, want) => {
+    overrideMasteryLevel.mockRejectedValue(Object.assign(new Error(`refused: ${code}`), { code, ...(code === 'CHANGED' ? { schoology: { rollup: 62.5, override: null } } : {}) }));
+    const { status, body } = await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: OBJ, level: 'EX' });
+    expect(status).toBe(want);
+    expect(body).toMatchObject({ error: `refused: ${code}`, code });
+    if (code === 'CHANGED') expect(body.schoology).toEqual({ rollup: 62.5, override: null });
   });
 
-  test('the override mirror repairs a category row an earlier mirror stored as a topic row', async () => {
-    const db = getDb();
-    db.prepare(`INSERT INTO reporting_categories (id, course_id, title) VALUES ('cat-ov', ?, 'Design')`).run(COURSE);
-    db.prepare(
-      `INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, override_value, synced_at)
-       VALUES (?, 'cat-ov', ?, 0, 1, 't')`,
-    ).run(UID, COURSE);
-
-    await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: 'cat-ov', level: 'EX' });
-
-    expect(db.prepare(
-      `SELECT is_category, override_value FROM mastery_rollups WHERE objective_id = 'cat-ov'`,
-    ).get()).toEqual({ is_category: 1, override_value: 3 });
+  test('any other failure is a 500', async () => {
+    overrideMasteryLevel.mockRejectedValue(new Error('HTTP 403 for x'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { status, body } = await post(`/api/mastery/${COURSE}/override`, { studentUid: UID, objectiveId: OBJ, level: 'EX' });
+    expect(status).toBe(500);
+    expect(body.error).toBe('HTTP 403 for x');
   });
 });
 
@@ -1731,22 +1683,7 @@ describe('rollups are per-course for a multi-course student (#127)', () => {
     expect(rob.body.rollups.find(r => r.objective_id === OBJ_CAT)?.grade_scaled_rounded).toBe(62.5);
   });
 
-  test('the override mirror writes a per-course rollup row, never a cross-course collision', async () => {
-    writeMasteryOverride.mockReset();
-    writeMasteryOverride.mockResolvedValue({ data: { outcome_override: { grade_scaled_rounded: 87.5 } } });
-    await post(`/api/mastery/${courseMad}/override`, { studentUid: UID, objectiveId: OBJ_CAT, gradeScaled: '87.50' });
-    writeMasteryOverride.mockResolvedValue({ data: { outcome_override: { grade_scaled_rounded: 62.5 } } });
-    await post(`/api/mastery/${courseRob}/override`, { studentUid: UID, objectiveId: OBJ_CAT, gradeScaled: '62.50' });
-
-    const rows = getDb().prepare(
-      `SELECT course_id, override_value FROM mastery_rollups
-       WHERE student_uid=? AND objective_id=? ORDER BY course_id`
-    ).all(UID, OBJ_CAT);
-    expect(rows).toEqual([
-      { course_id: courseMad, override_value: 87.5 },
-      { course_id: courseRob, override_value: 62.5 },
-    ]);
-  });
+  // The override's own store is per course too: masterySyncReads.test.js (overrideMasteryLevel, #188).
 });
 
 describe('GET /api/mastery/:courseId/assignment/:assignmentId/submission-links (#120)', () => {

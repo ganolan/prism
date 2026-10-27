@@ -4,7 +4,7 @@ import Database from 'better-sqlite3';
 import { migrate, __setTestDb } from '../db/index.js';
 import {
   masteryDeps, masteryBuildingId, openMasteryReader, syncMasteryForCourse, syncMasteryForAssignment, getRubricScoresForStudent, readPairLevels, writeMasteryScores,
-  writeMasteryScoresBatch, writeMasteryOverride,
+  writeMasteryScoresBatch, writeMasteryOverride, overrideMasteryLevel, overrideValueOf,
 } from './masterySync.js';
 import { getSectionGrades, getAssignmentGrades } from './schoology.js';
 import { fakeSchoologyWeb } from '../testing/fakeSchoologyWeb.js';
@@ -312,3 +312,105 @@ describe('mastery writes over plain HTTP (#141)', () => {
     await expect(writeMasteryOverride({ sectionId: SID, objectiveId: 't1', studentUid: 701, gradeScaled: '87.50' })).rejects.toThrow(/Log in to Schoology in Settings/);
   });
 });
+
+// #188: the override with the write-back safety pattern (quizWriteback.js): re-read, refuse when Schoology
+// changed, write, read back.
+describe('overrideMasteryLevel', () => {
+  const OVR = `${BASE}/api/nodes/cat1/outcome-override`;
+  const ROLL = `POST ${BASE}/api/outcomes/objectives`;
+  const outcome = (rounded, override) => ({ json: { data: [{ objective_id: 'cat1', student_outcomes: [{
+    student_uid: 701, outcome: { grade_percentage: rounded, grade_scaled: String(rounded), grade_scaled_rounded: rounded == null ? null : rounded.toFixed(2) },
+    outcome_override: override === undefined ? null : override,
+  }] }] } });
+  const ov = (v) => ({ grade_percentage: v, grade_scaled: v.toFixed(2), grade_scaled_rounded: v.toFixed(2) });
+  const cleared = { grade_percentage: null, grade_scaled: null, grade_scaled_rounded: null };
+  // The rollup reads answer in turn (before, after); the override POST answers as Schoology does.
+  const web = (reads, write = { json: { data: { outcome_override: {} } } }) => {
+    let n = 0;
+    useWeb(routes({ [ROLL]: () => reads[Math.min(n++, reads.length - 1)], [`POST ${OVR}`]: write }));
+  };
+  const storedRow = () => db.prepare(`SELECT is_category, grade_scaled_rounded, override_value FROM mastery_rollups WHERE student_uid = '701' AND objective_id = 'cat1' AND course_id = 5`).get();
+  const hold = (rounded, override) => db.prepare(`INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_scaled_rounded, override_value, synced_at) VALUES ('701', 'cat1', 5, 1, ?, ?, 't')`).run(rounded, override);
+  const writes = () => fake.requests.filter((q) => q.method === 'POST' && q.path === OVR);
+  const run = (gradeScaled) => overrideMasteryLevel(db, { courseId: 5, studentUid: '701', objectiveId: 'cat1', gradeScaled });
+  beforeEach(() => { db.prepare(`INSERT INTO reporting_categories (id, course_id, title) VALUES ('cat1', 5, 'Cat')`).run(); });
+
+  test('Schoology as Prism holds it: writes once, reads back, stores the read-back', async () => {
+    hold(37.5, null);
+    web([outcome(37.5), outcome(37.5, ov(62.5))]);
+    expect(await run('62.50')).toEqual({ rollup: 37.5, override: 62.5, unchanged: false });
+    expect(writes()).toHaveLength(1);
+    expect(writes()[0].json).toMatchObject({ student_uid: 701, grade_scaled: '62.50' });
+    expect(fake.requests.filter((q) => q.path.endsWith('/outcomes/objectives')).map((q) => q.json)).toEqual([
+      { building_id: 97989879, section_id: Number(SID), student_uids: '701', ids: 'cat1' },
+      { building_id: 97989879, section_id: Number(SID), student_uids: '701', ids: 'cat1' },
+    ]);
+    expect(fake.requests.filter((q) => q.path === BASE)).toHaveLength(1); // one page GET for the reads and the write
+    expect(storedRow()).toEqual({ is_category: 1, grade_scaled_rounded: 37.5, override_value: 62.5 });
+  });
+
+  test('Schoology changed since Prism read it: refuses with CHANGED, writes nothing, stores what Schoology holds', async () => {
+    hold(37.5, null);
+    web([outcome(62.5)]);
+    await expect(run('62.50')).rejects.toMatchObject({ code: 'CHANGED', schoology: { rollup: 62.5, override: null } });
+    expect(writes()).toHaveLength(0);
+    expect(storedRow()).toMatchObject({ grade_scaled_rounded: 62.5, override_value: null });
+    // An override set in Schoology meanwhile is a change too.
+    web([outcome(62.5, ov(87.5))]);
+    await expect(run('62.50')).rejects.toMatchObject({ code: 'CHANGED', message: expect.stringMatching(/now ED, an override/) });
+    expect(writes()).toHaveLength(0);
+  });
+
+  test('a read-back without the new override: MISMATCH, with the read-back stored', async () => {
+    hold(37.5, null);
+    web([outcome(37.5), outcome(37.5)]);
+    await expect(run('62.50')).rejects.toMatchObject({ code: 'MISMATCH', schoology: { override: null } });
+    expect(writes()).toHaveLength(1);
+    expect(storedRow()).toMatchObject({ override_value: null });
+  });
+
+  test('a clear: Schoology answers the cleared override as nulls, and the read-back shows none', async () => {
+    hold(37.5, 62.5);
+    web([outcome(37.5, ov(62.5)), outcome(37.5, cleared)]);
+    expect(await run(null)).toEqual({ rollup: 37.5, override: null, unchanged: false });
+    expect(writes()[0].json.grade_scaled).toBeNull();
+    expect(storedRow()).toMatchObject({ override_value: null });
+  });
+
+  test('an IE override is 0, not none: set and read back as IE', async () => {
+    hold(37.5, null);
+    web([outcome(37.5), outcome(37.5, ov(0))]);
+    expect(await run('0.00')).toMatchObject({ override: 0, unchanged: false });
+    expect(storedRow()).toMatchObject({ override_value: 0 });
+    expect(overrideValueOf(ov(0))).toBe(0);
+    expect(overrideValueOf(cleared)).toBeNull();
+    expect(overrideValueOf(null)).toBeNull();
+  });
+
+  test('the override already in place: nothing is written', async () => {
+    hold(37.5, 62.5);
+    web([outcome(37.5, ov(62.5))]);
+    expect(await run('62.50')).toEqual({ rollup: 37.5, override: 62.5, unchanged: true });
+    expect(writes()).toHaveLength(0);
+  });
+
+  test('stores this course\'s rollup row only: the same objective in another course is untouched (#127)', async () => {
+    db.prepare(`INSERT INTO courses (id, schoology_section_id, course_name) VALUES (6, '999', 'Robotics')`).run();
+    db.prepare(`INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_scaled_rounded, override_value, synced_at) VALUES ('701', 'cat1', 6, 1, 87.5, 87.5, 't')`).run();
+    hold(37.5, null);
+    web([outcome(37.5), outcome(37.5, ov(62.5))]);
+    await run('62.50');
+    expect(db.prepare(`SELECT course_id, override_value FROM mastery_rollups WHERE student_uid = '701' AND objective_id = 'cat1' ORDER BY course_id`).all())
+      .toEqual([{ course_id: 5, override_value: 62.5 }, { course_id: 6, override_value: 87.5 }]);
+  });
+
+  test('an archived or excluded course is refused before any request (as the grade cards are)', async () => {
+    web([outcome(37.5)]);
+    for (const col of ['archived', 'excluded']) {
+      db.prepare(`UPDATE courses SET archived = 0, excluded = 0, ${col} = 1 WHERE id = 5`).run();
+      await expect(run('62.50')).rejects.toMatchObject({ code: 'NOT_WRITABLE' });
+    }
+    expect(fake.requests).toHaveLength(0);
+  });
+});
+

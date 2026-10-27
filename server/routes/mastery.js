@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { getDb } from '../db/index.js';
 import { courseMasteryPayload } from '../services/rosterForAgents.js';
-import { hasMasterySession, writeMasteryScores, writeMasteryScoresBatch, writeMasteryOverride, getRubricScoresForStudent } from '../services/masterySync.js';
+import { hasMasterySession, writeMasteryScores, writeMasteryScoresBatch, overrideMasteryLevel, getRubricScoresForStudent } from '../services/masterySync.js';
 import { pushGradeUpdates, getSectionGrades, getAssignmentGrades } from '../services/schoology.js';
 import { settleResubmissions, pairResubmissionFields } from '../services/resubmissions.js';
 import { captureFeedbackSnapshots } from '../services/feedbackSnapshots.js';
@@ -262,36 +262,15 @@ router.post('/:courseId/override', async (req, res) => {
     return res.status(400).json({ error: `Unknown level/grade: expected one of ${[...valid].join(', ')} or a level code` });
   }
 
-  const db = getDb();
-  const courseRow = db.prepare('SELECT schoology_section_id FROM courses WHERE id = ?').get(courseId);
-  if (!courseRow) return res.status(404).json({ error: 'Course not found' });
-
+  // #188: the write-back safety pattern (masterySync.overrideMasteryLevel): re-read, refuse when Schoology
+  // changed, write, read back. A refusal says why: 409 when nothing was written (an archived course, a
+  // linked set, Schoology changed), 502 when the read-back disagrees.
   try {
-    const result = await writeMasteryOverride({
-      sectionId: courseRow.schoology_section_id,
-      studentUid,
-      objectiveId,
-      gradeScaled,
-    });
-
-    // Mirror Schoology's response into mastery_rollups so the UI reflects
-    // the override without requiring a full sync. A reporting category's row is a category
-    // row (is_category = 1) even when Schoology had no level for it yet: the Roster's Mastery
-    // view reads category rows only (#160). MAX repairs a row an earlier mirror stored as 0.
-    const override = result?.data?.outcome_override || {};
-    const overrideVal = override.grade_scaled_rounded != null ? Number(override.grade_scaled_rounded) : null;
-    const isCategory = db.prepare('SELECT 1 FROM reporting_categories WHERE id = ?').get(String(objectiveId)) ? 1 : 0;
-    db.prepare(`
-      INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_percentage, grade_scaled_rounded, override_value, synced_at)
-      VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)
-      ON CONFLICT(student_uid, objective_id, course_id) DO UPDATE SET
-        is_category = MAX(mastery_rollups.is_category, excluded.is_category),
-        override_value = excluded.override_value,
-        synced_at = excluded.synced_at
-    `).run(String(studentUid), String(objectiveId), Number(courseId), isCategory, overrideVal, new Date().toISOString());
-
-    res.json({ ok: true, override: overrideVal });
+    const out = await overrideMasteryLevel(getDb(), { courseId: Number(courseId), studentUid, objectiveId, gradeScaled });
+    res.json({ ok: true, override: out.override, rollup: out.rollup, unchanged: out.unchanged });
   } catch (err) {
+    const status = { NOT_FOUND: 404, NOT_WRITABLE: 409, LINKED_SECTION: 409, CHANGED: 409, MISMATCH: 502 }[err.code];
+    if (status) return res.status(status).json({ error: err.message, code: err.code, ...(err.schoology ? { schoology: err.schoology } : {}) });
     console.error('[mastery override] Error:', err);
     res.status(500).json({ error: err.message });
   }

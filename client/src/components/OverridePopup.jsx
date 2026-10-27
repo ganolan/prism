@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { writeMasteryOverride } from '../services/api.js';
 import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 
@@ -14,6 +15,10 @@ import { LEVELS, LEVEL_LABELS, LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLev
  *   suggestedLevel   The level Prism calculates (the Roster tab's Mastery mode, #160). When it is set and
  *                    differs from currentLevel, "Override Schoology to {level}" comes first.
  *   saving, setSaving, onClose, onSaved
+ *
+ * The server re-reads Schoology before the write and reads it back after (#188). A refusal shows here; when
+ * Schoology had changed (CHANGED) or the read-back disagrees (MISMATCH), Prism has stored what Schoology
+ * holds, so onSaved re-reads it and the levels behind the pop-up are current.
  */
 export default function OverridePopup({
   courseId, studentUid, objectiveId, objectiveTitle,
@@ -21,14 +26,17 @@ export default function OverridePopup({
   saving, setSaving, onClose, onSaved,
 }) {
   const suggest = suggestedLevel && suggestedLevel !== currentLevel ? suggestedLevel : null;
+  const [error, setError] = useState(null);
   async function save(level) {
     setSaving(true);
+    setError(null);
     try {
       await writeMasteryOverride(courseId, { studentUid, objectiveId, level });
       await onSaved?.();
       onClose();
     } catch (err) {
-      alert(`Failed to save override: ${err.message}`);
+      setError(err.message);
+      if (err.code === 'CHANGED' || err.code === 'MISMATCH') await Promise.resolve(onSaved?.()).catch(() => {});
     } finally {
       setSaving(false);
     }
@@ -112,6 +120,7 @@ export default function OverridePopup({
             Writing to Schoology…
           </p>
         )}
+        {error && !saving && <div className="alert alert-warning" role="alert" style={{ marginTop: '0.5rem' }}>{error}</div>}
       </div>
     </div>
   );

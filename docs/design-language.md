@@ -1846,3 +1846,8 @@ Prism's level is the correct one; Schoology's is what students and report cards 
 - **A failed re-read** keeps what was already shown, under a warning that it may be out of date (the Mastery view after an override).
 - **A write in progress** disables its own buttons (Refer, Waive, Undo), so a double click writes once.
 
+## Override refusals (#188, 27 Oct 2026)
+
+- **Where Prism does not write** (an archived course, a set of linked sections), the Schoology level stays visible but does not open the override: the Roster's Mastery chip is disabled with the reason as its popover, and the student page's Schoology cell's popover states it.
+- **A refused override** shows its reason inside the pop-up as an `.alert.alert-warning`, and the pop-up stays open. When Schoology had changed, the levels behind it are read again first, so the teacher decides on what Schoology holds now.
+

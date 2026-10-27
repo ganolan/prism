@@ -147,7 +147,7 @@ export default function RosterTab({ course = null, students, mastery = null, mas
       )}
       {current === 'mastery' && (
         <MasteryView on={on} locked={<PrivateHidden title="Levels and grades are private." />} mastery={mastery} failed={masteryFailed} students={active}
-          courseId={courseId} linked={Boolean(course?.linked)} onMasteryChanged={onMasteryChanged} />
+          courseId={courseId} linked={Boolean(course?.linked)} archived={Boolean(course?.archived)} onMasteryChanged={onMasteryChanged} />
       )}
       {on && popup?.kind === 'alert' && <AlertPopover student={popup.student} alert={popup.alert} anchor={popup.anchor} onClose={closePopup} />}
       {on && popup?.kind === 'comments' && <CommentsPopover student={popup.student} courseId={courseId} anchor={popup.anchor} onClose={closePopup} />}

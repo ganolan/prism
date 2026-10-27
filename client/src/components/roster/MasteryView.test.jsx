@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import MasteryView, { LINKED_REASON, mismatchText } from './MasteryView.jsx';
+import MasteryView, { LINKED_REASON, ARCHIVED_REASON, mismatchText } from './MasteryView.jsx';
 import { PrivateHidden } from '../PrivateDetails.jsx';
 import * as api from '../../services/api.js';
 
@@ -292,5 +292,15 @@ describe('MasteryView', () => {
     expect(screen.getByText(LINKED_REASON)).toBeInTheDocument();
     fireEvent.click(differ);
     expect(screen.queryByText(/Override Schoology/)).not.toBeInTheDocument();
+  });
+
+  // #188: the server refuses an override on an archived course, as the grade cards are read-only there.
+  it('an archived course disables the chip too, with its own reason', async () => {
+    renderView({ archived: true });
+    await screen.findByText('Annie Lee');
+    const differ = chipsOf('Annie Lee')[1];
+    expect(differ).toBeDisabled();
+    expect(differ).toHaveAttribute('aria-label', `CTP - Computational Thinking Practices, Schoology. ${ARCHIVED_REASON}`);
+    expect(screen.getByText(ARCHIVED_REASON)).toBeInTheDocument();
   });
 });

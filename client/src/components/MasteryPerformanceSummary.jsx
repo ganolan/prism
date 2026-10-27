@@ -60,7 +60,9 @@ function LevelCell({ grade, size = 'md', dim = false, pending = false }) {
 // ── Main component ───────────────────────────────────────────────────────────
 
 // reloadKey: a change reloads the data (the student page bumps it after a refresh from Schoology, #52).
-export default function MasteryPerformanceSummary({ courseId, studentUid, courseName, reloadKey = 0 }) {
+// canOverride: false on a course Prism does not write to (archived, excluded, linked: #188); the
+// Schoology cells then say so instead of opening the override.
+export default function MasteryPerformanceSummary({ courseId, studentUid, courseName, reloadKey = 0, canOverride = true }) {
   const scale = useProficiencyScale();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -433,7 +435,7 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
               return (
                 <td key={cat.id} colSpan={cat.topics.length}
                     className="schoology-cell"
-                    onClick={() => setOverrideTarget({ category: cat, currentLevel: lvl, hasOverride: override })}
+                    onClick={canOverride ? () => setOverrideTarget({ category: cat, currentLevel: lvl, hasOverride: override }) : undefined}
                     style={{
                   textAlign: 'center', fontWeight: 700, fontSize: '0.85rem',
                   padding: '0.35rem',
@@ -443,10 +445,11 @@ export default function MasteryPerformanceSummary({ courseId, studentUid, course
                   borderTop: '3px solid var(--accent)',
                   borderBottom: '3px solid var(--accent)',
                   borderRight: isLast ? '3px solid var(--accent)' : '1px solid var(--border)',
-                  cursor: 'pointer',
+                  cursor: canOverride ? 'pointer' : 'default',
                 }}>
                   <Hinted value={`${lvl || '-'}${pct != null ? ` (${pct.toFixed(1)})` : ''}${override ? '*' : ''}`}
-                    hint={override ? 'Teacher override set in Schoology, click to change or clear' : 'Click to set a teacher override in Schoology'} />
+                    hint={!canOverride ? `${override ? 'Teacher override set in Schoology. ' : ''}Prism does not write to Schoology for this course.`
+                      : override ? 'Teacher override set in Schoology, click to change or clear' : 'Click to set a teacher override in Schoology'} />
                 </td>
               );
             })}

@@ -340,14 +340,7 @@ export async function readCourseMastery(reader, sectionId, log = () => {}) {
         const isCategory = categoryIdSet.has(objId) ? 1 : 0;
         for (const so of (row.student_outcomes || [])) {
           const outcome = so.outcome || {};
-          const ov = so.outcome_override;
-          // Override shape unknown (never non-null in observed data) — store
-          // numeric value if plain number, else stringify for later inspection.
-          let overrideValue = null;
-          if (ov != null) {
-            if (typeof ov === 'number') overrideValue = ov;
-            else if (typeof ov === 'object') overrideValue = Number(ov.grade_scaled_rounded ?? ov.grade_percentage ?? ov.value ?? NaN) || null;
-          }
+          const overrideValue = overrideValueOf(so.outcome_override);
           rollupRows.push({
             student_uid: String(so.student_uid),
             objective_id: objId,
@@ -543,6 +536,93 @@ export async function syncMasteryForCourse(courseId, { onProgress } = {}) {
 
 }
 
+// An outcome_override as Prism stores it (mastery_rollups.override_value): its grade_scaled_rounded as a
+// number, or null for none (Schoology answers a cleared override as null, or as an object of nulls,
+// verified 2026-10-19). An IE override is 0, not none: the sync's earlier reading (`Number(...) || null`)
+// stored an IE override as none (#188).
+export function overrideValueOf(ov) {
+  if (ov == null) return null;
+  const v = typeof ov === 'object' ? (ov.grade_scaled_rounded ?? ov.grade_percentage ?? ov.value) : ov;
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+export class MasteryOverrideError extends Error {
+  constructor(code, message, extra = {}) {
+    super(message);
+    this.code = code; // NOT_WRITABLE | CHANGED | MISMATCH
+    Object.assign(this, extra);
+  }
+}
+
+// Schoology's rollup and override now for one (student, objective) in one section:
+// { rollup, override } (numbers, null for none).
+async function readOneRollup(client, sectionId, studentUid, objectiveId) {
+  const data = await client.postJson(`${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/outcomes/objectives`, {
+    building_id: Number(client.buildingId), section_id: Number(sectionId),
+    student_uids: String(studentUid), ids: String(objectiveId),
+  });
+  const row = (data?.data || []).find((r) => String(r.objective_id) === String(objectiveId));
+  const so = (row?.student_outcomes || []).find((s) => String(s.student_uid) === String(studentUid));
+  const rounded = so?.outcome?.grade_scaled_rounded;
+  return { rollup: rounded != null ? Number(rounded) : null, override: overrideValueOf(so?.outcome_override) };
+}
+
+/**
+ * The override with the write-back safety pattern (#188, as quizWriteback.js): refuse a course Prism does
+ * not write to (archived, excluded; a linked set is refused by the write client), re-read Schoology's
+ * rollup and override, refuse when either differs from what Prism holds (and store what Schoology has, so
+ * the teacher sees it), write, read back, and refuse a read-back that does not show the new override.
+ * Every read Prism makes is stored in mastery_rollups. A write that is already in place is not sent.
+ * → { override, rollup, unchanged }. Throws MasteryOverrideError, or the client's own errors.
+ */
+export async function overrideMasteryLevel(db, { courseId, studentUid, objectiveId, gradeScaled }) {
+  const course = db.prepare('SELECT id, schoology_section_id, archived, excluded FROM courses WHERE id = ?').get(courseId);
+  if (!course) throw new MasteryOverrideError('NOT_FOUND', 'Course not found');
+  if (course.archived || course.excluded) {
+    throw new MasteryOverrideError('NOT_WRITABLE', 'Prism does not write to Schoology for an archived course. Make this change in Schoology.');
+  }
+  const sectionId = course.schoology_section_id;
+  const isCategory = db.prepare('SELECT 1 FROM reporting_categories WHERE id = ?').get(String(objectiveId)) ? 1 : 0;
+  const key = [String(studentUid), String(objectiveId), Number(courseId)];
+  const stored = db.prepare('SELECT grade_scaled_rounded, override_value FROM mastery_rollups WHERE student_uid = ? AND objective_id = ? AND course_id = ?').get(...key);
+  // A category row even when Schoology had no level for it yet: the Roster's Mastery view reads category
+  // rows only (#160). MAX repairs a row an earlier mirror stored as a topic row.
+  const store = ({ rollup, override }) => db.prepare(`
+    INSERT INTO mastery_rollups (student_uid, objective_id, course_id, is_category, grade_percentage, grade_scaled_rounded, override_value, synced_at)
+    VALUES (?, ?, ?, ?, NULL, ?, ?, ?)
+    ON CONFLICT(student_uid, objective_id, course_id) DO UPDATE SET
+      is_category = MAX(mastery_rollups.is_category, excluded.is_category),
+      grade_scaled_rounded = excluded.grade_scaled_rounded,
+      override_value = excluded.override_value,
+      synced_at = excluded.synced_at
+  `).run(...key, isCategory, rollup, override, new Date().toISOString());
+  const levelText = (v) => (v == null ? 'none' : pointsToLevel(v) ?? String(v));
+
+  const client = await openMasteryReader(sectionId, 'write');
+  const before = await readOneRollup(client, sectionId, studentUid, objectiveId);
+  const held = { rollup: stored?.grade_scaled_rounded ?? null, override: stored?.override_value ?? null };
+  if (before.rollup !== held.rollup || before.override !== held.override) {
+    store(before);
+    throw new MasteryOverrideError('CHANGED',
+      `Schoology's level changed since Prism last read it (now ${levelText(before.override ?? before.rollup)}${before.override != null ? ', an override' : ''}). Nothing was written: look at it again before overriding.`,
+      { schoology: before });
+  }
+  const want = gradeScaled == null ? null : Number(gradeScaled);
+  if (before.override === want) return { ...before, unchanged: true };
+
+  await writeMasteryOverride({ sectionId, objectiveId, studentUid, gradeScaled, client });
+  const after = await readOneRollup(client, sectionId, studentUid, objectiveId);
+  store(after);
+  if (after.override !== want) {
+    throw new MasteryOverrideError('MISMATCH',
+      `Schoology answered the override, but reading it back shows ${levelText(after.override)} instead of ${levelText(want)}. Check it in Schoology.`,
+      { schoology: after });
+  }
+  return { ...after, unchanged: false };
+}
+
 /**
  * Set or clear a Schoology mastery override for one (student, objective).
  * objectiveId can be a reporting-category UUID or a measurement-topic UUID.
@@ -559,8 +639,9 @@ export async function writeMasteryOverride({
   gradeScaled,          // "87.50" | "62.50" | ... | null
   gradingScaleId = schoologyScaleId(),
   gradingPeriodId = 0,
+  client: open = null, // an open write client (overrideMasteryLevel's), else one is opened here
 }) {
-  const client = await openMasteryReader(sectionId, 'write');
+  const client = open ?? await openMasteryReader(sectionId, 'write');
   const url = `${SCHOOLOGY_BASE}/course/${sectionId}/district_mastery/api/nodes/${objectiveId}/outcome-override`;
   const body = {
     building_id: Number(buildingId || client.buildingId),

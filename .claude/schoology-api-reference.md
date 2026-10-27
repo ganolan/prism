@@ -583,7 +583,7 @@ Pass **category UUIDs** (parent objectives) for per-reporting-category rollups, 
 
 - `grade_scaled_rounded` is the level boundary: `87.50 → ED`, `62.50 → EX`, `37.50 → D`, `12.50 → EM`, `0.00 → IE`.
 - `grade_percentage` is the raw averaged percent.
-- `outcome_override` is populated when a teacher has manually overridden the rollup in the UI. Exact shape is **not yet confirmed** — observed values are all `null`; an override capture pass is required to document the structure and find the write-back endpoint.
+- `outcome_override` is populated when a teacher has manually overridden the rollup in the UI. Exact shape is **not yet confirmed** — observed values are all `null`; an override capture pass is required to document the structure and find the write-back endpoint. *(Superseded 2026-10-19, #141: the write's own read-back showed `outcome_override {grade_percentage: 87.5, grade_scaled: "87.50", grade_scaled_rounded: "87.50"}` when set, and `outcome_override: null` once cleared; see "Plain HTTP for the mastery writes" below. 2026-10-27, #188: Prism reads an IE override, `"0.00"`, as 0, not as none, which the sync's earlier `Number(...) || null` did.)*
 - ⚠️ **Objective UUIDs are DISTRICT-GLOBAL — the SAME `objective_id` is returned across every section aligned to that standard** (verified 2026-06-17: the reporting-category/topic UUIDs for the adapted Media-Arts standards appear identically in MAD, MGD, Robotics, ACSS, etc.). So a rollup is identified by **(student_uid, objective_id, section)** — a student in several of the teacher's courses has a *distinct* rollup per course for the same objective. This is why `mastery_rollups` is keyed `(student_uid, objective_id, course_id)` and why `reporting_categories`/`measurement_topics` are stored once per UUID (their `course_id` is a non-authoritative "owning course"). Keying rollups without `course_id` collapsed multi-course students to one row and blanked their proficiency on other course pages (#127). Affected ~17 students before the fix.
 
 ### Writing mastery overrides
@@ -623,7 +623,7 @@ Pass **category UUIDs** (parent objectives) for per-reporting-category rollups, 
 }
 ```
 
-Prism exposes this as `POST /api/mastery/:courseId/override` (body `{ studentUid, objectiveId, gradeScaled }`) and `writeMasteryOverride()` in `server/services/masterySync.js`.
+Prism exposes this as `POST /api/mastery/:courseId/override` (body `{ studentUid, objectiveId, level }`, or a raw `gradeScaled`) and `writeMasteryOverride()` in `server/services/masterySync.js`. **Safety pattern (2026-10-27, #188):** the route calls `overrideMasteryLevel`, which refuses an archived or excluded course (409 `NOT_WRITABLE`; a linked set is refused by the write client, `LINKED_SECTION`), re-reads the student's rollup and override for that one objective (`outcomes/objectives` with one uid and one id), refuses when either differs from what Prism holds (409 `CHANGED`, storing what Schoology has), skips a write already in place, writes, reads back, and refuses a read-back without the new override (502 `MISMATCH`). Each read is stored in `mastery_rollups`. Unit tests on the fake web (`masterySyncReads.test.js`); not yet run live.
 
 ### Authentication
 

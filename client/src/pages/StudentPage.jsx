@@ -135,6 +135,7 @@ export function CourseSection({
           <div style={{ marginTop: '1rem', marginBottom: '0.5rem' }}>
             <MasteryPerformanceSummary
               courseId={course.id}
+              canOverride={cardCourse ? writable : !course.archived}
               studentUid={studentUid}
               courseName={course.course_name}
               reloadKey={reloadKey}

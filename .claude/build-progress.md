@@ -1914,7 +1914,7 @@ The roster's category labels (P, CRC, CK, CTP; #192) now replace category titles
 
 ## PrisMCP: what the roster redesign added (#195, 2026-10-25)
 
-Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Schoology override write waits for #188.
+Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Schoology override write waits for #188 (#188's safety pattern shipped 27 Oct 2026; no PrisMCP tool sets an override yet).
 
 - **`list_students`:** `gender` { code (F, M, NB, ? as Prism shows it), value (PowerSchool's own, verbatim) } and `extra_time_percent` (the confirmed figure, `student_extra_time`).
 - **`get_support_summary`:** `confirmed_extra_time_percent` beside PowerSchool's rows.
@@ -1971,4 +1971,13 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Server:** the alert catalogue is kept for 10 minutes (`psAlertDetail.js`); `unreadCommentsForStudent` lists only a student enrolled in the course; `suggestExtraTime` skips "N% of ..." ("80% of the time").
 - **Topic codes:** `topicNumber` drops every leading non-numeric part, and `categoryNumber` uses it, so "HS.ART.2" is 2 and "HS.ART.2.3" is 2.3 (every current id is `X.n.m`, checked on prod 27 Oct).
 - **Left for approval:** the unprobed alert pop-ups (AQHI, EpiPen, ILP, learning support 1 to 3, health care plan) need a bounded student-data read; follow-up issue.
+
+## Mastery override: the write-back safety pattern (#188, 2026-10-27)
+
+- **Server:** `overrideMasteryLevel` (`server/services/masterySync.js`) follows `quizWriteback.js`: refuse an archived or excluded course (`NOT_WRITABLE`), re-read the one rollup and override (`outcomes/objectives`, one uid, one objective), refuse when Schoology differs from `mastery_rollups` (`CHANGED`, the fresh values stored), skip a write already in place (`unchanged`), write over the same client (one page GET), read back, refuse a read-back without the new override (`MISMATCH`). `POST /api/mastery/:courseId/override` answers `{ ok, override, rollup, unchanged }`, or 404 / 409 / 502 with `code`.
+- **Fix found on the way:** `overrideValueOf` reads an IE override (0.00) as 0; the sync's `Number(...) || null` stored it as none.
+- **Archived courses (decision by consistency with the grade cards):** refused on the server; the Roster's Mastery chips (`ARCHIVED_REASON`) and the student page's Schoology cells (`canOverride`) say so instead of opening the pop-up.
+- **Client:** `OverridePopup` shows a refusal in place (no browser `alert`) and, after `CHANGED` or `MISMATCH`, re-reads the levels Prism stored.
+- **Tests:** `masterySyncReads.test.js` (`overrideMasteryLevel`: write and read-back, CHANGED, MISMATCH, clear, IE, unchanged, per course, archived and excluded), `routes/mastery.test.js` (status per code), `OverridePopup.test.jsx`, `MasteryView.test.jsx` (archived).
+- **Live check:** not yet run; it needs one override Graham approves on a target he names, then a read-back and a clear.
 

@@ -1979,7 +1979,7 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Archived courses (decision by consistency with the grade cards):** refused on the server; the Roster's Mastery chips (`ARCHIVED_REASON`) and the student page's Schoology cells (`canOverride`) say so instead of opening the pop-up.
 - **Client:** `OverridePopup` shows a refusal in place (no browser `alert`) and, after `CHANGED` or `MISMATCH`, re-reads the levels Prism stored.
 - **Tests:** `masterySyncReads.test.js` (`overrideMasteryLevel`: write and read-back, CHANGED, MISMATCH, clear, IE, unchanged, per course, archived and excluded), `routes/mastery.test.js` (status per code), `OverridePopup.test.jsx`, `MasteryView.test.jsx` (archived).
-- **Live check:** not yet run; it needs one override Graham approves on a target he names, then a read-back and a clear.
+- **Live check (28 Oct 2026, Graham approved, prod):** the AI & ML test student, one category at D: set EX (read back 62.5, 4.4 s), the same again (`unchanged`, no write), clear (read back none); sync run 148 then read D with no override from Schoology. Record back where it started.
 
 ## Test day: finishing clock times (#187, 2026-10-27)
 

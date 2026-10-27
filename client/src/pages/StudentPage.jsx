@@ -396,8 +396,9 @@ function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
 export default function StudentPage() {
   const { id } = useParams();
   const dataVersion = useDataVersion();
-  // #197: with Private details off the page shows who the student is (photo, name, grade, ID, email)
-  // and one PrivateHidden box; alerts, family contacts, notes and the courses are not in the page.
+  // #197: with Private details off the page shows who the student is (photo, name, grade, ID, email),
+  // the courses with their grades and feedback (Graham, 27 Oct 2026), and one PrivateHidden box in place of
+  // the alerts, family contacts and notes, which are not in the page.
   // A grade card in edit mode saves its draft when it unmounts, so turning the switch off loses no work.
   const [privateOn] = usePrivateDetails();
   const [student, setStudent] = useState(null);
@@ -618,7 +619,7 @@ export default function StudentPage() {
             </div>
           </div>
 
-          {!privateOn && <PrivateHidden title="Alerts, family contacts, notes and grades are private." />}
+          {!privateOn && <PrivateHidden title="Alerts, family contacts and notes are private." />}
           {/* Family Contacts */}
           {privateOn && (
           <div>
@@ -653,9 +654,8 @@ export default function StudentPage() {
         </div>
       </div>
 
-      {privateOn && (<>
-
-      {/* Notes */}
+      {/* Notes: private (#197). */}
+      {privateOn && (
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: addingNote || student.notes.length > 0 ? '0.75rem' : 0 }}>
           <h3 style={{ margin: 0 }}>Notes</h3>
@@ -723,8 +723,10 @@ export default function StudentPage() {
           </div>
         )}
       </div>
+      )}
 
-      {/* Per-course collapsible sections */}
+      {/* Per-course collapsible sections: grades and feedback show with Private details off too
+          (Graham, 27 Oct 2026). */}
       {syncCourses.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', margin: '1.5rem 0 0.5rem' }}>
           <h3 style={{ margin: 0, fontWeight: 600 }}>Courses</h3>
@@ -771,7 +773,6 @@ export default function StudentPage() {
       {student.grades.length === 0 && (
         <div className="card"><p className="text-muted">No grades yet.</p></div>
       )}
-      </>)}
 
       {photoEnlarged && student.picture_url && (
         <div

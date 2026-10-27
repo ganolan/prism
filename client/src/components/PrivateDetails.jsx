@@ -4,11 +4,12 @@ import { usePrivateDetails } from '../lib/privateDetails.js';
 // Private details across Prism (#197, Graham 25 Oct 2026): one switch, in the left sidebar (the phone's
 // menu drawer), that every page showing private student data follows: the dashboard (triage), course
 // pages (Roster, Gradebook, Assessments, Analytics, the triage rail), the assessment page and the
-// student page. Off by default and remembered on this device (lib/privateDetails.js), so a page may be
+// student page (whose grades and feedback show either way, Graham 27 Oct 2026). Off by default and remembered on this device (lib/privateDetails.js), so a page may be
 // projected. Hidden means not rendered: with the switch off the private parts are not in the page, and
 // PrivateHidden stands in their place so the teacher can see what is withheld and which switch shows it.
 
 const HELP = 'Shows private student information on every page: grades, levels, alerts, contacts, notes and triage. '
+  + 'A student\'s own page shows their grades and feedback either way. '
   + 'Remembered on this device. Keep it off while the screen is projected.';
 
 function EyeIcon({ open }) {

@@ -1,5 +1,6 @@
 // Private details across Prism (#197): with the sidebar switch off, the student page and the assessment
-// page leave every private part out of the page (hidden means not rendered) and show the shared box.
+// page leave every private part out of the page (hidden means not rendered) and show the shared box. The
+// student page's grades and feedback are not private (Graham, 27 Oct 2026).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -36,13 +37,14 @@ describe('Student page with Private details off', () => {
     </MemoryRouter>,
   );
 
-  it('shows who the student is and the box; alerts, contacts, notes and courses are not in the page', async () => {
+  it('shows who the student is, the grades, and the box; alerts, contacts and notes are not in the page', async () => {
     api.getStudent.mockResolvedValue(STUDENT);
     const { container } = renderPage();
     expect(await screen.findByRole('heading', { name: /Ana Lee/ })).toBeInTheDocument();
     expect(screen.getByText('27007@hkis.edu.hk')).toBeInTheDocument();
-    expect(screen.getByText('Alerts, family contacts, notes and grades are private.')).toBeInTheDocument();
-    for (const t of [/Show alerts/, /Family Contacts/, /mei@example\.com/, /Left early/, /^Notes$/, /No grades yet/]) {
+    expect(screen.getByText('Alerts, family contacts and notes are private.')).toBeInTheDocument();
+    expect(screen.getByText('No grades yet.')).toBeInTheDocument(); // grades and feedback are not private (27 Oct 2026)
+    for (const t of [/Show alerts/, /Family Contacts/, /mei@example\.com/, /Left early/, /^Notes$/]) {
       expect(screen.queryByText(t)).not.toBeInTheDocument();
     }
     expect(container.textContent).not.toMatch(/Mei|dentist|Allergies/);
@@ -51,7 +53,7 @@ describe('Student page with Private details off', () => {
     expect(screen.getByText('Family Contacts')).toBeInTheDocument();
     expect(screen.getByText('Left early for the dentist')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Show alerts (1)' })).toBeInTheDocument();
-    expect(screen.queryByText('Alerts, family contacts, notes and grades are private.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Alerts, family contacts and notes are private.')).not.toBeInTheDocument();
   });
 });
 

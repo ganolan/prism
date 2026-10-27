@@ -41,6 +41,7 @@ vi.mock('../services/api.js', async (orig) => ({
 
 import StudentPage, { CourseSection } from './StudentPage.jsx';
 import { draftBaseline } from '../lib/assessmentDraft.js';
+import { setPrivateDetails } from '../lib/privateDetails.js';
 import {
   getStudent, getGradeCards, getStudentWorkLinks, getStudentCommentSummaries,
   getStudentFileSummaries, getFeedbackForAssignment, writeMasteryComment,
@@ -446,6 +447,24 @@ describe('StudentPage', () => {
     getStudentWorkLinks.mockResolvedValue({ links: {}, status: {} });
     getStudentCommentSummaries.mockResolvedValue({ assignments: {}, refresh: { queued: 0 } });
     serveCards();
+  });
+
+  // Graham, 27 Oct 2026: grades and feedback are not private on the student page; the notes still are.
+  it('with Private details off, every course shows its grade cards, levels and comments; notes are left out', async () => {
+    getStudent.mockResolvedValue({ ...student, notes: [{ id: 1, content: 'Left early for the dentist', created_at: '2026-10-01' }] });
+    setPrivateDetails(false);
+    try {
+      const { container } = renderPage();
+      expect(await screen.findByText('Clear and usable.')).toBeInTheDocument(); // the awarded level
+      expect(screen.getAllByText('Strong reflection.').length).toBeGreaterThan(0); // the comment
+      expect(screen.getByRole('link', { name: 'Art' })).toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: 'Deck 24' })).toBeInTheDocument();
+      expect(screen.getByText('Alerts, family contacts and notes are private.')).toBeInTheDocument();
+      expect(screen.queryByText(/^Notes$/)).not.toBeInTheDocument();
+      expect(container.textContent).not.toMatch(/dentist/);
+    } finally {
+      setPrivateDetails(true);
+    }
   });
 
   it('asks for each course\'s grade cards once, for this student; no class-wide or per-task request', async () => {

@@ -35,6 +35,21 @@ describe('lessonPlan', () => {
     expect(plan.meetings).toEqual(['2026-10-09', '2026-10-13', '2026-10-15']);
   });
 
+  test('a past start date counts from today, unless countFrom is due_date: then days on or before today carry overdue', () => {
+    expect(lessonPlan(getDb(), { courseId, from: '2026-10-05', today: '2026-10-12' }).days[0].date).toBe('2026-10-13');
+    const plan = lessonPlan(getDb(), { courseId, from: '2026-10-05', countFrom: 'due_date', today: '2026-10-12' });
+    expect(plan.from).toBe('2026-10-05');
+    // 06, 07, (08 holiday), 09, 12 (today), 13.
+    expect(plan.days.slice(0, 5)).toEqual([
+      { n: 1, date: '2026-10-06', approx: false, overdue: 3 },
+      { n: 2, date: '2026-10-07', approx: false, overdue: 2 },
+      { n: 3, date: '2026-10-09', approx: false, overdue: 1 },
+      { n: 4, date: '2026-10-12', approx: false, overdue: 0 },
+      { n: 5, date: '2026-10-13', approx: false },
+    ]);
+    expect(plan.meetings).toEqual(['2026-10-13', '2026-10-15']); // still lessons after today
+  });
+
   test('no timetable for the class: no meetings; a bad start date falls back to today', () => {
     const other = getDb().prepare("INSERT INTO courses (schoology_section_id, course_name) VALUES ('x', 'X')").run().lastInsertRowid;
     const plan = lessonPlan(getDb(), { courseId: other, from: 'nope', today: '2026-10-06' });

@@ -36,7 +36,7 @@ const PAYLOAD = {
   ],
   makeUps: [
     { studentId: 7, studentName: 'Noah Park', courseId: 8, courseName: 'AP CSP', blockNumber: '3', assignmentId: 20, schoologyAssignmentId: 'q20', title: 'Unit 1 test', dueDate: '2026-10-13', daysSince: 3, day: 4, tone: 'red', approx: false, extension: null },
-    { studentId: 8, studentName: 'Zoe Tan', courseId: 5, courseName: 'AP CSP', assignmentId: 21, schoologyAssignmentId: 'q21', title: 'Unit 2 quiz', dueDate: '2026-10-15', daysSince: 0, day: 1, tone: 'green', approx: false, extension: { id: 9, lessons: 2, until: '2026-10-20', note: 'sits Tue', schoolDaysLeft: 2 } },
+    { studentId: 8, studentName: 'Zoe Tan', courseId: 5, courseName: 'AP CSP', assignmentId: 21, schoologyAssignmentId: 'q21', title: 'Unit 2 quiz', dueDate: '2026-10-15', daysSince: 0, day: 1, tone: 'green', approx: false, extension: { id: 9, lessons: 2, until: '2026-10-20', note: 'sits Tue', schoolDaysLeft: 2, schoolDaysAfterDue: 2 } },
   ],
 };
 const latePanel = async () => screen.findByLabelText('Overdue work');
@@ -227,12 +227,13 @@ describe('TriageSection', () => {
     fireEvent.change(screen.getByLabelText('Extension note'), { target: { value: 'sick week' } });
     fireEvent.click(screen.getByText('Save'));
     expect(await dialog()).toHaveAccessibleName("Publish to Maya Chen's Schoology comment");
+    expect(screen.getByRole('dialog')).toHaveTextContent('Gives Maya Chen 4 school days to hand it in, counted from the due date (Mon 05/10).');
     const line = 'Extension - now due Fri 16/10 (4 school days). sick week';
     expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
-    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extension', studentId: 1, assignmentId: 9, lessons: 4 });
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extension', studentId: 1, assignmentId: 9, lessons: 4, countFrom: 'due_date' });
     expect(api.recordExtension).not.toHaveBeenCalled();
     fireEvent.click(await publishBtn('Publish new due date'));
-    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 1, assignmentId: 9, lessons: 4, note: 'sick week', commentLine: line }));
+    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 1, assignmentId: 9, lessons: 4, countFrom: 'due_date', note: 'sick week', commentLine: line }));
     await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.queryByLabelText('Extension (school days)')).not.toBeInTheDocument();
@@ -272,14 +273,29 @@ describe('TriageSection', () => {
     await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
   });
 
-  it('re-extending pre-fills the school days still left on the current extension, and its note', async () => {
-    const lateWork = PAYLOAD.lateWork.map((r) => (r.studentId === 3 ? { ...r, extension: { id: 4, lessons: 3, until: '2026-10-21', note: 'trip', schoolDaysLeft: 5 } } : r));
+  it('re-extending pre-fills the current extension (school days after the due date, or left from today) and its note', async () => {
+    const lateWork = PAYLOAD.lateWork.map((r) => (r.studentId === 3 ? { ...r, extension: { id: 4, lessons: 3, until: '2026-10-21', note: 'trip', schoolDaysLeft: 5, schoolDaysAfterDue: 7 } } : r));
     api.getTriage.mockResolvedValue({ ...PAYLOAD, lateWork });
     renderSection();
     const aiden = rowOf(within(await latePanel()).getByText('Aiden Li'));
     fireEvent.click(within(aiden).getByText('Extend'));
-    expect(screen.getByLabelText('Extension (school days)')).toHaveValue(5);
+    expect(screen.getByRole('button', { name: 'From due date Wed 14/10' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Extension (school days)')).toHaveValue(7);
     expect(screen.getByLabelText('Extension note')).toHaveValue('trip');
+    fireEvent.click(screen.getByRole('button', { name: 'From today' }));
+    expect(screen.getByLabelText('Extension (school days)')).toHaveValue(5);
+  });
+
+  it('Extend "From today" posts countFrom today and says so in the confirm', async () => {
+    renderSection();
+    const maya = rowOf(within(await latePanel()).getByText('Maya Chen'));
+    fireEvent.click(within(maya).getByText('Extend'));
+    fireEvent.click(screen.getByRole('button', { name: 'From today' }));
+    fireEvent.click(screen.getByText('Save'));
+    expect(await dialog()).toHaveTextContent('Gives Maya Chen 3 school days to hand it in, counted from today.');
+    await waitFor(() => expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extension', studentId: 1, assignmentId: 9, lessons: 3, countFrom: 'today' }));
+    fireEvent.click(await publishBtn('Publish new due date'));
+    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith(expect.objectContaining({ lessons: 3, countFrom: 'today' })));
   });
 
   it('Extend → Cancel closes the editor without posting', async () => {
@@ -696,9 +712,9 @@ describe('TriageSection — make-up tests', () => {
     fireEvent.click(within(panel).getByText('Save'));
     const line = 'Make-up - sit by Fri 16/10. sits Tue';
     expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
-    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'make_up', studentId: 8, assignmentId: 21, lessons: 3 });
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'make_up', studentId: 8, assignmentId: 21, lessons: 3, countFrom: 'due_date' });
     fireEvent.click(await publishBtn('Publish new due date'));
-    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 8, assignmentId: 21, lessons: 3, note: 'sits Tue', commentLine: line }));
+    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 8, assignmentId: 21, lessons: 3, countFrom: 'due_date', note: 'sits Tue', commentLine: line }));
     await waitFor(() => expect(api.getTriage).toHaveBeenCalledTimes(2));
   });
 });

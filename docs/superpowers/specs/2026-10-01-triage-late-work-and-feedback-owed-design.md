@@ -408,6 +408,18 @@ explicit request; descriptions say so.
       NULL on older rows = start + N, unchanged). Extending overdue work at 16 school days late now gives
       "3 more school days" from now instead of a date in the past. Re-extending pre-fills the school days
       still left (`schoolDaysLeft`). The lesson-hint plan starts at the later of the start date and today.
+      **Superseded for assignment extensions on 27 Oct 2026** (item 16); resubmission asks keep this rule.
+
+16. **Extensions count from the due date by default** (2026-10-27, Graham). A student 5 school days
+    overdue who is given 3 more days should be 2 school days overdue, not given 3 days from now. An
+    extension of late work or a make-up now takes `countFrom`: `'due_date'` (the default, in the app and
+    PrisMCP) = `addSchoolDays(due, N)`, which can already be past, so the row stays on the late-work list
+    counting from the new date; `'today'` = the item 15 rule (`deadlineFrom`). Before the due date both are
+    the same, so the editors offer the choice ("From due date Mon 19/10" / "From today") only once it has
+    passed. `extensionDeadline` / `assertCountFrom` (`triageCommon.js`); `POST /api/triage/extensions`,
+    `GET status-line/until` and `GET lesson-plan` take `countFrom`; the lesson plan marks days on or before
+    today with `overdue` ("→ Thu 22/10 · 2 school days overdue"). Re-extending from the due date pre-fills
+    `schoolDaysAfterDue`; from today, `schoolDaysLeft`. The choice is not stored: `until` is.
     - **Extend on the /assessment/ card** (`ExtendControl`), for any targeted student before or after the
       due date: summative work or a Schoology test in a current course, not an excused student. Same
       status-line confirm as triage; the route returns the pair's fresh timeline so the card updates.

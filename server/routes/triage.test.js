@@ -111,9 +111,14 @@ describe('/api/triage', () => {
   });
 
   test('POST extension → 201 with until; listed by course; the row carries it; DELETE undoes', async () => {
-    const created = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3, note: 'sick' });
+    // Due Mon 06/01/2020, long past. By default the 3 school days follow the due date: still late.
+    const fromDue = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3 });
+    expect(fromDue).toMatchObject({ status: 201, body: { until: '2020-01-09', timeline: { extension: { until: '2020-01-09', schoolDaysAfterDue: 3 } } } });
+    expect((await call('GET', '/api/triage')).body.lateWork).toHaveLength(1);
+    expect((await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3, countFrom: 'soon' })).body.code).toBe('BAD_VALUE');
+    // countFrom 'today' → 3 school days from today; re-extending replaces the row.
+    const created = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3, countFrom: 'today', note: 'sick' });
     expect(created.status).toBe(201);
-    // Due Mon 06/01/2020, long past: from-today (2026-10-08) → 3 school days from today.
     const expected = loadCalendar(getDb()).addSchoolDays(todayLocal(), 3).date;
     expect(created.body).toMatchObject({ lessons: 3, note: 'sick', source: 'app', until: expected, studentName: 'Maya Chen' });
     expect((await call('GET', `/api/triage/extensions?courseId=${courseId}`)).body).toHaveLength(1);
@@ -501,12 +506,17 @@ describe('GET status-line/until', () => {
     expect(stands.body.until).toBe(cal().addSchoolDays('2020-01-06', 5).date);
   });
 
-  test('extension / make_up: from the due date or today (whichever is later), matching the recorded extension', async () => {
+  test('extension / make_up: from the due date, or with countFrom=today from the later of it and today, matching the recorded extension', async () => {
     const res = await until({ kind: 'extension', studentId, assignmentId, lessons: 3 });
     expect(res.status).toBe(200);
     const rec = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3 });
     expect(res.body.until).toBe(rec.body.until);
     expect((await until({ kind: 'make_up', studentId, assignmentId, lessons: 3 })).body.until).toBe(rec.body.until);
+    const fromToday = await until({ kind: 'extension', studentId, assignmentId, lessons: 3, countFrom: 'today' });
+    const recToday = await call('POST', '/api/triage/extensions', { studentId, assignmentId, lessons: 3, countFrom: 'today' });
+    expect(fromToday.body.until).toBe(recToday.body.until);
+    expect(fromToday.body.until > rec.body.until).toBe(true); // the due date is long past
+    expect(await until({ kind: 'extension', studentId, assignmentId, lessons: 3, countFrom: 'x' })).toMatchObject({ status: 400, body: { code: 'BAD_VALUE' } });
     expect(await until({ kind: 'extension', studentId, assignmentId, lessons: 0 })).toMatchObject({ status: 400, body: { code: 'BAD_LESSONS' } });
   });
 

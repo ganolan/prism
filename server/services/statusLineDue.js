@@ -6,7 +6,7 @@
 // web confirm modal (GET /api/triage/status-line/until; the client renders the
 // line itself with client/src/lib/statusLines.js).
 import { assertCanExtend, TriageError } from './triage.js';
-import { deadlineFrom } from './triageCommon.js';
+import { deadlineFrom, extensionDeadline } from './triageCommon.js';
 import { assertCanRequest, assertCanExtendRequest, assertCanGradeStand } from './resubmissions.js';
 import { loadCalendar } from './schoolCalendar.js';
 import { todayLocal, epochToLocalDate } from '../lib/schoolDays.js';
@@ -15,7 +15,7 @@ import { sqliteUtcToEpoch } from '../lib/resubmission.js';
 export const DUE_KINDS = ['ask', 'extend_resubmission', 'grade_stands', 'extension', 'make_up'];
 
 // → { until: 'YYYY-MM-DD', lessons }
-export function statusLineUntil(db, { kind, studentId, assignmentId, lessons, resubmissionId } = {}, today = todayLocal()) {
+export function statusLineUntil(db, { kind, studentId, assignmentId, lessons, resubmissionId, countFrom } = {}, today = todayLocal()) {
   if (!DUE_KINDS.includes(kind)) throw new TriageError('BAD_VALUE', `kind must be one of ${DUE_KINDS.join(', ')}`);
   const cal = loadCalendar(db);
   if (kind === 'ask') {
@@ -32,7 +32,8 @@ export function statusLineUntil(db, { kind, studentId, assignmentId, lessons, re
     const requestedOn = epochToLocalDate(sqliteUtcToEpoch(request.requested_at));
     return { until: deadlineFrom(cal, requestedOn, n, today).date, lessons: n };
   }
-  // extension / make_up: from the assignment's own due date, or today once it has passed.
-  const { assignment, lessons: n } = assertCanExtend(db, { studentId, assignmentId, lessons });
-  return { until: deadlineFrom(cal, assignment.due_date.slice(0, 10), n, today).date, lessons: n };
+  // extension / make_up: from the assignment's own due date, or (countFrom 'today') from the
+  // later of the due date and today, as recordExtension counts.
+  const { assignment, lessons: n, countFrom: from } = assertCanExtend(db, { studentId, assignmentId, lessons, countFrom });
+  return { until: extensionDeadline(cal, assignment.due_date.slice(0, 10), n, today, from).date, lessons: n };
 }

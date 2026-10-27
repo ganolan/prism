@@ -291,13 +291,15 @@ export const previewStatusLine = ({ studentId, assignmentId, line = '' }) =>
   request(`/triage/status-line/preview?${new URLSearchParams({ studentId, assignmentId, line })}`);
 // The due date a default line embeds (school calendar): { until, lessons }.
 // kind: 'ask' | 'extend_resubmission' | 'grade_stands' | 'extension' | 'make_up'.
-export const getStatusLineUntil = ({ kind, studentId, assignmentId, lessons, resubmissionId }) => {
-  const q = Object.entries({ kind, studentId, assignmentId, lessons, resubmissionId })
+export const getStatusLineUntil = ({ kind, studentId, assignmentId, lessons, resubmissionId, countFrom }) => {
+  const q = Object.entries({ kind, studentId, assignmentId, lessons, resubmissionId, countFrom })
     .filter(([, v]) => v != null && v !== '');
   return request(`/triage/status-line/until?${new URLSearchParams(q)}`);
 };
 // Lesson hints for a school-day deadline: school days after `from` + the class's lessons.
-export const getLessonPlan = (courseId, from) => request(`/triage/lesson-plan?courseId=${courseId}${from ? `&from=${from}` : ''}`);
+export const getLessonPlan = (courseId, from, countFrom) => request(
+  `/triage/lesson-plan?courseId=${courseId}${from ? `&from=${from}` : ''}${countFrom ? `&countFrom=${countFrom}` : ''}`,
+);
 
 // Settings (server-side, shared by every device and PrisMCP).
 export const getSettings = () => request('/settings');

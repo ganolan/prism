@@ -161,8 +161,8 @@ function AttentionRow({ entry, done, gradebook, actions, onChanged, onFlagChange
       )}
       {open === 'extend' && (
         <div className="triage-row__more">
-          <ExtendEditor courseId={r.courseId} from={r.dueDate} extension={r.extension}
-            onSave={(lessons, n) => { (entry.kind === 'make_up' ? actions.extendMakeUp : actions.extend)(r, lessons, n); setOpen(null); }}
+          <ExtendEditor courseId={r.courseId} from={r.dueDate} extension={r.extension} countFrom
+            onSave={(lessons, n, countFrom) => { (entry.kind === 'make_up' ? actions.extendMakeUp : actions.extend)(r, lessons, n, countFrom); setOpen(null); }}
             onCancel={() => setOpen(null)} />
         </div>
       )}

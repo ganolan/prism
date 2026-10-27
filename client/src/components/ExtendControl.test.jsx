@@ -43,32 +43,50 @@ describe('ExtendControl (assessment card)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Extend' }));
     expect(screen.getByRole('button', { name: 'Extend' })).toHaveAttribute('aria-expanded', 'true'); // drawn as the active pill
     expect(screen.getByLabelText('Extension (school days)')).toHaveValue(3);
+    expect(screen.queryByRole('button', { name: 'From today' })).not.toBeInTheDocument(); // the same deadline before the due date
     fireEvent.change(screen.getByLabelText('Extension note'), { target: { value: 'trip' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('counted from the due date');
     const line = 'Extension - now due Mon 19/10 (3 school days). trip';
     expect(await screen.findByDisplayValue(line)).toBeInTheDocument();
-    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extension', studentId: 7, assignmentId: 30, lessons: 3 });
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extension', studentId: 7, assignmentId: 30, lessons: 3, countFrom: 'due_date' });
     expect(api.recordExtension).not.toHaveBeenCalled(); // nothing written until Publish
     fireEvent.click(await screen.findByRole('button', { name: 'Publish new due date' }));
-    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 7, assignmentId: 30, lessons: 3, note: 'trip', commentLine: line }));
+    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith({ studentId: 7, assignmentId: 30, lessons: 3, countFrom: 'due_date', note: 'trip', commentLine: line }));
     expect(onChange).toHaveBeenCalledWith(newTimeline, { comment: `${line}\n\nGood start.`, line, kind: 'extension' });
   });
 
-  it('after the due date the confirm says it counts from today; a test is a make-up line', async () => {
+  it('after the due date: counts from the due date by default (the deadline can be past), or from today', async () => {
+    vi.setSystemTime(new Date(2026, 9, 21, 9, 0)); // Wed 21/10: 5 school days after the due date
+    api.recordExtension.mockResolvedValue({ id: 12, until: '2026-10-19', timeline: timeline(), statusLine: null });
+    renderControl();
+    fireEvent.click(screen.getByRole('button', { name: 'Extend' }));
+    expect(screen.getByRole('button', { name: 'From due date Wed 14/10' })).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(api.getLessonPlan).toHaveBeenCalledWith(5, '2026-10-14', 'due_date'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Gives Maya Chen 3 school days more, counted from the due date (Wed 14/10).');
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'extension', studentId: 7, assignmentId: 30, lessons: 3, countFrom: 'due_date' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Publish new due date' }));
+    await waitFor(() => expect(api.recordExtension).toHaveBeenCalledWith(expect.objectContaining({ lessons: 3, countFrom: 'due_date' })));
+  });
+
+  it('after the due date "From today" counts from today; a test is a make-up line', async () => {
     vi.setSystemTime(new Date(2026, 9, 16, 9, 0));
     renderControl(student(), assignment({ is_test: 1 }));
     fireEvent.click(screen.getByRole('button', { name: 'Extend' }));
+    fireEvent.click(screen.getByRole('button', { name: 'From today' }));
+    expect(screen.getByRole('button', { name: 'From today' })).toHaveAttribute('aria-pressed', 'true');
+    await waitFor(() => expect(api.getLessonPlan).toHaveBeenCalledWith(5, '2026-10-14', 'today'));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('to sit the test, counted from today');
     expect(await screen.findByDisplayValue('Make-up - sit by Mon 19/10.')).toBeInTheDocument();
-    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'make_up', studentId: 7, assignmentId: 30, lessons: 3 });
+    expect(api.getStatusLineUntil).toHaveBeenCalledWith({ kind: 'make_up', studentId: 7, assignmentId: 30, lessons: 3, countFrom: 'today' });
   });
 
-  it('an existing extension: the pill shows its date, the editor starts from the school days left, Undo removes it', async () => {
+  it('an existing extension: the pill shows its date, the editor starts from its school days after the due date, Undo removes it', async () => {
     api.undoExtension.mockResolvedValue({ deleted: true, timeline: timeline(null), statusLine: { removed: true, comment: 'Good start.' } });
-    const onChange = renderControl(student({ id: 11, until: '2026-10-19', schoolDaysLeft: 2, note: 'trip' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Extended to 19/10/2026' }));
+    const onChange = renderControl(student({ id: 11, until: '2026-10-16', schoolDaysLeft: 2, schoolDaysAfterDue: 2, note: 'trip' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Extended to 16/10/2026' }));
     expect(screen.getByLabelText('Extension (school days)')).toHaveValue(2);
     expect(screen.getByLabelText('Extension note')).toHaveValue('trip');
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));

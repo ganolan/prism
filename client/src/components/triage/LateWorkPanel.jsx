@@ -14,7 +14,7 @@ import ReferPanel from '../ReferPanel.jsx';
 // or the days-left label above Extend; work handed in late past the limit has Refer and
 // Waive instead (the work is in, so there's no deadline left to extend: Waive records
 // the decision not to refer it, with an optional note). Extend opens the shared
-// ExtendEditor (N school days from today, or from the due date if that is later) full-width
+// ExtendEditor (N school days after the due date, or from today if the teacher picks it) full-width
 // below the row's text; its Save hands off to the parent's StatusLineModal confirm, which
 // publishes the extension line (note included) to the student's Schoology comment. The "Referred / extended (N) ›" link at the bottom toggles
 // ReferralHistory open immediately below it, inside this panel (owned by the parent
@@ -109,8 +109,8 @@ export default function LateWorkPanel({
               <div className="triage-row__more">
                 <ExtendEditor
                   courseId={r.courseId} from={r.dueDate}
-                  extension={r.extension}
-                  onSave={(lessons, note) => { onExtend(r, lessons, note); setExtending(null); }}
+                  extension={r.extension} countFrom
+                  onSave={(lessons, note, countFrom) => { onExtend(r, lessons, note, countFrom); setExtending(null); }}
                   onCancel={() => setExtending(null)}
                 />
               </div>

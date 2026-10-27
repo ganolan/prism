@@ -684,7 +684,7 @@ describe('extensions (extend by N lessons = school days)', () => {
     // 06, 07, 08/10 → until Thu 08/10; 09, 12–16/10 = 6 school days late → amber.
     expect(getTriage(db, { today: TODAY }).lateWork).toEqual([expect.objectContaining({
       kind: 'outstanding', dueDate: '2026-10-05', daysLate: 6, tone: 'amber',
-      extension: { id: e.id, lessons: 3, until: '2026-10-08', note: 'sick week', schoolDaysLeft: 0 },
+      extension: { id: e.id, lessons: 3, until: '2026-10-08', note: 'sick week', schoolDaysLeft: 0, schoolDaysAfterDue: 3 },
     })]);
     expect(getTriage(db, { today: '2026-10-08' }).lateWork).toEqual([]); // the extended date itself
     recordExtension(db, { studentId: maya, assignmentId: id, lessons: 9 , today: '2026-10-05' }); // until 16/10 = today
@@ -998,27 +998,53 @@ describe('getTriage — studentEmail (#137)', () => {
   });
 });
 
-describe('from-today deadlines (2026-10-08): overdue work is extended from today, not the due date', () => {
-  test('granted after the due date: N school days from today', () => {
+describe('where an extension counts from: the due date (default, 27 Oct 2026) or today (2026-10-08)', () => {
+  test('granted after the due date, by default: N school days after the due date, so the work is less late', () => {
     const maya = student('u1', 'Maya', 'Chen');
     const id = assignment('a1', 'CP2', '2026-10-05'); // 9 school days late on Fri 16/10 → red
     const e = recordExtension(db, { studentId: maya, assignmentId: id, lessons: 3, today: TODAY });
+    expect(e.until).toBe('2026-10-08'); // Tue 06, Wed 07, Thu 08: already passed
+    // 09, 12–16/10 = 6 school days late against the extended date, still on the list.
+    expect(getTriage(db, { today: TODAY }).lateWork[0]).toMatchObject({ daysLate: 6, day: 7, tone: 'amber' });
+  });
+
+  test("countFrom 'today': N school days from today, off the list until then", () => {
+    const maya = student('u1', 'Maya', 'Chen');
+    const id = assignment('a1', 'CP2', '2026-10-05');
+    const e = recordExtension(db, { studentId: maya, assignmentId: id, lessons: 3, countFrom: 'today', today: TODAY });
     expect(e.until).toBe('2026-10-21'); // Mon 19, Tue 20, Wed 21
     expect(getTriage(db, { today: TODAY }).lateWork).toEqual([]); // off the list until the new deadline passes
     expect(getTriage(db, { today: '2026-10-22' }).lateWork[0]).toMatchObject({ daysLate: 1, tone: 'green' });
   });
 
-  test('granted before the due date: still counts from the due date', () => {
+  test('granted before the due date: both count from the due date', () => {
     const a = student('u1', 'Ada', 'L');
     const id = assignment('a1', 'Future', '2026-10-20');
     expect(recordExtension(db, { studentId: a, assignmentId: id, lessons: 3, today: TODAY })).toMatchObject({ until: '2026-10-23' });
+    expect(recordExtension(db, { studentId: a, assignmentId: id, lessons: 3, countFrom: 'today', today: TODAY })).toMatchObject({ until: '2026-10-23' });
   });
 
-  test('a make-up extended after the test date counts from today', () => {
+  test('a make-up extended after the test date: from the test date, or from today', () => {
     const ada = student('u1', 'Ada', 'L');
     const id = testItem('t1', 'Unit 1 test', '2026-10-05');
     missed(ada, id);
-    expect(recordExtension(db, { studentId: ada, assignmentId: id, lessons: 1, today: TODAY })).toMatchObject({ until: '2026-10-19' });
+    expect(recordExtension(db, { studentId: ada, assignmentId: id, lessons: 1, today: TODAY })).toMatchObject({ until: '2026-10-06' });
+    expect(recordExtension(db, { studentId: ada, assignmentId: id, lessons: 1, countFrom: 'today', today: TODAY })).toMatchObject({ until: '2026-10-19' });
+  });
+
+  test('refuses any other countFrom, before writing', () => {
+    const a = student('u1', 'Ada', 'L');
+    const id = assignment('a1', 'CP2', '2026-10-05');
+    expect(() => recordExtension(db, { studentId: a, assignmentId: id, lessons: 3, countFrom: 'tomorrow', today: TODAY }))
+      .toThrow(expect.objectContaining({ code: 'BAD_VALUE' }));
+    expect(db.prepare('SELECT COUNT(*) AS n FROM extensions').get().n).toBe(0);
+  });
+
+  test("a row's extension says its school days after the due date (the due-date re-extend prefill)", () => {
+    const maya = student('u1', 'Maya', 'Chen');
+    const id = assignment('a1', 'CP2', '2026-10-05');
+    recordExtension(db, { studentId: maya, assignmentId: id, lessons: 2, countFrom: 'today', today: '2026-10-08' }); // until Mon 12/10
+    expect(getTriage(db, { today: TODAY }).lateWork[0].extension).toMatchObject({ until: '2026-10-12', schoolDaysLeft: 0, schoolDaysAfterDue: 5 });
   });
 
   test('a row\'s extension says how many school days are left from today (the re-extend prefill)', () => {

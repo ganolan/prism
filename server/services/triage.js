@@ -19,7 +19,7 @@ import { gradingState } from './assessmentContext.js';
 import { teacherText } from '../lib/statusLines.js';
 import { preferredFirstName } from './studentNames.js';
 import {
-  TriageError, toneFor, makeUpTone, currentCourses, roster, ALIGNED_SQL, fullName, MAX_EXTENSION_LESSONS, deadlineFrom, laterOf,
+  TriageError, toneFor, makeUpTone, currentCourses, roster, ALIGNED_SQL, fullName, MAX_EXTENSION_LESSONS, extensionDeadline, assertCountFrom, laterOf,
   assignmentFacts, isSubmitted,
 } from './triageCommon.js';
 import { resubmissionRows } from './resubmissions.js';
@@ -86,9 +86,13 @@ export function extensionUntil(cal, due, ext) {
 }
 const effectiveDue = extensionUntil;
 // schoolDaysLeft: from the later of the due date and today to the deadline, the
-// count a re-extend starts from (0 once it has passed).
+// count a re-extend from today starts from (0 once it has passed). schoolDaysAfterDue:
+// from the due date to the deadline, the count a re-extend from the due date starts from.
 const extensionInfo = (ext, until, cal, due, today) => (ext
-  ? { id: ext.id, lessons: ext.lessons, until, note: ext.note, schoolDaysLeft: cal.between(laterOf(due, today), until).days }
+  ? {
+    id: ext.id, lessons: ext.lessons, until, note: ext.note,
+    schoolDaysLeft: cal.between(laterOf(due, today), until).days, schoolDaysAfterDue: cal.between(due, until).days,
+  }
   : null);
 
 // Can this assignment make a student "outstanding"? Only when it takes
@@ -415,14 +419,17 @@ export function listExtensions(db, { courseId = null, studentId = null, since = 
 }
 
 // Extend one student's deadline by N school days (the `lessons` field), counted from
-// the due date, or from today once it has passed (2026-10-08). Any time — before
+// the due date (countFrom 'due_date', the default, 27 Oct 2026: the deadline can already
+// have passed, which shortens how late the work is) or from the later of the due date and
+// today (countFrom 'today', the only rule from 2026-10-08). Any time — before
 // or after the due date, at any tone — for a summative assignment or a Schoology
 // test/quiz (a make-up, any alignment) in a current course that targets the student. Re-extending the pair replaces lessons/note/
 // source and stamps updated_at (created_at keeps the first grant).
 // Validation for an extension (no write) — the routes check it BEFORE publishing a
-// status line. Returns { student, assignment (with is_test), lessons }.
-export function assertCanExtend(db, { studentId, assignmentId, lessons } = {}) {
+// status line. Returns { student, assignment (with is_test), lessons, countFrom }.
+export function assertCanExtend(db, { studentId, assignmentId, lessons, countFrom } = {}) {
   const st = requireStudent(db, studentId);
+  const from = assertCountFrom(countFrom);
   const n = Number(lessons);
   if (lessons == null || lessons === '' || !Number.isInteger(n) || n < 1 || n > MAX_EXTENSION_LESSONS) {
     throw new TriageError('BAD_LESSONS', `lessons must be a whole number from 1 to ${MAX_EXTENSION_LESSONS}`);
@@ -439,13 +446,12 @@ export function assertCanExtend(db, { studentId, assignmentId, lessons } = {}) {
   const assigned = !(a.num_assignees > 0)
     || db.prepare('SELECT 1 FROM assignment_assignees WHERE assignment_id = ? AND schoology_uid = ?').get(a.id, st.schoology_uid);
   if (!enrolled || !assigned) throw new TriageError('NOT_ELIGIBLE', 'That assignment does not target that student');
-  return { student: st, assignment: a, lessons: n };
+  return { student: st, assignment: a, lessons: n, countFrom: from };
 }
 
-export function recordExtension(db, { studentId, assignmentId, lessons, note = null, source = 'app', today = todayLocal() } = {}) {
-  const { student: st, assignment: a, lessons: n } = assertCanExtend(db, { studentId, assignmentId, lessons });
-  // N school days from the due date, or from today once it has passed.
-  const until = deadlineFrom(loadCalendar(db), a.due_date.slice(0, 10), n, today).date;
+export function recordExtension(db, { studentId, assignmentId, lessons, countFrom, note = null, source = 'app', today = todayLocal() } = {}) {
+  const { student: st, assignment: a, lessons: n, countFrom: from } = assertCanExtend(db, { studentId, assignmentId, lessons, countFrom });
+  const until = extensionDeadline(loadCalendar(db), a.due_date.slice(0, 10), n, today, from).date;
   db.prepare(`
     INSERT INTO extensions (student_id, assignment_id, course_id, lessons, until, note, source) VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (student_id, assignment_id) DO UPDATE SET

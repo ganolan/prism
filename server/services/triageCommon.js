@@ -56,11 +56,27 @@ export const fullName = (st) => `${preferredFirstName(st)} ${st.last_name}`;
 export const MAX_EXTENSION_LESSONS = 60;
 
 // A deadline N school days from its start date, or from today once that date has
-// passed: extending overdue work (or a lapsed resubmission ask, or a missed test)
-// gives time from now, not from the past. Before the start date it counts from it.
+// passed: extending a lapsed resubmission ask (or, with countFrom 'today', overdue work
+// or a missed test) gives time from now, not from the past. Before the start date it
+// counts from it.
 export const laterOf = (a, b) => (a > b ? a : b);
 export function deadlineFrom(cal, start, n, today) {
   return cal.addSchoolDays(laterOf(start, today), n);
+}
+
+// What an extension's N school days count from (27 Oct 2026). 'due_date' (the default): N
+// school days after the original due date, even when that date has already passed, so 3
+// days on work 5 school days overdue leaves it 2 school days overdue. 'today': from the
+// later of the due date and today (deadlineFrom), a fresh N days from now. Before the due
+// date the two give the same deadline.
+export const COUNT_FROM = ['due_date', 'today'];
+export function assertCountFrom(countFrom) {
+  const v = countFrom == null || countFrom === '' ? 'due_date' : countFrom;
+  if (!COUNT_FROM.includes(v)) throw new TriageError('BAD_VALUE', `countFrom must be one of ${COUNT_FROM.join(', ')}`);
+  return v;
+}
+export function extensionDeadline(cal, due, n, today, countFrom = 'due_date') {
+  return assertCountFrom(countFrom) === 'today' ? deadlineFrom(cal, due, n, today) : cal.addSchoolDays(due, n);
 }
 
 // Per-task facts and the submission test, shared by triage.js and flagRows.js (here, not in

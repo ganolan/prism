@@ -1941,3 +1941,12 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Client:** `AttemptsTab` (By student, By question), `AttemptByStudent`, `AttemptByQuestion`, `McqAnswer`; `useCardBatch` (the Grading tab's Send all as a hook); `lib/frqFilters.js`, `lib/quizOptions.js`; `FreeResponseTab` deleted (tests ported). Tabs: Grading, Questions, Attempts.
 - **Tests:** quizResults, quizOverall, quizAttempts, quizzes route, mastery route (a test comment echoes the grade), MCP handlers and server, useCardBatch, AttemptsTab (By student and By question, the ported Free response tests), the page's quiz tests.
 
+
+## Extensions count from the due date (2026-10-27)
+
+- **Problem (Graham):** a student 5 school days late on a project (lost files) was to get 3 more days, leaving 2 school days overdue. Since 2026-10-08 (`447562a`) Extend counted from today once the due date had passed, so the only deadline on offer was 3 school days from now.
+- **Rule:** an assignment extension (late work or a make-up) takes `countFrom`, `'due_date'` (default) or `'today'`. From the due date the deadline can already be past: the row stays on the late-work list, counting from the new date. Resubmission asks are unchanged. Spec item 16 in `docs/superpowers/specs/2026-10-01-triage-late-work-and-feedback-owed-design.md`.
+- **Server:** `extensionDeadline` / `assertCountFrom` (`server/services/triageCommon.js`); `assertCanExtend` and `recordExtension` (`triage.js`), `statusLineUntil`, `POST /api/triage/extensions`, `GET status-line/until` and `GET lesson-plan` take `countFrom`. The plan marks days on or before today with `overdue`. Extension info gains `schoolDaysAfterDue` (triage rows and the submission timeline). No schema change: `until` is stored, the choice is not.
+- **PrisMCP:** `extend_deadline` and `preview_status_line` take `count_from` (`'due_date'` default).
+- **Client:** `CountFromChoice` (pills "From due date Ddd DD/MM" / "From today", only once the due date has passed) in `ExtendControl` and `ExtendEditor` (late work, make-ups, Needs attention; not resubmissions); `LessonHint` passes `countFrom` and says "N school days overdue" / "due today"; the confirm names the start.
+- **Tests:** triage service (default, today, before the due date, make-up, BAD_VALUE, `schoolDaysAfterDue`), lesson plan, triage routes, MCP handlers, submission timeline; client ExtendControl, ExtendEditor, TriageSection, lessonHint.

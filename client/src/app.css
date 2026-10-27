@@ -1403,6 +1403,8 @@ a.triage-row__title:hover { text-decoration: underline; }
 .triage-row__flag-panel:empty { display: none; }
 /* LessonHint: "→ Thu 15/10 · 3 lessons from today" + Next lesson picks, beside a school-day stepper. */
 .lesson-hint { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+/* Extend: count the school days from the due date or from today (CountFromChoice), once the due date has passed. */
+.count-from { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 .triage-row button.triage-row__quiet { color: var(--text-muted); }
 /* Referred / extended history (no ring): text, then its badges + Undo, wrapping in the rail
    (the stacked-actions column above is for the live Overdue work / Make-up tests rows only). */

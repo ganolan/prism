@@ -48,7 +48,7 @@ describe('buildTimeline: submitted work', () => {
       ...base, assignment: lti, extension: { lessons: 2, note: 'sick' },
       grade: { lti_submission_state: 'submitted', first_submitted_at: at('2026-10-09 10:00'), late: 1 },
     });
-    expect(t.extension).toEqual({ id: null, schoolDays: 2, until: '2026-10-09', note: 'sick', schoolDaysLeft: 0 });
+    expect(t.extension).toEqual({ id: null, schoolDays: 2, until: '2026-10-09', note: 'sick', schoolDaysLeft: 0, schoolDaysAfterDue: 2 });
     expect(t.deadline).toBe('2026-10-09');
     expect(t.submission).toMatchObject({ late: false, day: null, schoologyLate: true });
   });

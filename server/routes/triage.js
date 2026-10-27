@@ -77,13 +77,13 @@ router.get('/status-line/preview', async (req, res) => {
   }
 });
 
-// GET /api/triage/status-line/until?kind&studentId&assignmentId&lessons&resubmissionId
+// GET /api/triage/status-line/until?kind&studentId&assignmentId&lessons&resubmissionId&countFrom
 // → { until, lessons }: the due date the confirm modal's default line embeds, from the
 // same calendar logic (and validation) as the action itself. No Schoology read.
 router.get('/status-line/until', (req, res) => {
-  const { kind, studentId, assignmentId, lessons, resubmissionId } = req.query;
+  const { kind, studentId, assignmentId, lessons, resubmissionId, countFrom } = req.query;
   try {
-    res.json(statusLineUntil(getDb(), { kind, studentId, assignmentId, lessons, resubmissionId }));
+    res.json(statusLineUntil(getDb(), { kind, studentId, assignmentId, lessons, resubmissionId, countFrom }));
   } catch (err) {
     sendError(res, err);
   }
@@ -109,12 +109,13 @@ router.get('/calendar', (req, res) => {
   res.json({ source: cal.source, totalSchoolDays: cal.totalSchoolDays, syncedAt: cal.syncedAt });
 });
 
-// GET /api/triage/lesson-plan?courseId=&from=YYYY-MM-DD — school days after `from`
-// (n = 1..60) plus the class's lesson dates after today, for the "N lessons from
-// today" hint and "Next lesson" picks next to a school-day deadline.
+// GET /api/triage/lesson-plan?courseId=&from=YYYY-MM-DD[&countFrom=due_date] — school days
+// after `from` (n = 1..60; after today once `from` has passed, unless countFrom=due_date)
+// plus the class's lesson dates after today, for the "N lessons from today" hint and
+// "Next lesson" picks next to a school-day deadline.
 router.get('/lesson-plan', (req, res) => {
   if (!req.query.courseId) return res.status(400).json({ error: 'courseId is required' });
-  res.json(lessonPlan(getDb(), { courseId: req.query.courseId, from: req.query.from }));
+  res.json(lessonPlan(getDb(), { courseId: req.query.courseId, from: req.query.from, countFrom: req.query.countFrom }));
 });
 
 // GET /api/triage/referrals?courseId= — referral history, newest first.
@@ -149,20 +150,21 @@ router.get('/extensions', (req, res) => {
   res.json(listExtensions(getDb(), { courseId: req.query.courseId ?? null }));
 });
 
-// POST /api/triage/extensions — { studentId, assignmentId, lessons (1–60 school days), note?, commentLine? }
+// POST /api/triage/extensions — { studentId, assignmentId, lessons (1–60 school days),
+// countFrom? ('due_date' default | 'today'), note?, commentLine? }
 // commentLine → published first (kind 'make_up' for a Schoology test, else 'extension').
 router.post('/extensions', (req, res) => {
-  const { studentId, assignmentId, lessons, note, commentLine } = req.body || {};
+  const { studentId, assignmentId, lessons, countFrom, note, commentLine } = req.body || {};
   const db = getDb();
   act(res, {
     pair: () => [studentId, assignmentId],
-    validate: () => assertCanExtend(db, { studentId, assignmentId, lessons }),
+    validate: () => assertCanExtend(db, { studentId, assignmentId, lessons, countFrom }),
     publish: hasLine(commentLine) && ((ctx) => publishStatusLine(db, {
       studentId: ctx.student.id, assignmentId: ctx.assignment.id, line: commentLine,
       kind: ctx.assignment.is_test === 1 ? 'make_up' : 'extension',
     })),
     record: (ctx, published) => {
-      const x = recordExtension(db, { studentId, assignmentId, lessons, note, source: 'app' });
+      const x = recordExtension(db, { studentId, assignmentId, lessons, countFrom, note, source: 'app' });
       if (published) setStatusLineSource(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id, type: 'extension', id: x.id });
       // The pair's fresh submission timeline, for the /assessment/ card's Extend control.
       return { ...x, timeline: timelineForPair(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id }) };

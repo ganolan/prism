@@ -5,6 +5,7 @@ import {
 } from '../services/api.js';
 import { extensionLine, makeUpLine, extendResubmissionLine, gradeStandsLine } from '../lib/statusLines.js';
 import StatusLineModal from '../components/StatusLineModal.jsx';
+import { countFromText } from '../components/CountFromChoice.jsx';
 import { localIsoDate } from '../lib/formatDate.js';
 
 // The triage rail's actions on a row (Refer, Waive, Extend, Grade stands, Ignore this test), shared by
@@ -81,20 +82,19 @@ export function useTriageActions({ onChanged, onError, onMakeUpIgnored, onDone }
   const untilFor = async (q) => (await getStatusLineUntil(q)).until;
 
   // Overdue work (extensionLine) and make-up tests (makeUpLine): the note goes into the line.
-  const extendBy = (row, lessons, note, makeUp) => publish(row, 'extended', {
-    // N school days from today (these rows are past their due / test date).
-    consequence: makeUp
-      ? `Gives ${row.studentName} ${lessonsText(lessons)} from today to sit the test.`
-      : `Gives ${row.studentName} ${lessonsText(lessons)} from today to hand it in.`,
+  // countFrom 'due_date' (the default) adds the days to the original due / test date;
+  // 'today' gives them from now (these rows are past their due / test date).
+  const extendBy = (row, lessons, note, makeUp, countFrom = 'due_date') => publish(row, 'extended', {
+    consequence: `Gives ${row.studentName} ${lessonsText(lessons)} ${makeUp ? 'to sit the test' : 'to hand it in'}, counted from ${countFromText(row.dueDate, countFrom)}.`,
     confirmLabel: 'Publish new due date',
     loadDefaultLine: async () => {
-      const until = await untilFor({ kind: makeUp ? 'make_up' : 'extension', studentId: row.studentId, assignmentId: row.assignmentId, lessons });
+      const until = await untilFor({ kind: makeUp ? 'make_up' : 'extension', studentId: row.studentId, assignmentId: row.assignmentId, lessons, countFrom });
       return makeUp ? makeUpLine({ until, note }) : extensionLine({ until, lessons, note });
     },
-    run: (commentLine) => recordExtension({ studentId: row.studentId, assignmentId: row.assignmentId, lessons, note, commentLine }),
+    run: (commentLine) => recordExtension({ studentId: row.studentId, assignmentId: row.assignmentId, lessons, countFrom, note, commentLine }),
   });
-  const extend = (row, lessons, note) => extendBy(row, lessons, note, false);
-  const extendMakeUp = (row, lessons, note) => extendBy(row, lessons, note, true);
+  const extend = (row, lessons, note, countFrom) => extendBy(row, lessons, note, false, countFrom);
+  const extendMakeUp = (row, lessons, note, countFrom) => extendBy(row, lessons, note, true, countFrom);
   const extendResub = (row, lessons) => publish(row, 'resub_extended', {
     consequence: `Gives ${row.studentName} ${lessonsText(lessons)} to resubmit, counted from ${row.requestedOn < localIsoDate() ? 'today' : 'the ask'}.`,
     confirmLabel: 'Publish new due date',

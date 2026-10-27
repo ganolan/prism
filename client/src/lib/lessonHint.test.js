@@ -21,6 +21,14 @@ describe('lessonHint', () => {
     expect(lessonHint(past, 2).text).toBe('→ Fri 09/10 · already passed');
   });
 
+  it('a deadline counted from a past due date says how late it leaves the work (the plan gives overdue)', () => {
+    const overdue = { '2026-10-07': 3, '2026-10-09': 2, '2026-10-12': 1, '2026-10-13': 0 };
+    const plan = { ...PLAN, today: '2026-10-13', days: PLAN.days.map((d) => (d.date in overdue ? { ...d, overdue: overdue[d.date] } : d)) };
+    expect(lessonHint(plan, 1).text).toBe('→ Wed 07/10 · 3 school days overdue');
+    expect(lessonHint(plan, 3).text).toBe('→ Mon 12/10 · 1 school day overdue');
+    expect(lessonHint(plan, 4).text).toBe('→ Tue 13/10 · due today');
+  });
+
   it('without a timetable it gives just the date; without a plan, nothing', () => {
     expect(lessonHint({ ...PLAN, meetings: [] }, 2).text).toBe('→ Fri 09/10');
     expect(lessonHint(null, 2)).toBeNull();

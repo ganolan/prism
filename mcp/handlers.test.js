@@ -877,9 +877,13 @@ describe('triage tools', () => {
   test('extend_deadline → get_triage row carries it → undo_extension (source mcp)', async () => {
     const db = getDb();
     const { studentId, assignmentId } = seedLate(db);
-    // Due Mon 06/01/2020, long past: +3 school days from today (2026-10-08 rule); off the list until then.
-    const e = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 3, note: 'sick' });
-    expect(e).toMatchObject({ lessons: 3, note: 'sick', source: 'mcp', studentName: 'Maya Chen' });
+    // Due Mon 06/01/2020, long past. By default +3 school days after the due date: still late, from then.
+    const fromDue = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 3, note: 'sick' });
+    expect(fromDue).toMatchObject({ lessons: 3, until: '2020-01-09', source: 'mcp' });
+    expect(getTriageTool(db, {}).lateWork).toEqual([expect.objectContaining({ extension: expect.objectContaining({ until: '2020-01-09' }) })]);
+    // count_from 'today': +3 school days from today; off the list until then. Re-extending replaces the row.
+    const e = await extendDeadlineTool(db, { student_id: studentId, assignment_id: assignmentId, lessons: 3, count_from: 'today', note: 'sick' });
+    expect(e).toMatchObject({ id: fromDue.id, lessons: 3, note: 'sick', source: 'mcp', studentName: 'Maya Chen' });
     expect(e.until > todayLocal()).toBe(true);
     expect(getTriageTool(db, {}).lateWork).toEqual([]);
     expect(listReferralsTool(db, {}).extensions).toHaveLength(1);

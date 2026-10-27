@@ -68,8 +68,10 @@ export function buildTimeline({
         const until = extensionUntil(cal, due.date, extension).date;
         return {
           id: extension.id ?? null, schoolDays: extension.lessons, until, note: extension.note ?? null,
-          // From the later of the due date and today: what a re-extend starts from (0 once passed).
+          // From the later of the due date and today: what a re-extend from today starts from (0 once passed).
           schoolDaysLeft: cal.between(laterOf(due.date, today), until).days,
+          // From the due date: what a re-extend from the due date starts from.
+          schoolDaysAfterDue: cal.between(due.date, until).days,
         };
       })()
     : null;

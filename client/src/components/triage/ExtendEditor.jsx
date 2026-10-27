@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import NumberStepper from '../NumberStepper.jsx';
 import LessonHint from '../LessonHint.jsx';
+import CountFromChoice from '../CountFromChoice.jsx';
 import { formatDate } from '../../lib/formatDate.js';
 import { Tip } from '../HelpDot.jsx';
 
@@ -15,23 +16,34 @@ const MAX_LESSONS = 60;
 // `showNote` hides the note field for callers whose write doesn't persist one
 // (resubmissions: a note typed here would be silently dropped — the teacher edits
 // the status line in the confirm instead).
-export default function ExtendEditor({ extension, onSave, onCancel, showNote = true, courseId, from }) {
-  // Deadlines count from today once the start date has passed, so a re-extend starts
-  // from the school days still left on the current deadline (or the default once passed).
-  const [lessons, setLessons] = useState(extension?.schoolDaysLeft > 0 ? extension.schoolDaysLeft : DEFAULT_LESSONS);
+// `countFrom` (an assignment extension: late work, a make-up) offers, once `from` (the due
+// date) has passed, counting from the due date (the default) or from today, and
+// onSave(lessons, note, countFrom). Without it (a resubmission) the days count from today
+// once the start date has passed.
+export default function ExtendEditor({ extension, onSave, onCancel, showNote = true, courseId, from, countFrom: offerCountFrom = false }) {
+  // A re-extend starts from the current deadline: its school days after the due date, or
+  // the school days still left from today (the default once it has passed).
+  const initial = (cf) => {
+    const n = cf === 'due_date' ? extension?.schoolDaysAfterDue : extension?.schoolDaysLeft;
+    return n > 0 ? n : DEFAULT_LESSONS;
+  };
+  const [countFrom, setCountFrom] = useState(offerCountFrom ? 'due_date' : null);
+  const [lessons, setLessons] = useState(() => initial(countFrom));
   const [note, setNote] = useState(extension?.note ?? '');
+  const pick = (v) => { setCountFrom(v); setLessons(initial(v)); };
   return (
     <>
       <NumberStepper value={lessons} min={1} max={MAX_LESSONS} onChange={setLessons} aria-label="Extension (school days)" />
       <span className="text-sm">school days</span>
-      <LessonHint courseId={courseId} from={from} value={lessons} onPick={setLessons} />
+      {offerCountFrom && <CountFromChoice due={from} value={countFrom} onChange={pick} />}
+      <LessonHint courseId={courseId} from={from} countFrom={countFrom} value={lessons} onPick={setLessons} />
       {showNote && (
         <input
           className="triage-note" placeholder="Note (optional)" aria-label="Extension note"
           value={note} onChange={(e) => setNote(e.target.value)}
         />
       )}
-      <button className="secondary btn-sm" onClick={() => onSave(lessons, note)}>Save</button>
+      <button className="secondary btn-sm" onClick={() => onSave(lessons, note, countFrom ?? undefined)}>Save</button>
       <button className="ghost" onClick={onCancel}>Cancel</button>
     </>
   );

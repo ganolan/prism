@@ -542,7 +542,7 @@ export async function getAssignmentContextTool(db, { course_id, assignment_id, u
 // lock → validate → publish → record orchestration in triageActions.js, same
 // as the HTTP routes). With resubmission_id: kind 'extend_resubmission'.
 // Otherwise: kind 'make_up' for a Schoology test, else 'extension'.
-export async function extendDeadlineTool(db, { student_id, assignment_id, lessons, note, resubmission_id, comment_line } = {}, { devCopy = false } = {}) {
+export async function extendDeadlineTool(db, { student_id, assignment_id, lessons, count_from, note, resubmission_id, comment_line } = {}, { devCopy = false } = {}) {
   if (hasLine(comment_line)) assertSchoologyWritable({ devCopy });
   if (resubmission_id != null) {
     return act(db, {
@@ -560,13 +560,13 @@ export async function extendDeadlineTool(db, { student_id, assignment_id, lesson
   }
   return act(db, {
     pair: () => [student_id, assignment_id],
-    validate: () => assertCanExtend(db, { studentId: student_id, assignmentId: assignment_id, lessons }),
+    validate: () => assertCanExtend(db, { studentId: student_id, assignmentId: assignment_id, lessons, countFrom: count_from }),
     publish: hasLine(comment_line) ? ((ctx) => publishStatusLine(db, {
       studentId: ctx.student.id, assignmentId: ctx.assignment.id, line: comment_line,
       kind: ctx.assignment.is_test === 1 ? 'make_up' : 'extension',
     })) : null,
     record: (ctx, published) => {
-      const x = recordExtension(db, { studentId: student_id, assignmentId: assignment_id, lessons, note, source: 'mcp' });
+      const x = recordExtension(db, { studentId: student_id, assignmentId: assignment_id, lessons, countFrom: count_from, note, source: 'mcp' });
       if (published) setStatusLineSource(db, { studentId: ctx.student.id, assignmentId: ctx.assignment.id, type: 'extension', id: x.id });
       return x;
     },
@@ -649,13 +649,13 @@ const RENDERABLE_KINDS = ['ask', 'extend_resubmission', 'grade_stands', 'extensi
 // `line` (e.g. the teacher edited Prism's suggestion), resultingComment
 // previews THAT text instead, while `line` in the response still carries the
 // original suggestion for comparison.
-export async function previewStatusLineTool(db, { student_id, assignment_id, kind, lessons, note, resubmission_id, line } = {}) {
+export async function previewStatusLineTool(db, { student_id, assignment_id, kind, lessons, count_from, note, resubmission_id, line } = {}) {
   if (!RENDERABLE_KINDS.includes(kind)) {
     throw new TriageError('BAD_VALUE', `kind must be one of ${RENDERABLE_KINDS.join(', ')}`);
   }
   assertSchoologyConfigured(); // the preview is a fresh Schoology read
   const { until } = statusLineUntil(db, {
-    kind, studentId: student_id, assignmentId: assignment_id, lessons, resubmissionId: resubmission_id,
+    kind, studentId: student_id, assignmentId: assignment_id, lessons, resubmissionId: resubmission_id, countFrom: count_from,
   });
   const rendered = {
     ask: () => askLine({ until, note }),

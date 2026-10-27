@@ -3,6 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
+import { withoutFormative } from '../../client/src/lib/triage.js';
 import { addDays, isWeekday } from '../lib/schoolDays.js';
 import { storeSchoolDays, loadCalendar } from './schoolCalendar.js';
 import { getTriage } from './triage.js';
@@ -219,6 +220,15 @@ describe('Flags panel rows', () => {
     db.prepare('UPDATE assignments SET published = 0 WHERE id = ?').run(hidden);
     flagged(ada, hidden, 6, '2026-10-12');
     expect(flags()).toEqual([]);
+  });
+
+  test('withoutFormative (client) gives the server\'s answer without formative flags (#189)', () => {
+    const ada = student('u1', 'Ada', 'Lovelace');
+    flagged(ada, assignment('a1', 'Warm-up', '2026-10-05', { summative: false }), 6, '2026-10-12');
+    flagged(ada, assignment('a2', 'Essay', '2026-10-05'), 6, '2026-10-12');
+    const all = getTriage(db, { today: TODAY, includeFormative: true });
+    expect(all.flags).toHaveLength(2);
+    expect(withoutFormative(all)).toEqual(getTriage(db, { today: TODAY, includeFormative: false }));
   });
 
   test('formative work gives a row only with includeFormative', () => {

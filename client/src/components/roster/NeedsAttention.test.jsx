@@ -157,8 +157,9 @@ describe('Needs attention', () => {
 
   it('Refer on overdue work opens ReferPanel; Undo of a referral that wrote Missing offers to clear it', async () => {
     const onFlagChanged = vi.fn();
+    const onTriageChanged = vi.fn();
     api.recordReferral.mockResolvedValue({ id: 72, action: 'referred', schoologyMark: { missing: true, cleared: false }, schoology: { topics: 2, missing: true } });
-    renderTab({ onFlagChanged, onTriageChanged: vi.fn() });
+    renderTab({ onFlagChanged, onTriageChanged });
     const maya = rowOf(cardOf('Maya Chen'), 'CP2');
     fireEvent.click(within(maya).getByRole('button', { name: 'Refer' }));
     expect(api.recordReferral).not.toHaveBeenCalled();
@@ -173,6 +174,7 @@ describe('Needs attention', () => {
     fireEvent.click(within(undo).getByRole('button', { name: 'Undo referral' }));
     await waitFor(() => expect(api.undoReferral).toHaveBeenCalledWith(72, { schoology: true }));
     expect(onFlagChanged).toHaveBeenCalledTimes(2);
+    expect(onTriageChanged).not.toHaveBeenCalled(); // #189: the flag refresh re-reads triage; no second read
   });
 
   // CoursePage's refresh throws when the gradebook read fails: the referral is saved, so the list says
@@ -195,6 +197,52 @@ describe('Needs attention', () => {
     } finally {
       process.off('unhandledRejection', onUnhandled);
     }
+  });
+
+  // #189: Undo leaves the row in place until triage lists it again, rather than dropping it in between.
+  it('after Undo the row stays while triage still leaves it out, and is shown once when triage lists it again', async () => {
+    const without = { ...TRIAGE, lateWork: TRIAGE.lateWork.filter((r) => r !== LATE_RED) };
+    const ui = (triage) => (
+      <MemoryRouter initialEntries={['/course/5?mode=attention']}>
+        <Routes><Route path="/course/:id" element={(
+          <RosterTab course={{ id: 5, course_name: 'AP CSP' }} students={STUDENTS} triage={triage} gradebook={GRADEBOOK} courseId="5" onTriageChanged={vi.fn()} />
+        )} /></Routes>
+      </MemoryRouter>
+    );
+    const { rerender } = render(ui(TRIAGE));
+    fireEvent.click(within(rowOf(cardOf('Ethan Wong'), 'CP2')).getByRole('button', { name: 'Refer' }));
+    expect(await within(cardOf('Ethan Wong')).findByText('Referred')).toBeInTheDocument();
+    rerender(ui(without)); // triage read again: the referral took the row off
+    expect(within(cardOf('Ethan Wong')).getByText('Referred')).toBeInTheDocument();
+    fireEvent.click(within(cardOf('Ethan Wong')).getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(api.undoReferral).toHaveBeenCalledWith(71, { schoology: false }));
+    // The re-read after Undo has not arrived yet: the row is still there, with its actions back.
+    expect(await within(cardOf('Ethan Wong')).findByRole('button', { name: 'Refer' })).toBeInTheDocument();
+    rerender(ui(TRIAGE));
+    expect(within(cardOf('Ethan Wong')).getAllByRole('link', { name: 'CP2' })).toHaveLength(1);
+    rerender(ui(without)); // once triage's own row again, it follows triage
+    expect(within(cardOf('Ethan Wong')).queryByRole('link', { name: 'CP2' })).not.toBeInTheDocument();
+  });
+
+  it('a double click on Refer or Undo writes once', async () => {
+    let finish;
+    api.recordReferral.mockImplementation(() => new Promise((r) => { finish = () => r({ id: 71, action: 'referred', schoologyMark: null }); }));
+    renderTab({ onTriageChanged: vi.fn() });
+    const refer = within(rowOf(cardOf('Ethan Wong'), 'CP2')).getByRole('button', { name: 'Refer' });
+    fireEvent.click(refer);
+    fireEvent.click(refer);
+    expect(refer).toBeDisabled();
+    finish();
+    const undo = await within(cardOf('Ethan Wong')).findByRole('button', { name: 'Undo' });
+    expect(api.recordReferral).toHaveBeenCalledTimes(1);
+    let undone;
+    api.undoReferral.mockImplementation(() => new Promise((r) => { undone = () => r({ deleted: true }); }));
+    fireEvent.click(undo);
+    fireEvent.click(undo);
+    await waitFor(() => expect(undo).toBeDisabled());
+    undone();
+    expect(await within(cardOf('Ethan Wong')).findByRole('button', { name: 'Refer' })).toBeInTheDocument();
+    expect(api.undoReferral).toHaveBeenCalledTimes(1);
   });
 
   it('a refused referral shows in the panel and records nothing', async () => {
@@ -259,10 +307,14 @@ describe('Needs attention', () => {
     expect(screen.getByText('Student page 5')).toBeInTheDocument();
   });
 
-  it('says so while triage has not loaded, and on an archived course', () => {
+  it('says so while triage has not loaded, when its read failed, and on an archived course', () => {
     const { unmount } = renderTab({ triage: null });
     expect(screen.getByText('Reading triage…')).toBeInTheDocument();
     unmount();
+    const failed = renderTab({ triage: null, triageFailed: true });
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not read triage for this course. Reload the page.');
+    expect(screen.queryByText('Reading triage…')).not.toBeInTheDocument();
+    failed.unmount();
     renderTab({ triage: null, course: { id: 5, archived: 1 } });
     expect(screen.getByText('An archived course has no triage.')).toBeInTheDocument();
   });

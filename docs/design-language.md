@@ -1839,3 +1839,10 @@ Prism's level is the correct one; Schoology's is what students and report cards 
 - **Private:** rendered only with Private details on, as it was on the roster, since the student page can be projected in a parent conference.
 - **Hover text:** the instant `.help-pop` through `useHelpPop`, with the full label as the `aria-label`; never a native `title`.
 - **The card:** the name line holds the name alone, so a tap anywhere on the card except a button or link opens the student page.
+
+## A failed read is not "no data" (#189, 27 Oct 2026)
+
+- **Rule:** when a read fails, the view says so in an `.alert.alert-warning` ("Could not read triage for this course. Reload the page."), never the empty or loading message ("Reading triage...", "No mastery data yet").
+- **A failed re-read** keeps what was already shown, under a warning that it may be out of date (the Mastery view after an override).
+- **A write in progress** disables its own buttons (Refer, Waive, Undo), so a double click writes once.
+

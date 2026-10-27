@@ -63,6 +63,26 @@ export function waitsByAssignment(triage) {
 }
 
 // Red rows across all four lists — the count on the course page's "Triage ▸" button.
+// A triage read with formative work (includeFormative: true) → the same answer without it, as the
+// server gives for includeFormative: false (#189: the course page reads triage once, not twice). The
+// formative filter only drops unaligned rows from feedback owed and flags (server/services/triage.js,
+// flagRows.js); late work, make-ups and resubmissions are the same either way. A parity test in
+// server/services/triage.test.js and flagRows.test.js holds this to the server's own answer.
+export function withoutFormative(triage) {
+  if (!triage?.includeFormative) return triage;
+  const feedbackOwed = triage.feedbackOwed.filter((r) => r.aligned);
+  const flags = triage.flags.filter((r) => r.aligned);
+  const red = (rows) => rows.filter((r) => r.tone === 'red').length;
+  return {
+    ...triage,
+    includeFormative: false,
+    counts: { ...triage.counts, feedbackOverdue: red(feedbackOwed), flagsOverdue: red(flags) },
+    approx: [triage.lateWork, feedbackOwed, triage.makeUps, triage.resubmissions, flags].some((rows) => rows.some((r) => r.approx)),
+    feedbackOwed,
+    flags,
+  };
+}
+
 export function redCount(triage) {
   return ['makeUps', 'lateWork', 'resubmissions', 'feedbackOwed']
     .reduce((n, list) => n + (triage?.[list] || []).filter((r) => r.tone === 'red').length, 0);

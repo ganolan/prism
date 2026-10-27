@@ -96,11 +96,14 @@ export function summariesForCourse(db, courseId) {
 // [{ schoologyAssignmentId, title, created (ISO), studentText, attachments }]. The same rule as
 // the summaries' unread count (readThread): typed text or a file, newer than the last seen; the
 // automatic lines and the teacher's comments never count. Cached threads only, no Schoology read,
-// and nothing is marked seen.
+// and nothing is marked seen. Only while the student is enrolled in the course: a student who
+// dropped it lists nothing, as the roster asks only for enrolled students (#189).
 export function unreadCommentsForStudent(db, courseId, studentId) {
   const rows = db.prepare(`
     SELECT r.assignment_id, a.schoology_assignment_id, a.title FROM submission_comment_reads r
-    JOIN assignments a ON a.id = r.assignment_id WHERE a.course_id = ? AND r.student_id = ?
+    JOIN assignments a ON a.id = r.assignment_id
+    JOIN enrolments e ON e.student_id = r.student_id AND e.course_id = a.course_id AND e.dropped_at IS NULL
+    WHERE a.course_id = ? AND r.student_id = ?
   `).all(courseId, studentId);
   const out = [];
   for (const r of rows) {

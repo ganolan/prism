@@ -147,6 +147,31 @@ describe('CoursePage triage', () => {
     expect(rail()).not.toBeInTheDocument();
   });
 
+  // #189: the page reads triage once (with formative work) and derives the Settings-default view from it.
+  it('reads triage once; with formative off by default the Triage count leaves formative work out', async () => {
+    loaded({ archived: 0 });
+    const formativeRed = { assignmentId: 6, schoologyAssignmentId: 'a6', courseId: 5, courseName: 'AP CSP', title: 'Practice', aligned: false, owed: 3, submittedTotal: 3, day: 14, tone: 'red', approx: false };
+    vi.mocked(api.getTriage).mockImplementation(async ({ includeFormative }) => ({
+      ...TRIAGE, includeFormative: !!includeFormative,
+      counts: {}, flags: [], resubmissions: [],
+      feedbackOwed: includeFormative ? [...TRIAGE.feedbackOwed, formativeRed] : TRIAGE.feedbackOwed,
+    }));
+    renderAt('/course/5?tab=gradebook');
+    const toggle = await screen.findByRole('button', { name: /^Triage/ });
+    await waitFor(() => expect(within(toggle).getByText('2')).toHaveClass('badge-red')); // not 3: Practice is formative
+    const pageReads = vi.mocked(api.getTriage).mock.calls.filter(([o]) => o.courseId === '5');
+    expect(pageReads).toEqual([[{ courseId: '5', includeFormative: true }]]);
+  });
+
+  it('a failed triage read: Needs attention says so instead of "Reading triage..."', async () => {
+    loaded({ archived: 0 });
+    vi.mocked(api.getTriage).mockRejectedValue(new Error('offline'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    renderAt('/course/5?tab=roster&mode=attention');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not read triage for this course. Reload the page.');
+    expect(screen.queryByText('Reading triage…')).not.toBeInTheDocument();
+  });
+
   it('leaving the Gradebook tab shows the rail again', async () => {
     loaded({ archived: 0 });
     vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
@@ -165,7 +190,7 @@ describe('CoursePage triage', () => {
     vi.mocked(api.getTriage).mockResolvedValue(TRIAGE);
     const { container } = renderAt('/course/5?tab=roster');
     const toggle = await screen.findByRole('button', { name: /^Triage/ });
-    await waitFor(() => expect(api.getTriage).toHaveBeenCalledWith({ courseId: '5', includeFormative: false }));
+    await waitFor(() => expect(api.getTriage).toHaveBeenCalledWith({ courseId: '5', includeFormative: true }));
     expect(document.querySelector('.triage-rail')).toBeNull();
     expect(toggle.querySelector('.badge-red')).toBeNull();
     expect(toggle).toHaveTextContent('Triage ▸');

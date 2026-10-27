@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import UrgencyRing from '../triage/UrgencyRing.jsx';
 import ExtendEditor, { ExtensionTag } from '../triage/ExtendEditor.jsx';
@@ -24,11 +24,13 @@ import { formatDate } from '../../lib/formatDate.js';
 //  - a make-up test: Extend and Email;
 //  - a resubmission: Email; a flag row: Email and the Flags panel's FlagsMenu.
 // A row an action took off triage stays in its place with what was done and Undo, until the mode
-// is left. The task title opens the task with this student's card in view and the Needs action
+// is left; after Undo it stays (as a plain row again) until triage lists it again (#189). While a
+// Refer, Waive or Undo runs, its buttons are disabled. The task title opens the task with this student's card in view and the Needs action
 // filter on.
-// Props: triage, active (enrolled students), gradebook (for the Missing flag on overdue work),
-// archived, card(student, { children }) (RosterTab's Roster card), onChanged (re-read triage),
-// onFlagChanged (re-read the gradebook too, after a write that changed a Schoology flag).
+// Props: triage, triageFailed (CoursePage's triage read failed), active (enrolled students), gradebook
+// (for the Missing flag on overdue work), archived, card(student, { children }) (RosterTab's Roster
+// card), onChanged (re-read triage), onFlagChanged (re-read the gradebook and triage, after a write that
+// changed a Schoology flag: the one refresh then, not onChanged as well).
 
 const MAIL_KIND = {
   overdue: 'late', late_at_limit: 'late', make_up: 'makeUps',
@@ -59,16 +61,29 @@ function AttentionRow({ entry, done, gradebook, actions, onChanged, onFlagChange
 
   // ReferPanel's confirm (Refer on overdue work, or Undo of a referral that wrote IE and Missing):
   // a refusal shows in the panel. The write is done before the refresh, so a failed refresh (CoursePage
-  // throws when the gradebook read fails) shows in the list's message, not the closed panel.
+  // throws when the gradebook read fails) shows in the list's message, not the closed panel. After a
+  // Schoology write onFlagChanged is the one refresh (it re-reads triage too), so `run` gets
+  // refresh: false; when its gradebook read fails, triage is still read again.
+  const flagRefresh = (schoology) => Boolean(schoology && onFlagChanged);
   async function viaPanel(run, schoology) {
     setBusy(true);
     setPanelError(null);
     try {
-      await run(schoology);
+      await run(schoology, { refresh: !flagRefresh(schoology) });
       setOpen(null);
-      if (schoology) Promise.resolve(onFlagChanged?.()).catch(() => onError(REFRESH_FAILED));
+      if (flagRefresh(schoology)) Promise.resolve(onFlagChanged()).catch(() => { onError(REFRESH_FAILED); onChanged?.(); });
     } catch (err) {
       setPanelError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  // An immediate write (Refer at the limit, Waive, a Prism-only Undo): buttons disabled until it ends.
+  async function immediate(fn) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await fn();
     } finally {
       setBusy(false);
     }
@@ -76,11 +91,13 @@ function AttentionRow({ entry, done, gradebook, actions, onChanged, onFlagChange
   async function undo() {
     const rec = done.record;
     if (done.kind === 'referral' && canClearInSchoology(rec.schoologyMark)) { toggle('undo'); return; }
-    try {
-      await actions.undo(r, done);
-    } catch (err) {
-      onError(`Undo failed: ${err.message}`);
-    }
+    await immediate(async () => {
+      try {
+        await actions.undo(r, done);
+      } catch (err) {
+        onError(`Undo failed: ${err.message}`);
+      }
+    });
   }
 
   const mail = <MailLink row={r} kind={MAIL_KIND[entry.kind]} className="roster-attention__email">Email</MailLink>;
@@ -89,14 +106,15 @@ function AttentionRow({ entry, done, gradebook, actions, onChanged, onFlagChange
     buttons = (
       <>
         <DoneBadge done={done} />
-        <button type="button" className="ghost accent" aria-expanded={open === 'undo' ? true : undefined} onClick={undo}>Undo</button>
+        <button type="button" className="ghost accent" disabled={busy} aria-expanded={open === 'undo' ? true : undefined} onClick={undo}>Undo</button>
       </>
     );
   } else if (entry.kind === 'late_at_limit') {
     buttons = (
       <>
-        <Tip as="button" type="button" className="primary danger btn-sm" named={false} text="Mark referred" onClick={() => actions.record(r, 'referred')}>Refer</Tip>
-        <Tip as="button" type="button" className="secondary btn-sm" named={false} text="Don't refer: record why" aria-expanded={open === 'waive'}
+        <Tip as="button" type="button" className="primary danger btn-sm" named={false} text="Mark referred" disabled={busy}
+          onClick={() => immediate(() => actions.record(r, 'referred'))}>Refer</Tip>
+        <Tip as="button" type="button" className="secondary btn-sm" named={false} text="Don't refer: record why" aria-expanded={open === 'waive'} disabled={busy}
           onClick={() => { setNote(''); toggle('waive'); }}>Waive</Tip>
       </>
     );
@@ -143,19 +161,20 @@ function AttentionRow({ entry, done, gradebook, actions, onChanged, onFlagChange
       {open === 'refer' && (
         <div className="triage-row__more">
           <ReferPanel busy={busy} error={panelError} onCancel={() => setOpen(null)}
-            onConfirm={(schoology) => viaPanel((s) => actions.refer(r, s), schoology)} />
+            onConfirm={(schoology) => viaPanel((s, opts) => actions.refer(r, s, opts), schoology)} />
         </div>
       )}
       {open === 'undo' && done && (
         <div className="triage-row__more">
           <ReferPanel mode="undo" busy={busy} error={panelError} onCancel={() => setOpen(null)}
-            onConfirm={(schoology) => viaPanel((s) => actions.undo(r, done, { schoology: s }), schoology)} />
+            onConfirm={(schoology) => viaPanel((s, opts) => actions.undo(r, done, { schoology: s, ...opts }), schoology)} />
         </div>
       )}
       {open === 'waive' && (
         <div className="triage-row__more">
           <input className="triage-note" placeholder="Reason (optional)" aria-label="Waive note" value={note} onChange={(e) => setNote(e.target.value)} />
-          <button type="button" className="secondary btn-sm" onClick={() => { actions.record(r, 'waived', note); setOpen(null); }}>Waive referral</button>
+          <button type="button" className="secondary btn-sm" disabled={busy}
+            onClick={() => immediate(async () => { await actions.record(r, 'waived', note); setOpen(null); })}>Waive referral</button>
           <button type="button" className="ghost" onClick={() => setOpen(null)}>Cancel</button>
         </div>
       )}
@@ -171,8 +190,9 @@ function AttentionRow({ entry, done, gradebook, actions, onChanged, onFlagChange
   );
 }
 
-export default function NeedsAttention({ triage, active, gradebook = null, archived = false, card, onChanged, onFlagChanged }) {
-  const [held, setHeld] = useState(() => new Map()); // row key → { entry, done: { action, kind, record } }
+export default function NeedsAttention({ triage, triageFailed = false, active, gradebook = null, archived = false, card, onChanged, onFlagChanged }) {
+  // row key → { entry, done: { action, kind, record } }, or done: null after Undo, until triage lists the row again
+  const [held, setHeld] = useState(() => new Map());
   const [error, setError] = useState(null);
   // Every row object drawn in this mode (as handed to an action) → its entry, so an action that ends
   // after triage re-read (a confirm left open) still finds its row.
@@ -186,7 +206,7 @@ export default function NeedsAttention({ triage, active, gradebook = null, archi
       if (!entry) return;
       setHeld((prev) => {
         const next = new Map(prev);
-        if (action === 'undone') next.delete(entry.key);
+        if (action === 'undone') next.set(entry.key, { entry, done: null });
         else if (action === 'referred' || action === 'waived') next.set(entry.key, { entry, done: { action, kind: 'referral', record: out } });
         else if (action === 'extended') next.set(entry.key, { entry, done: { action, kind: 'extension', record: out } });
         return next;
@@ -194,11 +214,25 @@ export default function NeedsAttention({ triage, active, gradebook = null, archi
     },
   });
 
+  // An undone row that triage lists again is triage's own row from then on.
+  const fresh = triage ? studentRows(triage, active.map((s) => s.id)) : [];
+  const listedKeys = new Set(fresh.flatMap((g) => g.rows.map((e) => e.key)));
+  const returned = [...held].filter(([key, h]) => !h.done && listedKeys.has(key)).map(([key]) => key);
+  useEffect(() => {
+    if (!returned.length) return;
+    setHeld((prev) => {
+      const next = new Map(prev);
+      for (const key of returned) if (!next.get(key)?.done) next.delete(key);
+      return next;
+    });
+  }, [returned.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (archived) return <p className="text-sm text-muted">An archived course has no triage.</p>;
+  if (!triage && triageFailed) return <div className="alert alert-warning" role="alert">Could not read triage for this course. Reload the page.</div>;
   if (!triage) return <p className="text-sm text-muted">Reading triage…</p>;
 
   const byId = new Map(active.map((s) => [s.id, s]));
-  const groups = withHeld(studentRows(triage, active.map((s) => s.id)), [...held.values()].map((h) => h.entry))
+  const groups = withHeld(fresh, [...held.values()].map((h) => h.entry))
     .filter((g) => byId.has(g.studentId));
   const listed = new Set(groups.map((g) => g.studentId));
   const others = active.filter((s) => !listed.has(s.id));

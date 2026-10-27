@@ -70,10 +70,15 @@ export function categoryLabels(titles) {
   return new Map(distinct.map((t, i) => [t, { abbr: abbrs[i], name: categoryName(t) }]));
 }
 
-// A topic's number without the course prefix, as the roster shows it: "APCS.2.3" → "2.3"; an id
-// with no dot as it is.
+// A topic's number without the course prefix, as the roster shows it: "APCS.2.3" → "2.3". The prefix is
+// every leading part that is not a number, so a deeper id keeps the same cut as its category's number
+// (masteryCompare.js): "HS.ART.2.3" → "2.3", "APCS.2.3.1" → "2.3.1" (#189). With no numbered part, the
+// first part is dropped ("A.B" → "B"); an id with no dot as it is.
 export function topicNumber(externalId) {
   const s = String(externalId ?? '');
+  const parts = s.split('.');
+  const first = parts.findIndex((p, k) => k > 0 && /^\d/.test(p));
+  if (first > 0) return parts.slice(first).join('.');
   const dot = s.indexOf('.');
   return dot >= 0 && dot < s.length - 1 ? s.slice(dot + 1) : s;
 }

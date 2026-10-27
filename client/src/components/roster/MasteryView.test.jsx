@@ -102,6 +102,16 @@ describe('MasteryView', () => {
     expect(screen.getByText('No mastery data yet. Press Sync Course.')).toBeInTheDocument();
   });
 
+  // #189: a failed read is not "no data".
+  it('a failed read says so; a failed re-read keeps the levels under a warning', async () => {
+    const { rerender } = renderView({ mastery: null, failed: true });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not read mastery for this course. Reload the page.');
+    expect(screen.queryByText('No mastery data yet. Press Sync Course.')).not.toBeInTheDocument();
+    rerender(<MemoryRouter><MasteryView on locked={LOCKED} mastery={MASTERY} failed students={STUDENTS} courseId="5" /></MemoryRouter>);
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not read the levels again. These may be out of date: reload the page.');
+    await waitFor(() => expect(document.querySelector('.mastery-card')).not.toBeNull());
+  });
+
   it('names each category by its short label, "CK - Content Knowledge", and lists the class average first', async () => {
     renderView();
     const cats = await screen.findByRole('group', { name: 'Reporting categories' });

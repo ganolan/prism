@@ -29,7 +29,7 @@ import { categoryTracks, studentMastery, classMastery, nextSort, sortedBy, missi
 //
 // Private: with Private details off only `locked` is rendered (no level or grade in the page, and the
 // scale is not read). The OverridePopup lives here, so it goes with the switch.
-// Props: on, locked, mastery (getMasteryForCourse), students (enrolled), courseId, linked,
+// Props: on, locked, mastery (getMasteryForCourse), failed (its last read failed), students (enrolled), courseId, linked,
 // onMasteryChanged (re-reads mastery after an override).
 
 export const LINKED_REASON = 'Prism does not write to Schoology for linked sections. Make this change in Schoology.';
@@ -337,8 +337,21 @@ function MasteryOn({ mastery, students, courseId, linked, onMasteryChanged }) {
   );
 }
 
-export default function MasteryView({ on, locked = null, mastery, students, courseId, linked = false, onMasteryChanged }) {
+// `failed`: the last mastery read failed (#189). With nothing to show it says so instead of "No mastery
+// data yet"; after a failed re-read (an override) the levels already read stay, under a warning.
+export default function MasteryView({ on, locked = null, mastery, failed = false, students, courseId, linked = false, onMasteryChanged }) {
   if (!on) return locked;
-  if (!categoryTracks(mastery).length) return <p className="text-sm text-muted">No mastery data yet. Press Sync Course.</p>;
-  return <MasteryOn mastery={mastery} students={students} courseId={courseId} linked={linked} onMasteryChanged={onMasteryChanged} />;
+  const has = categoryTracks(mastery).length > 0;
+  const warning = failed && (
+    <div className="alert alert-warning" role="alert">
+      {has ? 'Could not read the levels again. These may be out of date: reload the page.' : 'Could not read mastery for this course. Reload the page.'}
+    </div>
+  );
+  if (!has) return warning || <p className="text-sm text-muted">No mastery data yet. Press Sync Course.</p>;
+  return (
+    <>
+      {warning}
+      <MasteryOn mastery={mastery} students={students} courseId={courseId} linked={linked} onMasteryChanged={onMasteryChanged} />
+    </>
+  );
 }

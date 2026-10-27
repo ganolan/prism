@@ -3,6 +3,7 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 vi.hoisted(() => { process.env.DB_PATH = ':memory:'; });
 
 import { getDb } from '../db/index.js';
+import { withoutFormative } from '../../client/src/lib/triage.js';
 import { addDays, isWeekday, todayLocal } from '../lib/schoolDays.js';
 import { storeSchoolDays } from './schoolCalendar.js';
 import { updateTriageSettings } from './settings.js';
@@ -356,6 +357,22 @@ describe('getTriage — feedback owed', () => {
     const t = getTriage(db, { today: TODAY });
     expect(t.includeFormative).toBe(true);
     expect(t.feedbackOwed).toHaveLength(1);
+  });
+
+  test('withoutFormative (client) turns the includeFormative read into the server\'s own answer without it (#189)', () => {
+    const a = student('u1', 'Ada', 'L');
+    const b = student('u2', 'Bo', 'K');
+    const practice = assignment('f1', 'Practice', '2026-10-05', { summative: false });
+    const essay = assignment('a1', 'Essay', '2026-10-05');
+    const late = assignment('a2', 'Lab', '2026-09-21');
+    for (const sid of [a, b]) {
+      grade(sid, practice, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05') });
+      grade(sid, essay, { submission_type: 'drop', first_submitted_at: epoch('2026-10-05') });
+    }
+    const all = getTriage(db, { today: TODAY, includeFormative: true });
+    expect(all.feedbackOwed.some((r) => !r.aligned)).toBe(true); // the test has formative rows to drop
+    expect(all.lateWork.filter((r) => r.assignmentId === late)).toHaveLength(2); // and rows that stay
+    expect(withoutFormative(all)).toEqual(getTriage(db, { today: TODAY, includeFormative: false }));
   });
 
   test('blockNumber rides on every feedback-owed row', () => {

@@ -5,7 +5,7 @@ import { PublishConfirm, PublishDone } from '../components/PublishTask.jsx';
 import AnalyticsView from '../components/AnalyticsView.jsx';
 import TriageSection from '../components/triage/TriageSection.jsx';
 import UrgencyRing from '../components/triage/UrgencyRing.jsx';
-import { waitsByAssignment, redCount } from '../lib/triage.js';
+import { waitsByAssignment, redCount, withoutFormative } from '../lib/triage.js';
 import { LEVEL_COLORS, CELL_TEXT } from '../lib/masteryLevels.js';
 import { Tip } from '../components/HelpDot.jsx';
 import { categoryLabels, topicNumber } from '../lib/categoryAbbr.js';
@@ -54,6 +54,7 @@ export default function CoursePage() {
   const [students, setStudents] = useState([]);
   const [gradebook, setGradebook] = useState(null);
   const [mastery, setMastery] = useState(null);
+  const [masteryFailed, setMasteryFailed] = useState(false); // the last mastery read failed (#189)
   const [view, setStickyView] = useStickyTab('course', 'roster');
   const [loading, setLoading] = useState(true);
   // #58: Sync Course opens the sync dialog preset to this course; the chip opens it on the
@@ -75,6 +76,7 @@ export default function CoursePage() {
   useEffect(() => { setRailChoice(null); }, [privateOn]);
   const [triage, setTriage] = useState(null); // this course's triage, for the Roster tab (Needs attention)
   const [triageRed, setTriageRed] = useState(0);
+  const [triageFailed, setTriageFailed] = useState(false); // this page's own triage read failed (#189)
   // Gradebook tab's compact Summative / Formative / Unpublished filter (lives in the tab row).
   // Remembered across visits, one setting for all courses (#144).
   const [gradebookFilter, setGradebookFilter] = useStickyTypeFilter('gradebook');
@@ -82,8 +84,8 @@ export default function CoursePage() {
   useEffect(() => {
     // includeDropped so the Roster tab can show the "N dropped" toggle without a
     // second request; it splits the list on `dropped_at` (#128).
-    Promise.all([getCourse(id), getCourseStudents(id, { includeDropped: true }), getGradebook(id), getMasteryForCourse(id).catch(() => null)])
-      .then(([c, s, g, m]) => { setCourse(c); setStudents(s); setGradebook(g); setMastery(m); })
+    Promise.all([getCourse(id), getCourseStudents(id, { includeDropped: true }), getGradebook(id), getMasteryForCourse(id).catch(() => undefined)])
+      .then(([c, s, g, m]) => { setCourse(c); setStudents(s); setGradebook(g); setMastery(m ?? null); setMasteryFailed(m === undefined); })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [id, dataVersion]);
@@ -95,8 +97,8 @@ export default function CoursePage() {
   // Assessments-tab wait column: every assignment still owed feedback (incl.
   // formative). The same read gives the Roster tab this course's triage (Needs attention, and
   // the Triage ▸ count while the rail is not mounted, #160) as the rail reads it, with the
-  // Settings default for formative work: one more read only when that default leaves formative
-  // out. Async + try so an automocked/absent API is a silent no-op.
+  // Settings default for formative work: when that default leaves formative out, withoutFormative
+  // derives that view from this one read (#189). Async + try so an automocked/absent API is a silent no-op.
   useEffect(() => {
     if (!courseLive) return undefined;
     let live = true;
@@ -105,9 +107,12 @@ export default function CoursePage() {
         const t = await getTriage({ courseId: id, includeFormative: true });
         if (!live || !t) return;
         setTriageWaits({ waits: waitsByAssignment(t), feedbackLimit: t.settings.feedbackLimitDays });
-        const asRail = t.settings.showFormativeDefault ? t : await getTriage({ courseId: id, includeFormative: false });
-        if (live && asRail) { setTriage(asRail); setTriageRed(redCount(asRail)); }
-      } catch (err) { console.error(err); /* triage is optional on this page */ }
+        const asRail = t.settings.showFormativeDefault ? t : withoutFormative(t);
+        setTriage(asRail); setTriageRed(redCount(asRail)); setTriageFailed(false);
+      } catch (err) {
+        console.error(err); // triage is optional on this page; Needs attention says the read failed
+        if (live) setTriageFailed(true);
+      }
     })();
     return () => { live = false; };
   }, [id, dataVersion, courseLive, triageVersion]);
@@ -136,9 +141,11 @@ export default function CoursePage() {
     return r;
   }
 
+  // A failed re-read keeps the levels already shown and says so (#189), rather than "No mastery data yet".
   async function refreshMastery() {
-    const m = await getMasteryForCourse(id).catch(() => null);
-    setMastery(m);
+    const m = await getMasteryForCourse(id).catch(() => undefined);
+    if (m !== undefined) setMastery(m);
+    setMasteryFailed(m === undefined);
   }
 
   // After a flag write from the gradebook pop-up (#40): the cells, topic levels and triage panels
@@ -264,7 +271,9 @@ export default function CoursePage() {
               course={course}
               students={students}
               mastery={mastery}
+              masteryFailed={masteryFailed}
               triage={triage}
+              triageFailed={triageFailed}
               gradebook={gradebook}
               onTriageChanged={() => setTriageVersion((v) => v + 1)}
               onFlagChanged={refreshAfterFlag}

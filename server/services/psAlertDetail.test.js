@@ -129,6 +129,20 @@ describe('readAlertDetail', () => {
     expect(popup.xhr).toBe('XMLHttpRequest');
   });
 
+  test('the alert catalogue is read once for a run of pop-ups, and again after 10 minutes (#189)', async () => {
+    seed(['no_photo', 'epipen']);
+    const w = web(NO_PHOTO);
+    let t = NOW;
+    const reads = () => w.requests.filter((q) => q.path.endsWith('getAlertTypes.json')).length;
+    await readAlertDetail(db, studentId, 'no_photo', deps(w, () => t));
+    await readAlertDetail(db, studentId, 'epipen', deps(w, () => t));
+    expect(popupRequests(w)).toHaveLength(2);
+    expect(reads()).toBe(1);
+    t += 10 * 60 * 1000 + 1;
+    await readAlertDetail(db, studentId, 'no_photo', deps(w, () => t));
+    expect(reads()).toBe(2);
+  });
+
   test('a text pop-up is kind text', async () => {
     seed(['no_photo']);
     const r = await readAlertDetail(db, studentId, 'no_photo', deps(web(NO_PHOTO)));

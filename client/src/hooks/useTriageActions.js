@@ -19,10 +19,23 @@ import { localIsoDate } from '../lib/formatDate.js';
 //  - onMakeUpIgnored(assignmentId): a whole test was ignored.
 //  - onDone(action, row, result): a write went through ('referred', 'waived', 'extended',
 //    'resub_extended', 'grade_stands', 'undone'), with what the server returned.
+// A second Refer, Waive or Undo on the same row while the first is still running is ignored (#189:
+// a double click wrote twice), in the rail and in Needs attention alike.
 export function useTriageActions({ onChanged, onError, onMakeUpIgnored, onDone } = {}) {
   const [confirm, setConfirm] = useState(null); // StatusLineModal props for the action being confirmed
   const actionSeq = useRef(0); // a fresh key per opened action → the modal always remounts
+  const pending = useRef(new Set()); // writes still running, by row (or record) key
   const changed = () => onChanged?.();
+  async function once(key, fn) {
+    if (pending.current.has(key)) return undefined;
+    pending.current.add(key);
+    try {
+      return await fn();
+    } finally {
+      pending.current.delete(key);
+    }
+  }
+  const rowKey = (row) => `${row.studentId}:${row.assignmentId}`;
 
   // A write, then refresh the lists.
   async function write(fn) {
@@ -35,23 +48,27 @@ export function useTriageActions({ onChanged, onError, onMakeUpIgnored, onDone }
       return undefined;
     }
   }
-  const record = (row, action, note) => write(async () => {
+  const record = (row, action, note) => once(`record:${rowKey(row)}`, () => write(async () => {
     const out = await recordReferral({ studentId: row.studentId, assignmentId: row.assignmentId, action, note });
     onDone?.(action, row, out);
     return out;
-  });
+  }));
   // Refer through ReferPanel (#175, missing work): a refusal throws, so the panel shows it in
-  // place; a warning (IE written, Missing not) goes to onError. The lists refresh either way.
-  const refer = async (row, schoology) => {
+  // place; a warning (IE written, Missing not) goes to onError. The lists refresh either way, unless
+  // the caller passes refresh: false because it re-reads everything itself after a Schoology write
+  // (one triage read, not two, #189); a refusal still refreshes here.
+  const refer = (row, schoology, { refresh = true } = {}) => once(`record:${rowKey(row)}`, async () => {
+    let ok = false;
     try {
       const out = await recordReferral({ studentId: row.studentId, assignmentId: row.assignmentId, action: 'referred', schoology });
       if (out?.schoology?.warning) onError?.(out.schoology.warning);
       onDone?.('referred', row, out);
+      ok = true;
       return out;
     } finally {
-      changed();
+      if (refresh || !ok) changed();
     }
-  };
+  });
   const ignore = (row) => write(async () => {
     await setMakeUpIgnored(row.assignmentId, true);
     onMakeUpIgnored?.(row.assignmentId);
@@ -116,7 +133,8 @@ export function useTriageActions({ onChanged, onError, onMakeUpIgnored, onDone }
   //    caller's ReferPanel confirm) also clears them. Throws, so the caller shows a refusal in place.
   //  - kind 'extension': the remove confirm (StatusLineModal removeMode), which can also take the
   //    line this extension published off the student's comment.
-  const undo = async (row, { kind, record: rec }, { schoology = false } = {}) => {
+  //  - refresh: false, as for refer, when the caller re-reads everything itself.
+  const undo = async (row, { kind, record: rec }, { schoology = false, refresh = true } = {}) => {
     if (kind === 'extension') {
       publish(row, 'undone', {
         removeMode: true,
@@ -127,11 +145,13 @@ export function useTriageActions({ onChanged, onError, onMakeUpIgnored, onDone }
       });
       return undefined;
     }
-    const out = await undoReferral(rec.id, { schoology });
-    if (out?.schoology?.warning) onError?.(out.schoology.warning);
-    onDone?.('undone', row, out);
-    await changed();
-    return out;
+    return once(`undo:${rec.id}`, async () => {
+      const out = await undoReferral(rec.id, { schoology });
+      if (out?.schoology?.warning) onError?.(out.schoology.warning);
+      onDone?.('undone', row, out);
+      if (refresh) await changed();
+      return out;
+    });
   };
 
   const modal = confirm

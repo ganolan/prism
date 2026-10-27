@@ -477,7 +477,7 @@ calls `getStudentsInSection`, then per student `getAlerts` (man), `stuFieldValue
 `disabled`, `icon`, `icon_type`, `id`, `name`, `public_visibility`, `querystring`, `additional_params`, `school_number`,
 `stub_url`, `student_field`, `student_field_invert`, `student_field_operand`, `student_field_operator`,
 `disable_student_field`, `sub_visible`, `teacher_visible`, `trigger_type`, `trigger_url`, `report_exclusion`,
-`school_abbreviation`, `ext_table_name`, `sort_order`. The rules as configured (school configuration, not student data):
+`school_abbreviation`, `ext_table_name`, `sort_order`. *(2026-10-27, #189: the roster's alert pop-ups, `server/services/psAlertDetail.js`, keep this catalogue for 10 minutes, as they keep each pop-up, so a run of pop-ups reads it once; the sync still reads it once per run.)* The rules as configured (school configuration, not student data):
 
 | id | type | field (sf) or `trigger_url` (adv) | rule | name (as PowerSchool spells it) | Prism key |
 |---|---|---|---|---|---|

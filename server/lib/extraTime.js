@@ -4,12 +4,12 @@
 
 export const MAX_EXTRA_TIME_PERCENT = 200;
 
-const PERCENT = /(\d+(?:\.\d+)?)\s*%/;
+const PERCENT = /(\d+(?:\.\d+)?)\s*%(?!\s*of\b)/; // "80% of the time" is how often, not how much (#189)
 const WORD_TIME = /\btime\b/i;
 const TIME_AND_A_HALF = /\btime\s+and\s+a\s+half\b/i;
 
-// A percentage counts only in the same sentence as the word "time": "Seat near the front (25% of
-// lessons)" is about seating. "Time and a half" is 50. Any other wording ("double time") gives null.
+// A percentage counts only in the same sentence as the word "time", and never as "N% of ...": "Seat near
+// the front (25% of lessons)" is about seating, "80% of the time" is how often. "Time and a half" is 50. Any other wording ("double time") gives null.
 // A figure the store would refuse (0, or over 200) gives null too. Whole numbers.
 export function suggestExtraTime(text) {
   if (typeof text !== 'string' || !text) return null;

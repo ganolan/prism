@@ -17,6 +17,10 @@ test.each([
   // Whole numbers; whole words only; anything the store would refuse is no suggestion.
   ['12.5% extra time', 13],
   ['Sometimes needs 25% more help', null],
+  // "N% of ..." is a proportion, not extra time (#189); a real figure later in the sentence still counts.
+  ['Needs reminders 80% of the time', null],
+  ['Needs reminders 80% of the time, and 25% extra time on tests', 25],
+  ['Extra time is used 80 % of the time', null],
   ['300% extra time', null],
   ['0% extra time', null],
   [null, null],

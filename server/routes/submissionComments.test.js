@@ -147,6 +147,16 @@ describe('unread comments of one student in a course (#160)', () => {
     expect(unreadCommentsForStudent(db, courseId, studentId)).toEqual([]);
     expect(unreadCommentsForStudent(db, courseId + 99, studentId)).toEqual([]);
   });
+
+  test('a student who dropped the course lists nothing, and one never enrolled lists nothing (#189)', () => {
+    const db = getDb();
+    storeThread(db, { assignmentId: flappy, studentId, rows: [row('51', '555', 'student', 'A question', 1792400000)] });
+    storeThread(db, { assignmentId: flappy, studentId: otherStudent, rows: [row('52', '556', 'student', 'Not enrolled', 1792400000)] });
+    expect(unreadCommentsForStudent(db, courseId, studentId)).toHaveLength(1);
+    expect(unreadCommentsForStudent(db, courseId, otherStudent)).toEqual([]);
+    db.prepare("UPDATE enrolments SET dropped_at = '2026-10-20T00:00:00Z' WHERE student_id = ? AND course_id = ?").run(studentId, courseId);
+    expect(unreadCommentsForStudent(db, courseId, studentId)).toEqual([]);
+  });
 });
 
 describe('GET a comment file (#162: opens in Prism\'s viewer)', () => {

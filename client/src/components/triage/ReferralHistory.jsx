@@ -76,6 +76,8 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
   const [undoingReferral, setUndoingReferral] = useState(null);
   const [referBusy, setReferBusy] = useState(false);
   const [referError, setReferError] = useState(null);
+  const [undoBusy, setUndoBusy] = useState(null); // the row whose immediate Undo is running (#189: no double write)
+  const rowId = (r) => `${r.kind}:${r.id}`;
   const undoCall = (r, opts) => (r.kind === 'extension' ? undoExtension(r.id, opts)
     : r.kind === 'resubmission' ? undoResubmission(r.id, opts) : undoReferral(r.id));
 
@@ -87,14 +89,20 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
   // Prism-only undo (referrals that wrote nothing to Schoology, or wrote Missing that has since been
   // cleared; resubmission records whose action wrote no line).
   async function undo(r) {
+    if (undoBusy) return;
+    setUndoBusy(rowId(r));
     try {
-      await undoCall(r);
-      setError(null);
-    } catch (err) {
-      setError(`Undo failed: ${err.message}`);
-      return;
+      try {
+        await undoCall(r);
+        setError(null);
+      } catch (err) {
+        setError(`Undo failed: ${err.message}`);
+        return;
+      }
+      await refresh(); // still busy until the row has left the list
+    } finally {
+      setUndoBusy(null);
     }
-    await refresh();
   }
 
   async function confirmReferralUndo(schoology) {
@@ -162,7 +170,7 @@ export default function ReferralHistory({ mode = 'late', courseId, version = 0, 
             {r.kind === 'extension' && <span className="badge badge-gray">Extended to {formatDate(`${r.until}T00:00:00`)}</span>}
             {r.kind === 'resubmission' && <span className="badge badge-resubmit">{resubLabel(r)}</span>}
             <span className="text-sm text-muted">{recordedOn(r)}{extraText(r) ? `: ${extraText(r)}` : ''}</span>
-            <button className="ghost" onClick={() => undoClick(r)}>Undo</button>
+            <button className="ghost" disabled={undoBusy === rowId(r)} onClick={() => undoClick(r)}>Undo</button>
           </div>
           {r.kind === 'referral' && undoingReferral?.id === r.id && (
             <div className="triage-row__more">

@@ -68,6 +68,17 @@ describe('categoryTracks', () => {
     ]);
   });
 
+  // #189: an id deeper than X.n.m is cut at the same place for the category and its topics.
+  it('a deeper course prefix gives the category number and its topic codes the same cut', () => {
+    const tracks = categoryTracks({
+      categories: [{ id: 'a', external_id: 'HS.ART.2', title: 'HS Art: Producing' }],
+      topics: [{ id: 'ta', category_id: 'a', external_id: 'HS.ART.2.3', title: 'Refine' }],
+      alignments: [],
+    });
+    expect(tracks[0].number).toBe('2');
+    expect(tracks[0].topics).toEqual([{ id: 'ta', code: '2.3', title: 'Refine' }]);
+  });
+
   it('numbers a category with no dotted external id by its order, and keeps a title with no prefix', () => {
     const tracks = categoryTracks({
       categories: [{ id: 'x', external_id: null, title: 'Creating' }, { id: 'y', external_id: 'RC', title: 'Responding' }],

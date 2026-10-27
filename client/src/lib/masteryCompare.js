@@ -17,11 +17,12 @@ const byCode = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), undefine
 const mean = (xs) => (xs?.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 const levelOf = (pct, scale) => ({ pct, level: pct == null ? null : scale.pointsToLevel(pct) });
 
-// "APCS.2" → "2"; with no dot (or no id) the category's place in the list.
+// "APCS.2" → "2", cut where topicNumber cuts its topics ("HS.ART.2" → "2", #189); with no dot (or no
+// id) the category's place in the list.
 function categoryNumber(externalId, index) {
   const s = String(externalId ?? '');
   const dot = s.lastIndexOf('.');
-  return dot >= 0 && dot < s.length - 1 ? s.slice(dot + 1) : String(index + 1);
+  return dot >= 0 && dot < s.length - 1 ? topicNumber(s) : String(index + 1);
 }
 
 

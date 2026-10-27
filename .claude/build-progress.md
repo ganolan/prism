@@ -1963,3 +1963,12 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Client:** `StudentPage.jsx` gates only the alerts, family contacts and notes (box text "Alerts, family contacts and notes are private."); the Courses section (mastery summary, every grade card with its levels, comment, chips and Edit) renders either way. The switch's help adds "A student's own page shows their grades and feedback either way." Class-wide grade views (Gradebook, Assessments, Analytics tabs, the assessment page) stay private.
 - **Tests:** `StudentPage.feedback.test.jsx` (switch off: levels, comment and every course shown, notes absent), `privateDetailsPages.test.jsx` (updated: grades shown, alerts, contacts and notes absent); both fail without the change.
 
+## Roster review follow-ups (#189, 2026-10-27)
+
+- **Needs attention:** after Undo a row stays (actions back) until triage lists it again, instead of leaving until the re-read; Refer, Waive and Undo are disabled while they run, and `useTriageActions` ignores a second Refer, Waive or referral Undo on the same row while the first runs (the rail too; `ReferralHistory` Undo is disabled while it runs). A failed triage read shows "Could not read triage for this course. Reload the page." (`CoursePage` `triageFailed`).
+- **Reads:** the course page reads triage once (with formative work) and derives the Settings-default view with `withoutFormative` (`client/src/lib/triage.js`; parity tests against the server's own `includeFormative: false` answer in `triage.test.js` and `flagRows.test.js`). A Refer or Undo that writes to Schoology refreshes once (`onFlagChanged`, which re-reads triage), not twice (`refresh: false` on `refer` / `undo`).
+- **Mastery:** a failed read shows "Could not read mastery for this course. Reload the page."; a failed re-read after an override keeps the levels under "Could not read the levels again. These may be out of date: reload the page." (`masteryFailed`).
+- **Server:** the alert catalogue is kept for 10 minutes (`psAlertDetail.js`); `unreadCommentsForStudent` lists only a student enrolled in the course; `suggestExtraTime` skips "N% of ..." ("80% of the time").
+- **Topic codes:** `topicNumber` drops every leading non-numeric part, and `categoryNumber` uses it, so "HS.ART.2" is 2 and "HS.ART.2.3" is 2.3 (every current id is `X.n.m`, checked on prod 27 Oct).
+- **Left for approval:** the unprobed alert pop-ups (AQHI, EpiPen, ILP, learning support 1 to 3, health care plan) need a bounded student-data read; follow-up issue.
+

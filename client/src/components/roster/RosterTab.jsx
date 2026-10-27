@@ -26,8 +26,8 @@ import { getCourseCommentSummaries } from '../../services/api.js';
 // its label). With Private details off, Needs attention, Test day and Mastery each show the shared
 // PrivateHidden box (Test day keeps its test picker and length).
 // Props: course (`linked`: a set of linked sections, where Mastery's override is disabled), students
-// (with dropped ones, `dropped_at`), mastery (getMasteryForCourse), triage (CoursePage's own getTriage
-// answer, as the rail reads it), gradebook (CoursePage's getGradebook: the flag on overdue work, Test day's tests),
+// (with dropped ones, `dropped_at`), mastery (getMasteryForCourse; masteryFailed when its read failed),
+// triage (CoursePage's own getTriage answer, as the rail reads it; triageFailed when that read failed), gradebook (CoursePage's getGradebook: the flag on overdue work, Test day's tests),
 // onTriageChanged (after a Needs attention write: CoursePage re-reads triage), onFlagChanged (after one
 // that changed a Schoology flag: the gradebook too), onMasteryChanged (after a Mastery override: CoursePage
 // re-reads mastery), courseId.
@@ -80,7 +80,7 @@ function RosterMode({ on, courseId, active, dropped, unread, filters, setFilters
   );
 }
 
-export default function RosterTab({ course = null, students, mastery = null, triage = null, gradebook = null, onTriageChanged, onFlagChanged, onMasteryChanged, courseId }) {
+export default function RosterTab({ course = null, students, mastery = null, masteryFailed = false, triage = null, triageFailed = false, gradebook = null, onTriageChanged, onFlagChanged, onMasteryChanged, courseId }) {
   const [mode, setMode] = useStickyTab('roster-mode', 'roster', { param: 'mode' });
   const current = ROSTER_MODES.some((m) => m.id === mode) ? mode : 'roster';
   const [on] = usePrivateDetails();
@@ -139,14 +139,14 @@ export default function RosterTab({ course = null, students, mastery = null, tri
           card={card} popup={popup} openPopup={openPopup} closePopup={closePopup} />
       )}
       {current === 'attention' && (on
-        ? <NeedsAttention triage={triage} active={active} gradebook={gradebook} archived={Boolean(course?.archived)}
+        ? <NeedsAttention triage={triage} triageFailed={triageFailed} active={active} gradebook={gradebook} archived={Boolean(course?.archived)}
           onChanged={onTriageChanged} onFlagChanged={onFlagChanged} card={card} />
         : <PrivateHidden title="Overdue work, referrals and comments are private." />)}
       {current === 'testday' && (
         <TestDay on={on} students={active} gradebook={gradebook} locked={<PrivateHidden title="Extra time for learning plans is private." />} />
       )}
       {current === 'mastery' && (
-        <MasteryView on={on} locked={<PrivateHidden title="Levels and grades are private." />} mastery={mastery} students={active}
+        <MasteryView on={on} locked={<PrivateHidden title="Levels and grades are private." />} mastery={mastery} failed={masteryFailed} students={active}
           courseId={courseId} linked={Boolean(course?.linked)} onMasteryChanged={onMasteryChanged} />
       )}
       {on && popup?.kind === 'alert' && <AlertPopover student={popup.student} alert={popup.alert} anchor={popup.anchor} onClose={closePopup} />}

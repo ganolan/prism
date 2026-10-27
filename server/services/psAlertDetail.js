@@ -16,7 +16,17 @@ import { readSupportSummary, readAlertPopup, popupLink, SupportSummaryError } fr
 
 const TTL_MS = 10 * 60 * 1000;
 const cache = new Map(); // `${studentId}:${alertKey}` → { detail, at }
-export const clearAlertDetailCache = () => cache.clear();
+// PowerSchool's alert catalogue (getAlertTypes.json: the same for every student), kept for TTL_MS like the
+// details, so a run of pop-ups reads it once (#189). A failed read is not kept.
+let catalogueHit = null; // { list, at }
+export const clearAlertDetailCache = () => { cache.clear(); catalogueHit = null; };
+async function alertCatalogue(ps, now) {
+  if (catalogueHit && now() - catalogueHit.at <= TTL_MS) return catalogueHit.list;
+  const read = await ps.read('/teachers/mba_alerts/queries/getAlertTypes.json', { disabled: 0, student_schoolid: PS_SCHOOL_ID });
+  const list = Array.isArray(read) ? read : [];
+  catalogueHit = { list, at: now() };
+  return list;
+}
 
 const DEF_BY_KEY = new Map(ALERT_DEFS.map((d) => [d.key, d]));
 // Alerts with no pop-up to read: the plugin builds mobility's link without a stub_url (a manual alert).
@@ -124,8 +134,7 @@ export async function readAlertDetail(db, studentId, alertKey, deps = {}) {
     body = { kind: 'none' };
   } else {
     const html = await readAlertPopup(db, studentId, alertKey, deps, async (ps, { dcid, studentid }) => {
-      const catalogue = await ps.read('/teachers/mba_alerts/queries/getAlertTypes.json', { disabled: 0, student_schoolid: PS_SCHOOL_ID });
-      const type = (Array.isArray(catalogue) ? catalogue : []).find((t) => t && String(t.id) === def.psAlertIds[0]);
+      const type = (await alertCatalogue(ps, now)).find((t) => t && String(t.id) === def.psAlertIds[0]);
       return type?.stub_url ? popupLink(type, dcid, studentid) : null;
     }, { name: def.label });
     body = html == null ? { kind: 'none' } : parseAlertPopup(html);

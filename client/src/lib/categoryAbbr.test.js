@@ -44,6 +44,10 @@ describe('categoryName, categoryLabels and topicNumber', () => {
 
   it('gives a topic number without the course prefix', () => {
     expect(topicNumber('APCS.2.3')).toBe('2.3');
+    // #189: the course prefix is every leading part that is not a number.
+    expect(topicNumber('HS.ART.2.3')).toBe('2.3');
+    expect(topicNumber('APCS.2.3.1')).toBe('2.3.1');
+    expect(topicNumber('A.B')).toBe('B');
     expect(topicNumber('X9')).toBe('X9');
     expect(topicNumber('')).toBe('');
   });

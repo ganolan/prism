@@ -20,8 +20,8 @@ systems as they are; never overstate.
 primary. Schoology shows neither: the student's profile lists 7 or 8 staff under "Advisors" (the two counselors among
 school leaders), in alphabetical order, with no roles. Schoology does not let the teacher copy those emails.
 
-**The problem.** A teacher who needs to contact a student's counselor cannot tell from Schoology who that is, and
-PowerTeacher shows the names only in a pop-up, with no emails.
+**The problem.** A teacher who needs to contact a student's counselor cannot tell from Schoology who that is.
+PowerTeacher shows only the names, in a pop-up.
 
 **What Prism does.**
 - **The two counselors on the student page,** the primary one marked, read from PowerSchool once a school year.
@@ -30,6 +30,8 @@ PowerTeacher shows the names only in a pop-up, with no emails.
 **Evidence.** Probes on 28 Oct 2026, read only, 3 students: the Advisors row held 7 to 8 staff with 5 shared by all
 three; PowerSchool's counselor read returned 2 counselors with exactly one primary for 3 of 3; each counselor matched
 one Schoology advisor's email for 6 of 6 (`.claude/powerschool-api-reference.md`, "Student counsellors (#190)").
+The first full read on prod (28 Oct 2026, sync run 156, 0 errors) stored 2 counselors with exactly one primary, and
+both emails, for all 96 current students (8 counselors in all).
 
 ## Letter grades from the HKIS chart, beside the levels (#193, October 2026)
 

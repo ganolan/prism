@@ -41,10 +41,11 @@ describe('Student page with Private details off', () => {
     api.getStudent.mockResolvedValue(STUDENT);
     const { container } = renderPage();
     expect(await screen.findByRole('heading', { name: /Ana Lee/ })).toBeInTheDocument();
-    expect(screen.getByText('27007@hkis.edu.hk')).toBeInTheDocument();
+    expect(screen.getByText('27007')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy email 27007@hkis.edu.hk' })).toBeInTheDocument();
     expect(screen.getByText('Alerts, family contacts and notes are private.')).toBeInTheDocument();
     expect(screen.getByText('No grades yet.')).toBeInTheDocument(); // grades and feedback are not private (27 Oct 2026)
-    for (const t of [/Show alerts/, /Family Contacts/, /mei@example\.com/, /Left early/, /^Notes$/]) {
+    for (const t of [/Show family alerts/, /Family Contacts/, /mei@example\.com/, /Left early/, /^Notes$/]) {
       expect(screen.queryByText(t)).not.toBeInTheDocument();
     }
     expect(container.textContent).not.toMatch(/Mei|dentist|Allergies/);
@@ -52,7 +53,7 @@ describe('Student page with Private details off', () => {
     act(() => setPrivateDetails(true));
     expect(screen.getByText('Family Contacts')).toBeInTheDocument();
     expect(screen.getByText('Left early for the dentist')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Show alerts (1)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Allergies' })).toHaveClass('badge-amber'); // in place (#185)
     expect(screen.queryByText('Alerts, family contacts and notes are private.')).not.toBeInTheDocument();
   });
 });

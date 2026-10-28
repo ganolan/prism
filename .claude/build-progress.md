@@ -2026,3 +2026,10 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Checked on prod (read only):** the re-grade was written on 27 Oct 15:04 HKT (ED on all 5 topics, a new narrative over the September one), shown as Revised, then used and published (Schoology now holds ED on all 5 and an 867-character comment). Write path and card both work over a published grade; the first attempt had no PrisMCP access, as Graham thought.
 - **Test:** `AssessmentSummaryPage.test.jsx` "over a published grade" (suggested level marked beside the published one, the revised narrative shown).
 
+
+## Student page: header line, alerts in place, Recent tasks, Unread comments (#185, 2026-10-28)
+
+- **Graham's decision (28 Oct, option A of the mock https://claude.ai/artifact/Lt9Kcgv1ruhkhT2ny59fiP):** with Private details on, learning, health and other alerts show in place and open their PowerSchool detail; family alerts and do-not-contact or deceased guardians stay behind Show family alerts, never remembered.
+- **Client:** `StudentAlerts.jsx` replaced `PsAlertReveal.jsx` (deleted with its test, its `.ps-support-summary` CSS and the client's `getSupportSummary`; the server route `/api/students/:id/support-summary` and PrisMCP's `get_support_summary` stay). It reuses the roster's `AlertDetail` (exported from `roster/AlertPopover.jsx`) and `getAlertDetail`. Header line `.student-meta` (grade, student number, `CopyEmail` from `RosterCard.jsx`). `RecentTasks.jsx` + `lib/recentTasks.js` (the last 6 due in current courses, status in `timelineParts` words, flags as `FlagSymbol`). Unread comments pill beside Courses, from `useStudentCommentSummaries`.
+- **Absences:** wait for #39.
+- **Tests:** recentTasks, RecentTasks, StudentPage.psAlerts (rewritten), StudentPage.contacts (Show family alerts counts), StudentPage.tags (header line), StudentPage.feedback (Unread comments filter), privateDetailsPages.

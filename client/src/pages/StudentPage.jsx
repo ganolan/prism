@@ -15,7 +15,9 @@ import StudentRubricCard from '../components/gradeCard/StudentRubricCard.jsx';
 import { cardInputs, cardReasons } from '../lib/cardInputs.js';
 import { useGradeCards } from '../hooks/useGradeCards.js';
 import { useCardEditing } from '../hooks/useCardEditing.js';
-import PsAlertReveal from '../components/PsAlertReveal.jsx';
+import StudentAlerts from '../components/StudentAlerts.jsx';
+import RecentTasks from '../components/RecentTasks.jsx';
+import { CopyEmail } from '../components/roster/RosterCard.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { useStudentWorkLinks, useStudentCommentSummaries, useStudentFileSummaries } from '../hooks/useStudentFeedbackLinks.js';
 import { hasNativeSubmission } from '../components/SubmissionFiles.jsx';
@@ -241,7 +243,7 @@ export function CourseSection({
 // A parent's PowerSchool contact check (#66), present only with the powerschool_alerts
 // feature on (the student then carries `guardians_synced_at`; with it off, no `contact`:
 // every parent is shown and copied as before). Do not contact and deceased are family
-// facts, kept behind Show alerts with the PowerSchool alerts; every guardian not cleared
+// facts, kept behind Show family alerts with the family alerts (#185); every guardian not cleared
 // as contactable is left out of Copy all. The reason is shown as the API sends it.
 // #173: contact.email is the address to show (PowerSchool's, else Schoology's) and
 // contact.copy the only addresses that may get a mailto link, a copy button or a place in
@@ -404,8 +406,8 @@ function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
 export default function StudentPage() {
   const { id } = useParams();
   const dataVersion = useDataVersion();
-  // #197: with Private details off the page shows who the student is (photo, name, grade, ID, email),
-  // the courses with their grades and feedback (Graham, 27 Oct 2026), and one PrivateHidden box in place of
+  // #197: with Private details off the page shows who the student is (photo, name, grade, number, Email),
+  // Recent tasks and the courses with their grades and feedback (Graham, 27 Oct 2026; #185), and one PrivateHidden box in place of
   // the alerts, family contacts and notes, which are not in the page.
   // A grade card in edit mode saves its draft when it unmounts, so turning the switch off loses no work.
   const [privateOn] = usePrivateDetails();
@@ -421,7 +423,10 @@ export default function StudentPage() {
   const [editNoteText, setEditNoteText] = useState('');
 
   const [photoEnlarged, setPhotoEnlarged] = useState(false);
-  // The Show alerts reveal, shared by the alert badges and the guardian cards (#66).
+  // The Unread comments filter on the courses (#185): only tasks with an unread student comment.
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  useEffect(() => { setUnreadOnly(false); }, [id]);
+  // The Show family alerts reveal (#185), shared by the family alert badges and the guardian cards (#66).
   // Never remembered: it belongs to one student id, and is cleared when the page's student changes.
   const [alertsShownFor, setAlertsShownFor] = useState(null);
   useEffect(() => { setAlertsShownFor(null); }, [id]);
@@ -524,16 +529,24 @@ export default function StudentPage() {
   const showLegalName = legalFullName !== displayedFullName;
 
   const titleName = displayedFullName;
+  const gradeBadge = student.grad_year ? formatGradeBadge(student.grad_year) : null;
+  const studentNumber = student.email?.includes('@') ? student.email.split('@')[0] : null;
   const alertsShown = alertsShownFor === student.id;
   const parents = (student.parents || []).map((p) => withContact(p, 'guardians_synced_at' in student));
   const revealOnlyCount = parents.filter(isRevealOnly).length;
   const copyableParents = parents.filter(isCopyable);
   const notCopied = parents.filter((p) => hasAddress(p) && !isCopyable(p)).length;
-  // A deceased guardian has no card until Show alerts (#66).
+  // A deceased guardian has no card until Show family alerts (#66, #185).
   const shownCards = parents.filter((p) => alertsShown || p.contact?.status !== 'deceased').length;
 
+  // Tasks with an unread student comment, from this student's comment summaries (null: the feature is off).
+  const unreadAids = new Set(Object.entries(commentSummaries || {})
+    .filter(([, summary]) => summary?.unread > 0).map(([aid]) => String(aid)));
+  const unreadTasks = student.grades.filter((g) => unreadAids.has(String(g.schoology_assignment_id))).length;
+  const filtering = unreadOnly && commentSummaries !== null;
   const gradesByCourse = {};
   for (const g of student.grades) {
+    if (filtering && !unreadAids.has(String(g.schoology_assignment_id))) continue;
     if (!gradesByCourse[g.course_id]) gradesByCourse[g.course_id] = [];
     gradesByCourse[g.course_id].push(g);
   }
@@ -560,28 +573,22 @@ export default function StudentPage() {
                   <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, lineHeight: 1.2 }}>{titleName}</h2>
                   <BirthdayMark student={student} />{/* public: "Birthday today" only (#191) */}
                   {privateOn && <StudentTags student={student} />}{/* age and gender: not in the page with Private details off */}
-                  {student.grad_year && (() => {
-                    const badge = formatGradeBadge(student.grad_year);
-                    if (!badge) return null;
-                    return (
-                      <Tip className="badge badge-blue" text={`${badge.label}, graduating ${student.grad_year}`} pop={`Graduating ${student.grad_year}`}>
-                        {badge.label}
-                      </Tip>
-                    );
-                  })()}
-                  {student.email && student.email.includes('@') && (
-                    <Tip className="text-sm text-muted" named={false} text="Student ID">ID: {student.email.split('@')[0]}</Tip>
-                  )}
                 </div>
-                {privateOn && (student.ps_alerts?.length || 0) + revealOnlyCount > 0 && (
-                  <div style={{ marginTop: '0.35rem' }}>
-                    {/* Hidden until clicked, never remembered (the reveal belongs to this student id). */}
-                    <PsAlertReveal
-                      studentId={student.id} alerts={student.ps_alerts || []} syncedAt={student.ps_alerts_synced_at}
-                      shown={alertsShown} onShownChange={(v) => setAlertsShownFor(v ? student.id : null)}
-                      extraCount={revealOnlyCount}
-                    />
-                  </div>
+                {/* One line under the name, as on the roster card (#185): grade, student number (the email's
+                    local part) and an Email copy button. */}
+                <div className="student-meta">
+                  {gradeBadge && (
+                    <Tip text={`Graduating ${student.grad_year}`}>{gradeBadge.grade ? `Grade ${gradeBadge.grade}` : `Class of ${student.grad_year}`}</Tip>
+                  )}
+                  {studentNumber && <Tip className="student-meta__number" text="Student number">{studentNumber}</Tip>}
+                  {student.email && <span><CopyEmail email={student.email} /></span>}
+                </div>
+                {privateOn && (
+                  <StudentAlerts
+                    studentId={student.id} alerts={student.ps_alerts || []} syncedAt={student.ps_alerts_synced_at}
+                    familyShown={alertsShown} onFamilyShownChange={(v) => setAlertsShownFor(v ? student.id : null)}
+                    extraCount={revealOnlyCount}
+                  />
                 )}
                 {showLegalName && (
                   <p className="text-sm text-muted" style={{ marginTop: '0.2rem' }}>Legal name: {legalFullName}</p>
@@ -625,12 +632,6 @@ export default function StudentPage() {
                     {student.preferred_name_teacher ? `Preferred: ${student.preferred_name_teacher}` : 'Set preferred name'}
                   </button>
                 )}
-                {student.email && (
-                  <p className="text-sm contact-email" style={{ marginTop: '0.4rem' }}>
-                    <a href={`mailto:${student.email}`} className="link">{student.email}</a>
-                    <CopyButton text={student.email} />
-                  </p>
-                )}
               </div>
             </div>
           </div>
@@ -669,6 +670,8 @@ export default function StudentPage() {
           )}
         </div>
       </div>
+
+      <RecentTasks student={student} />
 
       {/* Notes: private (#197). */}
       {privateOn && (
@@ -746,6 +749,11 @@ export default function StudentPage() {
       {syncCourses.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', margin: '1.5rem 0 0.5rem' }}>
           <h3 style={{ margin: 0, fontWeight: 600 }}>Courses</h3>
+          {commentSummaries !== null && (unreadTasks > 0 || unreadOnly) && (
+            <button type="button" className={`filter-btn student-unread-filter${unreadOnly ? ' active' : ''}`} aria-pressed={unreadOnly} onClick={() => setUnreadOnly(!unreadOnly)}>
+              Unread comments <span className="filter-btn__n">{unreadTasks}</span>
+            </button>
+          )}
           <SyncStatus
             label="Sync Courses"
             syncedAt={oldestSynced}
@@ -788,6 +796,9 @@ export default function StudentPage() {
 
       {student.grades.length === 0 && (
         <div className="card"><p className="text-muted">No grades yet.</p></div>
+      )}
+      {filtering && unreadTasks === 0 && student.grades.length > 0 && (
+        <div className="card"><p className="text-muted">No task has an unread comment now.</p></div>
       )}
 
       {photoEnlarged && student.picture_url && (

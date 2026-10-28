@@ -304,16 +304,7 @@ tr:last-child td { border-bottom: none; }
 /* #117: PowerSchool student alerts (PsAlertBadges). A wrapping group of the
    standard badges. The roster shows them as chips (ROSTER, #160). */
 .ps-alerts { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; vertical-align: middle; }
-.ps-alerts-revealed { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
-/* The Student Support Summary inside the reveal (#163): a full-width list of
-   PowerSchool's Category / Description rows, verbatim. */
-.ps-support-summary { flex-basis: 100%; margin-top: 0.4rem; padding: 0.6rem 0.8rem; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-subtle); }
-.ps-support-summary__title { margin: 0 0 0.4rem; font-size: 0.85rem; }
-.ps-support-summary__rows { display: grid; gap: 0.25rem; margin: 0; }
-.ps-support-summary__row { display: grid; grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr); gap: 0.6rem; font-size: 0.82rem; }
-.ps-support-summary__row dt { color: var(--text-muted); font-weight: 600; }
-.ps-support-summary__row dd { margin: 0; overflow-wrap: anywhere; }
-.ps-support-summary__error { flex-basis: 100%; color: var(--badge-amber-text); }
+/* The student page's Show family alerts button (#185). */
 button.ps-alerts-reveal { font-size: 0.78rem; padding: 0.15rem 0.55rem; }
 
 /* #76: gradebook cell marker for an lti_submission assignment whose OneDrive
@@ -1779,9 +1770,42 @@ button.cell-open:focus-visible { outline: 2px solid var(--accent); outline-offse
 .student-profile__info { flex: 1; }
 .student-photo { width: 144px; height: 144px; border-radius: 50%; object-fit: cover; flex-shrink: 0; border: 2px solid var(--border); cursor: zoom-in; }
 .student-name-row { display: flex; align-items: center; gap: 0.5rem; }
-/* Student page header, Private details only: small muted tags after the name (gender; age is meant to be
-   the first, #191). The popover is the shared .help-pop. */
+/* Student page header, Private details only: small muted tags after the name (the age, #191, then the
+   gender). The popover is the shared .help-pop. */
 .student-tags { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+/* Student page header (#185): one muted line under the name, as on the roster card (grade, student
+   number, Email copy), then the alert chips in place with their detail under them. */
+.student-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0 8px; margin-top: 0.25rem; font-size: 0.82rem; color: var(--text-muted); }
+.student-meta > * { display: inline-flex; align-items: center; }
+.student-meta > *:not(:last-child)::after { content: ''; width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.45; margin-left: 8px; flex: none; }
+.student-meta__number { font-variant-numeric: tabular-nums; }
+.student-alerts { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; margin-top: 0.5rem; }
+.student-alerts__chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
+button.student-alert-chip { border: 0; cursor: pointer; font: inherit; font-size: 0.75rem; font-weight: 600; }
+button.student-alert-chip[aria-expanded="true"] { outline: 2px solid currentColor; outline-offset: 1px; }
+.student-alert-detail { align-self: stretch; display: flex; flex-direction: column; gap: 0.4rem; padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg-subtle); font-size: 0.84rem; max-width: 40rem; }
+.student-alert-detail__head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+/* Recent tasks (#185): mark, task and course, status in the timeline's words. */
+.recent-tasks__head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
+.recent-tasks__head h3 { margin: 0; }
+.recent-tasks__list { list-style: none; margin: 0; padding: 0; }
+.recent-task { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; padding: 0.45rem 0; border-top: 1px solid var(--border); font-size: 0.86rem; }
+.recent-task:first-child { border-top: 0; }
+.recent-task__mark { display: inline-flex; justify-content: center; }
+.recent-task__dot { width: 18px; height: 18px; border-radius: 50%; align-items: center; }
+.recent-task__dot svg { width: 11px; height: 11px; }
+.recent-task__dot--ok { background: var(--badge-green-bg); color: var(--badge-green-text); }
+.recent-task__dot--late { background: var(--badge-amber-bg); color: var(--badge-amber-text); }
+.recent-task__dot--over { background: var(--badge-red-bg); color: var(--badge-red-text); }
+.recent-task__dot--quiet { background: var(--badge-gray-bg); color: var(--badge-gray-text); }
+.recent-task__name { min-width: 0; overflow-wrap: anywhere; }
+.recent-task__sub { display: block; font-size: 0.75rem; color: var(--text-muted); }
+.recent-task__status { font-size: 0.8rem; font-weight: 600; text-align: right; }
+.recent-task__status--ok { color: var(--badge-green-text); }
+.recent-task__status--late { color: var(--badge-amber-text); }
+.recent-task__status--over { color: var(--badge-red-text); }
+.recent-task__status--quiet { color: var(--text-muted); font-weight: 500; }
 .student-tag { display: inline-flex; align-items: center; padding: 0 5px; border-radius: 6px; background: var(--bg-subtle);
   border: 1px solid var(--border); color: var(--text-muted); font-size: 0.72rem; font-weight: 650; line-height: 1.35;
   white-space: nowrap; cursor: help; user-select: none; }
@@ -2141,7 +2165,6 @@ button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accen
    ======================================================================== */
 @media (max-width: 768px) {
   /* Student Support Summary (#163): category above its description. */
-  .ps-support-summary__row { grid-template-columns: 1fr; gap: 0; }
   /* The file viewer fills the screen. */
   .file-viewer { padding: 0; }
   .file-viewer-panel { width: 100%; height: 100%; border-radius: 0; }
@@ -2305,6 +2328,8 @@ button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accen
   .student-profile__info { min-width: 0; }
   .student-photo { width: 88px; height: 88px; }
   .student-name-row { flex-wrap: wrap; row-gap: 0.25rem; }
+  .recent-task { grid-template-columns: 22px minmax(0, 1fr); }
+  .recent-task__status { grid-column: 2; text-align: left; }
   .contact-email a { min-width: 0; overflow-wrap: anywhere; }
   /* The copy button's 44px hit area overlaps the lines above and below rather
      than spacing them out. */

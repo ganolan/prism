@@ -233,7 +233,7 @@ or one the school must not contact. The design for this work calls that a safegu
 - **Follows PowerSchool:** a flag cleared there is cleared in Prism at the next sync. A failed read keeps the
   last known data and shows when it was read.
 - **Keeps sensitive detail hidden:** a deceased guardian's card and a do-not-contact guardian's email stay
-  hidden until the teacher selects Show alerts.
+  hidden until the teacher selects Show alerts (since #185, 28 Oct 2026: Show family alerts).
 - **Shows PowerSchool's own email and phone** for each guardian beside the teacher's own additions.
 
 **Evidence.**
@@ -312,7 +312,7 @@ accommodation plan (issue #117). The alerts are in a different system from the o
 
 **What Prism does.**
 - **Reads the alerts on every sync** for all active courses and shows them as badges on the student page.
-- **Hidden until asked:** the student page shows alerts only after the teacher selects Show alerts. The class
+- **Hidden until asked:** the student page shows alerts only after the teacher selects Show alerts (since #185, 28 Oct 2026: with Private details on they show in place, family alerts behind Show family alerts). The class
   roster shows learning, health and other alerts only, behind a toggle (since #160, 25 Oct 2026: behind
   Private details) that is off by default. Family alerts never appear on a roster.
 - **A badge states that a plan exists, not what it contains.** The Student Support Summary is read from

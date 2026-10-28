@@ -119,8 +119,8 @@ and is never a caller or teacher input.** The numeric mapping is configured once
   shown as a badge (`student_ps_alerts`, feature `powerschool_alerts`). It says a plan exists, not
   what it contains. Categories: learning, health, other, and **family** (correspondence,
   divorced/separated, staff child, siblings). Family alerts appear on the student page (behind
-  "Show alerts") and in PrisMCP only, never on a roster. Every view hides alerts until the
-  teacher asks for them.
+  "Show family alerts", #185) and in PrisMCP only, never on a roster. Every view hides alerts until the
+  teacher turns on Private details.
 - **Flag**: one of Schoology's five grade flags on a student's task, set from Prism or from
   Schoology's gradebook (#40): **Exempt** (1), **Incomplete** (2), **Missing** (3), **Absent** (5),
   **Late** (6). Schoology's API calls them exceptions (`grades.exception`; 4 is invalid). While a

@@ -38,7 +38,7 @@ const renderPage = () => render(
   </MemoryRouter>
 );
 const load = (fields) => getStudent.mockResolvedValue({ ...base, guardians_synced_at: '2026-10-20T08:00:00.000Z', ...fields });
-const showAlerts = async (n) => fireEvent.click(await screen.findByRole('button', { name: `Show alerts (${n})` }));
+const showAlerts = async (n) => fireEvent.click(await screen.findByRole('button', { name: `Show family alerts (${n})` }));
 
 let clipboard;
 beforeEach(() => {
@@ -47,7 +47,7 @@ beforeEach(() => {
 });
 
 describe('StudentPage family contacts (#66)', () => {
-  it('a deceased parent has no card and no email in the page until Show alerts', async () => {
+  it('a deceased parent has no card and no email in the page until Show family alerts', async () => {
     load({ parents: [parent(1, 'contactable'), parent(2, 'deceased')] });
     const { container } = renderPage();
     await screen.findByText('Guardian Number1');
@@ -76,7 +76,7 @@ describe('StudentPage family contacts (#66)', () => {
     expect(screen.getByText('guardian2@example.test')).toBeInTheDocument();
     expect(container.querySelector('a[href^="mailto:guardian2"]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Hide alerts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hide family alerts' }));
     expect(screen.queryByText('Guardian Number2')).not.toBeInTheDocument();
   });
 
@@ -109,7 +109,7 @@ describe('StudentPage family contacts (#66)', () => {
     expect(container.querySelector('a[href^="mailto:"]')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
     // Neither is flagged, so no reveal button.
-    expect(screen.queryByRole('button', { name: /Show alerts/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Show family alerts/ })).not.toBeInTheDocument();
   });
 
   // 28 Oct 2026: each matched contact is tagged with its PowerSchool guardian slot, so "Correspondence G1",
@@ -169,21 +169,21 @@ describe('StudentPage family contacts (#66)', () => {
     expect(screen.getAllByText('Not checked against PowerSchool yet')).toHaveLength(2);
   });
 
-  it('Show alerts appears for a flagged parent when the student has no other alert, and counts them', async () => {
+  it('Show family alerts appears for a flagged parent when the student has no other alert, and counts them', async () => {
     load({ parents: [parent(1, 'contactable'), parent(2, 'deceased'), parent(3, 'do_not_contact')], ps_alerts: [] });
     const { container } = renderPage();
     await showAlerts(2);
     // Revealed with no alerts: no empty badge row and no alerts read line.
     expect(container.querySelector('.ps-alerts')).toBeNull();
-    expect(screen.queryByText(/from PowerSchool, read/)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Hide alerts' })).toBeInTheDocument();
+    expect(screen.queryByText(/from PowerSchool, read/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Hide family alerts' })).toBeInTheDocument();
   });
 
-  it('counts flagged parents with the alerts', async () => {
+  it('counts flagged parents with the family alerts; other alerts show in place (#185)', async () => {
     load({ parents: [parent(2, 'deceased')], ps_alerts: [{ key: 'allergies', label: 'Allergies', category: 'health' }] });
     renderPage();
-    await showAlerts(2);
-    expect(screen.getByText('Allergies')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Allergies' })).toBeInTheDocument();
+    await showAlerts(1);
     expect(screen.getByText('Deceased (PowerSchool)')).toBeInTheDocument();
   });
 
@@ -196,7 +196,7 @@ describe('StudentPage family contacts (#66)', () => {
     expect(screen.getByRole('button', { name: 'Copy all emails' })).toBeInTheDocument();
     expect(screen.queryByText(/not copied/)).not.toBeInTheDocument();
     expect(screen.queryByText(/against PowerSchool/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Show alerts/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Show family alerts/ })).not.toBeInTheDocument();
   });
 
   it('not matched and not checked phones are plain text, with no tel link', async () => {
@@ -257,15 +257,14 @@ describe('StudentPage family contacts (#66)', () => {
     expect(screen.getByText('Guardian Number2')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'to 8' }));
-    expect(await screen.findByRole('button', { name: 'Show alerts (2)' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Show family alerts (1)' })).toBeInTheDocument();
     expect(screen.queryByText('Guardian Number3')).not.toBeInTheDocument();
-    expect(screen.queryByText('Allergies')).not.toBeInTheDocument();
     expect(screen.queryByText('Guardian Number2')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'to 7' }));
-    expect(await screen.findByRole('button', { name: 'Show alerts (1)' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Show family alerts (1)' })).toBeInTheDocument();
     expect(screen.queryByText('Guardian Number2')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Hide alerts' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Hide family alerts' })).not.toBeInTheDocument();
   });
 
   it('shows the not-synced message only when there are no parents', async () => {

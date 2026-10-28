@@ -97,3 +97,31 @@ describe('StudentPage gender tag', () => {
   });
 });
 
+
+// #185: one line under the name, as on the roster card: grade, student number, Email copy. With
+// Private details off too.
+describe('StudentPage header line', () => {
+  const YEAR = new Date().getMonth() >= 7 ? new Date().getFullYear() + 2 : new Date().getFullYear() + 1; // a Grade 11
+
+  it.each([[true], [false]])('reads grade, number and Email under the name (Private details %s)', async (on) => {
+    setPrivateDetails(on);
+    const writeText = vi.fn().mockResolvedValue();
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    getStudent.mockResolvedValue({ ...base, grad_year: YEAR, email: '27007@hkis.edu.hk' });
+    renderPage();
+    await nameRow();
+    const line = document.querySelector('.student-meta');
+    expect([...line.children].map((c) => c.textContent)).toEqual(['Grade 11', '27007', 'Email']);
+    expect(screen.queryByText(/^ID:/)).not.toBeInTheDocument();
+    expect(document.querySelector('a[href="mailto:27007@hkis.edu.hk"]')).toBeNull();
+    await act(async () => { fireEvent.click(within(line).getByRole('button', { name: 'Copy email 27007@hkis.edu.hk' })); });
+    expect(writeText).toHaveBeenCalledWith('27007@hkis.edu.hk');
+  });
+
+  it('a past student reads their class year', async () => {
+    getStudent.mockResolvedValue({ ...base, grad_year: 2020, email: '20001@hkis.edu.hk' });
+    renderPage();
+    await nameRow();
+    expect(document.querySelector('.student-meta').firstElementChild).toHaveTextContent('Class of 2020');
+  });
+});

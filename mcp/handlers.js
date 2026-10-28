@@ -216,7 +216,7 @@ export function getStudentHistoryTool(db, args = {}) {
 }
 
 // #163: the PowerSchool Student Support Summary, read live (server/services/
-// psSupportSummary.js, the same read as the student page's "Show alerts").
+// psSupportSummary.js, the same read as a learning alert's detail on the roster and the student page).
 export async function getSupportSummaryTool(db, { student } = {}, { read = readSupportSummary, features = getFeatures() } = {}) {
   if (!features.powerschool_alerts) throw new Error('PowerSchool alerts are off in config.yaml');
   const s = resolveStudent(db, student);

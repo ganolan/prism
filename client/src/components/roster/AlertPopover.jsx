@@ -7,8 +7,9 @@ import { studentFullName } from '../../lib/studentNames.js';
 // One alert's detail for one student (#160), read live from PowerSchool when the chip is tapped
 // (GET /api/students/:id/alert-detail/:key; the server answers a learning alert with the Student
 // Support Summary). Rows as a two-column table, empty rows left out; text as a paragraph; an alert
-// Prism cannot read says so. Nothing is kept on the page.
-function Detail({ detail }) {
+// Prism cannot read says so. Nothing is kept on the page. The student page draws the same detail in
+// place under its alert chips (components/StudentAlerts.jsx, #185).
+export function AlertDetail({ detail }) {
   const rows = detail.kind === 'rows' ? (detail.rows || []).filter((r) => r.description) : [];
   if (rows.length) {
     return (
@@ -48,7 +49,7 @@ export default function AlertPopover({ student, alert, anchor, onClose }) {
       {state.error && <p className="text-sm roster-pop__error">Could not read this alert: {state.error}</p>}
       {state.detail && (
         <>
-          <Detail detail={state.detail} />
+          <AlertDetail detail={state.detail} />
           {state.detail.readAt && <p className="roster-pop__foot">From PowerSchool, read {formatDateTime(state.detail.readAt)}</p>}
         </>
       )}

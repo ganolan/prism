@@ -39,8 +39,9 @@ router.get('/', (req, res) => {
 
 // GET /api/students/:id — student profile with courses, grades, notes, and flags (open resubmission requests)
 // GET /api/students/:id/support-summary → { rows: [{ category, description, url? }], readAt }:
-// the PowerSchool Student Support Summary, read on demand when the teacher opens
-// "Show alerts" (#163; server/services/psSupportSummary.js). For the teacher only.
+// the PowerSchool Student Support Summary, read on demand (#163; server/services/psSupportSummary.js).
+// The student page read it behind "Show alerts" until #185; it now reads a learning alert's detail
+// through alert-detail below, which answers with the same Support Summary. For the teacher only.
 const SUPPORT_SUMMARY_STATUS = {
   NO_ALERT: 404, NOT_FOUND: 404, NOT_LINKED: 404, NO_COURSE: 409, NOT_ON_ROSTER: 409,
   SESSION_EXPIRED: 503, SECURITY_VIOLATION: 502, PS_FAILED: 502,

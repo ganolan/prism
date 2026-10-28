@@ -29,7 +29,8 @@ const CopyIcon = () => (
   </svg>
 );
 
-function CopyEmail({ email }) {
+// Also the student page header's Email button (#185).
+export function CopyEmail({ email }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
     try {

@@ -9,6 +9,8 @@ import { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';
 
 // Each course's mastery summary, recorded (its reloadKey says when it reloads).
 const summary = vi.hoisted(() => vi.fn(() => null));
+// Recent tasks repeat the task links (#185); its own tests are RecentTasks.test.jsx.
+vi.mock('../components/RecentTasks.jsx', () => ({ default: () => null }));
 vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: (props) => summary(props) }));
 // Edit mode's draft saver: tests assert wiring, not I/O.
 vi.mock('../lib/assessmentDraftSaver.js', () => ({
@@ -614,6 +616,35 @@ describe('StudentPage', () => {
     expect(await screen.findByRole('textbox')).toHaveValue('Newer draft.');
     held[1]();
     await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Newer draft.'));
+  });
+
+  // #185: the Unread comments filter beside the Courses heading narrows each course to its tasks with an unread
+  // student comment; a course with none is left out.
+  it('Unread comments shows only the tasks with an unread comment, and again every task when turned off', async () => {
+    getStudentCommentSummaries.mockResolvedValue({
+      assignments: { 'sa-20': { count: 2, unread: 1, read_at: null }, 'sa-10': { count: 1, unread: 0, read_at: '2026-10-17T02:00:00.000Z' } },
+      refresh: { queued: 0 },
+    });
+    renderPage();
+    const pill = await screen.findByRole('button', { name: /^Unread comments/ });
+    expect(pill).toHaveTextContent('Unread comments 1');
+    expect(pill).toHaveAttribute('aria-pressed', 'false');
+    await screen.findByRole('link', { name: 'Deck 24' });
+    fireEvent.click(pill);
+    expect(pill).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('link', { name: 'Poster' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Deck 24' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Art' })).not.toBeInTheDocument(); // no unread task in Art
+    fireEvent.click(pill);
+    expect(await screen.findByRole('link', { name: 'Deck 24' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Art' })).toBeInTheDocument();
+  });
+
+  it('no Unread comments pill while no task has one', async () => {
+    renderPage();
+    await screen.findByRole('link', { name: 'Deck 24' });
+    await waitFor(() => expect(getStudentCommentSummaries).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: /^Unread comments/ })).not.toBeInTheDocument();
   });
 
   it('another student\'s page opens with every task read-only, even with a task in edit mode here', async () => {

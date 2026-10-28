@@ -1,5 +1,5 @@
 // A student's PowerSchool Student Support Summary (#163), read on demand: when the
-// teacher opens "Show alerts" on the student page, or PrisMCP asks. Nothing is
+// teacher opens a learning alert's detail (the roster or student page, through psAlertDetail.js), or PrisMCP asks. Nothing is
 // stored; an answer is kept in memory for 10 minutes. Only for a student whose
 // last alert sync found the Support Summary alert, through one of their current
 // courses: the attendance LTI launch, the section roster (dcid → studentid), then

@@ -109,6 +109,12 @@ describe('parseAlertPopup', () => {
     expect(parseAlertPopup(NO_PHOTO)).toEqual({ kind: 'text', text: 'Line one of the notice.\nLine two of the notice.\nLine three & last.' });
     expect(parseAlertPopup(NOT_A_TABLE)).toEqual({ kind: 'text', text: 'Something new\nItem one\nItem two' });
   });
+  // #202: the EpiPen pop-up's recorded shape, two text runs each followed by a stray </a>, no <a> (made-up text).
+  test('stray closing tags with no opening tag are dropped: one line of text', () => {
+    expect(parseAlertPopup('<p style="margin-left:10px">Carries an EpiPen</a> in the front pocket</a></p>'))
+      .toEqual({ kind: 'text', text: 'Carries an EpiPen in the front pocket' });
+  });
+
   test('nothing visible is kind none', () => {
     expect(parseAlertPopup(SPP_EMPTY)).toEqual({ kind: 'none' });
     expect(parseAlertPopup('<script>var x = 1;</script>')).toEqual({ kind: 'none' });

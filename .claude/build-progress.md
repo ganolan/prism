@@ -1999,3 +1999,9 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Kept:** `<iframe title>` in `FileViewer` (its accessible name, not a tooltip).
 - **Guard:** `client/src/noTitleTooltips.test.js` parses every non-test `.jsx` with `@babel/parser` (now a client devDependency, pinned to the version already in the lock) and fails on a `title=` on a DOM element, `Link`, `NavLink` or `Tip`, or an SVG `<title>`.
 - **Tests:** queries by `title` became `aria-label` / role queries or a hover that reads `.help-pop`; `HelpDot.test.jsx` covers the new `Tip` options and `hoverOnly`; new hover tests for the gradebook cell (`CoursePage.timeline.test.jsx`: Not assigned in its cell, one overlay with the timeline lines and the comment, the passive clock), the grade card (`StudentRubricCard.view.test.jsx`: compact and descriptor cells, Add update), `LateClock`, `QuizChip`, `VersionBadge`, `EmailMenu` and the triage rows (clipped only).
+
+## Alert pop-ups: the unprobed shapes (#202, 2026-10-28)
+
+- **Probe (Graham approved: read only, up to 3 students per alert, shapes only):** `scripts/probe-ps-alert-popups.js --only` (new; never a family alert), three passes over courses 584, 587 and 580. learning_support_2 (2 students), epipen (2), aqhi_inside (1), aqhi_except_events (3): every answer 200, one `<p>` of 41 to 88 characters, no table; epipen's has stray `</a>` tags. ilp, learning_support_1, learning_support_3 and health_care_plan: no holder in a current course. Shapes in the PowerSchool API reference.
+- **Code:** none needed; `parseAlertPopup` shows these as text. New test for the stray-tag shape.
+

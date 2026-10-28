@@ -22,7 +22,9 @@
 //
 //   DB_PATH=<copy> node scripts/probe-ps-alert-popups.js --list
 //        (current courses and how many students hold a kept alert; counts only, no PowerSchool read)
-//   DB_PATH=<copy> node scripts/probe-ps-alert-popups.js --course <courseId> [--per-alert 3]
+//   DB_PATH=<copy> node scripts/probe-ps-alert-popups.js --course <courseId> [--per-alert 3] [--only key1,key2]
+//        --only (#202, Graham approved 28/10/2026 for the unprobed shapes): read only these alert keys. A family
+//        alert is never read with --only.
 import 'dotenv/config';
 import Database from 'better-sqlite3';
 import { cookieJar } from '../server/services/schoologyWeb.js';
@@ -39,11 +41,19 @@ export function perAlertCap(raw) {
   return Math.max(0, Math.min(3, Number(raw ?? 3) || 0));
 }
 
+// --only "a,b" → the set of keys to read (family alerts dropped), or null for every alert.
+export function onlyKeys(raw, defs = []) {
+  if (raw == null) return null;
+  const family = new Set(defs.filter((d) => d.category === 'family').map((d) => d.key));
+  return new Set(String(raw).split(',').map((k) => k.trim()).filter((k) => k && !family.has(k)));
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const flag = (name) => args.indexOf(`--${name}`);
   const value = (name) => (flag(name) >= 0 ? args[flag(name) + 1] : undefined);
   const perAlert = perAlertCap(value('per-alert'));
+  const only = onlyKeys(value('only'), ALERT_DEFS);
   const courseArg = value('course');
   if (flag('list') < 0 && !courseArg) {
     console.error('usage: probe-ps-alert-popups.js --list | --course <courseId> [--per-alert 3]');
@@ -156,6 +166,7 @@ async function main() {
 
   const summary = [];
   for (const def of ALERT_DEFS) {
+    if (only && !only.has(def.key)) continue;
     const id = def.psAlertIds[0];
     const type = typeById.get(id);
     if (!type) { console.log(`\n${def.key}: not in the live catalogue`); summary.push(`${def.key}: not in the catalogue`); continue; }

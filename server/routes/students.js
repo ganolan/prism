@@ -8,6 +8,7 @@ import { getRoster } from '../services/assessmentContext.js';
 import { matchFilesToRoster } from '../lib/oneDriveSubmissions.js';
 import { getFeatures } from '../middleware/featureGate.js';
 import { psAlertsForStudent } from '../services/psAlertStore.js';
+import { adoptProfiledStudents } from '../services/personProfile.js';
 import { contactsForStudents } from '../services/guardianContactStore.js';
 import { readSupportSummary, SupportSummaryError } from '../services/psSupportSummary.js';
 import { readAlertDetail } from '../services/psAlertDetail.js';
@@ -217,6 +218,8 @@ router.get('/:id', (req, res) => {
     }
   }
 
+  // #203: notes the teacher wrote on this student's People profile before teaching them move here first.
+  if (student.schoology_uid) adoptProfiledStudents(db, String(student.schoology_uid));
   const notes = db.prepare(
     'SELECT * FROM notes WHERE student_id = ? ORDER BY created_at DESC'
   ).all(req.params.id);

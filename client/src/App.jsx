@@ -5,6 +5,7 @@ import CoursePage from './pages/CoursePage.jsx';
 import StudentPage from './pages/StudentPage.jsx';
 import SearchPage from './pages/SearchPage.jsx';
 import PeoplePage from './pages/PeoplePage.jsx';
+import PersonPage from './pages/PersonPage.jsx';
 import ImportPage from './pages/ImportPage.jsx';
 import ToolsPage from './pages/ToolsPage.jsx';
 import AssessmentSummaryPage from './pages/AssessmentSummaryPage.jsx';
@@ -93,6 +94,7 @@ function Shell() {
           <Route path="/student/:id" element={<StudentPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/people" element={<PeoplePage />} />
+          <Route path="/people/:uid" element={<PersonPage />} />
           <Route path="/tools" element={<ToolsPage />} />
           <Route path="/import" element={<ImportPage />} />
           <Route path="/settings" element={<SettingsPage />} />

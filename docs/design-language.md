@@ -1895,3 +1895,11 @@ The best parts of the roster drawer Graham rejected in #160, on the student page
 - **"Primary", not "Assigned"** (Graham, 28 Oct 2026): a student belongs to both counselors of their community; PowerSchool's primary one carries a blue `Primary` badge.
 - **No community name:** PowerSchool does not name it, and Prism does not guess one.
 - **Public:** shown with Private details off (counselors are staff). Each email is a mailto link with a copy button; **Copy emails** copies both as "Name <email>"; a counselor Prism could not match shows "Email not found in Schoology".
+
+## Profile pages (#203, 28 Oct 2026)
+
+- **Who it is for:** anyone People search finds who is not a Prism student (a Prism student opens their student page). A result's name links to `/people/:uid`.
+- **Header card:** photo (`PersonAvatar`), name, a grey kind badge (Student, Staff, Parent; none when Schoology does not show which), the school email, "Read from Schoology DD/MM/YYYY" with **Read again** and **Open in Schoology**, and **Delete profile** (asks once inline).
+- **Public:** a staff member's Position, Subjects taught and Phone; a student's Current courses and Groups; a parent's Children (each to their student page or profile).
+- **Private (Private details):** a student's Parents and the teacher's Notes, behind one `PrivateHidden` box.
+- **An old read is dated, never passed off as today's** (Graham, 28 Oct 2026): when Schoology cannot answer a re-read, an amber alert states why and the date the shown data was read.

@@ -963,3 +963,29 @@ CREATE TABLE IF NOT EXISTS student_counselors (
   read_at TEXT NOT NULL,
   PRIMARY KEY (student_id, ps_user_dcid)
 );
+
+-- #203: a profile page for anyone found in People search who is not a Prism student, read from Schoology on first
+-- open (REST /users/{uid}, /sections, /groups and the web Info page), read again when opened more than 7 days later,
+-- kept until the teacher deletes it; a profiled student who joins a class moves to `students` with their notes.
+-- kind: student | staff | parent | NULL (Schoology did not show which).
+CREATE TABLE IF NOT EXISTS people (
+  schoology_uid TEXT PRIMARY KEY,
+  kind TEXT,
+  name_display TEXT,
+  name_first TEXT,
+  name_first_preferred TEXT,
+  name_last TEXT,
+  email TEXT,
+  picture_url TEXT,
+  details_json TEXT NOT NULL DEFAULT '{}',  -- { position, subjects, phone, parents[], children[], courses[], groups[] }
+  read_at TEXT NOT NULL,
+  last_viewed_at TEXT NOT NULL
+);
+
+-- #203: the teacher's notes on a person (private, behind Private details), deleted with the profile.
+CREATE TABLE IF NOT EXISTS people_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  schoology_uid TEXT NOT NULL REFERENCES people(schoology_uid) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);

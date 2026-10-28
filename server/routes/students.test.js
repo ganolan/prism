@@ -135,6 +135,19 @@ describe('GET /api/students/:id — graded tasks unpublished in Schoology', () =
   });
 });
 
+describe('GET /api/students/:id — notes from a People profile (#203)', () => {
+  test('a profile written before the teacher taught the student: its notes arrive on the student page', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM people_notes; DELETE FROM people; DELETE FROM notes;');
+    db.prepare("INSERT INTO people (schoology_uid, name_display, read_at, last_viewed_at) VALUES ('u1', 'Maya Chen', 'x', 'x')").run();
+    db.prepare("INSERT INTO people_notes (schoology_uid, content, created_at) VALUES ('u1', 'Met at Robotics', '2026-10-01T00:00:00.000Z')").run();
+    const { body } = await get(`/api/students/${studentId}`);
+    expect(body.notes.map((n) => n.content)).toEqual(['Met at Robotics']);
+    expect(db.prepare("SELECT COUNT(*) AS n FROM people WHERE schoology_uid = 'u1'").get().n).toBe(0);
+    db.exec('DELETE FROM notes;');
+  });
+});
+
 describe('GET /api/students/:id — counselors (#190)', () => {
   test('the primary first, with the matched email; none stored is an empty list', async () => {
     const db = getDb();

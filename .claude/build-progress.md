@@ -2056,3 +2056,11 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Live (prod, `a6ffa6c`, sync run 156, 0 errors):** 96 students read, each with 2 counselors, 1 primary, both emails (8 matched from 4 Schoology pages, 184 copied); `/mcp` serves 40 tools and `get_student_contacts` answered for a current student.
 - **PrisMCP:** `get_student_contacts` (counselors only, names, primary, email, `counselors_read_at`; family contacts not served, Graham 28 Oct); in the server instructions and `scripts/parity-prismcp-http.js`.
 - **Tests:** psCounselors, psDemographicsSync (counselor read, Referer, refusal, failure, security stop, storeCounselors), counselorEmails, psAlertsSync (counselor emails), students route, StudentPage.counselors, mcp/studentContacts.
+
+## Profile pages for People search (#203, 2026-10-28)
+
+- **Graham's decisions (28 Oct):** skip the design questions, the agent's calls stand (posted on #203); one `people` table for everyone not a Prism student, never deleted (only by Delete profile); a profiled student who joins a class moves to their student record with their notes; a profile Schoology cannot read again shows as last read, dated, with why.
+- **Server:** `people` and `people_notes` (schema.sql); `server/services/personProfile.js` (`readPerson`, `classifyPerson`, `getPersonProfile`: a Prism student → `{ student_id }`, read again after 7 days or on `refresh`, `read_error` on a failed re-read; `adoptProfiledStudents`, also from `GET /api/students/:id`; notes; `deletePerson`); `getUserGroups` in `schoology.js`; `GET/DELETE /api/people/:uid`, `POST /api/people/:uid/notes`, `DELETE /api/people/:uid/notes/:id` (`people_search` gate).
+- **Client:** `PersonPage.jsx` at `/people/:uid` (People search results link there); `PersonAvatar.jsx` shared with `PeoplePage.jsx`; the stale "background browser" line on the search page removed.
+- **Live check (read only, approved):** 1 student, 2 parents, 3 advisors classified right; parents' `child_uids` a string, 3 children named; `scripts/check-person-profile.js`.
+- **Tests:** personProfile (kinds, re-read, failed re-read, children, notes, delete, adoption), people routes, students route (notes arrive), PersonPage.

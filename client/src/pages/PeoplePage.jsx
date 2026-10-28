@@ -1,41 +1,9 @@
 import { useState } from 'react';
 import { searchPeople } from '../services/api.js';
 import { useFeatureFlags } from '../hooks/useFeatureFlags.js';
+import { Link } from 'react-router-dom';
 import PersonSub from '../components/PersonSub.jsx';
-
-const SCHOOLOGY = 'https://schoology.hkis.edu.hk';
-
-const initials = (name) =>
-  (name || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(w => w[0])
-    .join('')
-    .toUpperCase();
-
-function Avatar({ person }) {
-  const [failed, setFailed] = useState(false);
-  if (person.photoUrl && !failed) {
-    return (
-      <img
-        src={person.photoUrl.startsWith('http') ? person.photoUrl : `${SCHOOLOGY}${person.photoUrl}`}
-        alt=""
-        onError={() => setFailed(true)}
-        style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', display: 'block' }}
-      />
-    );
-  }
-  return (
-    <div style={{
-      width: 36, height: 36, borderRadius: '50%', background: 'var(--bg-subtle)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: '0.8rem', color: 'var(--text-muted)', fontWeight: 600,
-    }}>
-      {initials(person.name)}
-    </div>
-  );
-}
+import PersonAvatar, { SCHOOLOGY } from '../components/PersonAvatar.jsx';
 
 export default function PeoplePage() {
   const { features, loading: flagsLoading } = useFeatureFlags();
@@ -104,7 +72,7 @@ export default function PeoplePage() {
         </p>
       )}
       {error && !needsLogin && <p className="alert alert-warning">{error}</p>}
-      {loading && <p className="text-muted">Searching Schoology… (this opens a background browser, give it a moment)</p>}
+      {loading && <p className="text-muted">Searching Schoology…</p>}
 
       {data && !loading && (
         <div className="card">
@@ -125,12 +93,11 @@ export default function PeoplePage() {
                   {data.results.map(p => (
                     <tr key={p.userId}>
                       <td style={{ width: '44px', padding: '0.25rem 0.5rem' }}>
-                        <Avatar person={p} />
+                        <PersonAvatar name={p.name} photoUrl={p.photoUrl} />
                       </td>
                       <td>
-                        <a className="link" href={`${SCHOOLOGY}/user/${p.userId}`} target="_blank" rel="noreferrer">
-                          {p.name || `User ${p.userId}`}
-                        </a>
+                        {/* #203: Prism's own profile page (a Prism student opens their student page). */}
+                        <Link className="link" to={`/people/${p.userId}`}>{p.name || `User ${p.userId}`}</Link>
                         <PersonSub parts={[p.school]} />
                       </td>
                       <td className="text-sm text-muted col-desktop">{p.school || '-'}</td>

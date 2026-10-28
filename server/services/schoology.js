@@ -155,6 +155,11 @@ export async function getUserProfile(uid) {
   return apiGet(`/users/${uid}`);
 }
 
+// The groups a user belongs to (#203): GET /users/{uid}/groups answers for another user too (2026-10-28).
+export async function getUserGroups(uid) {
+  return paginateGet(`/users/${uid}/groups`, 'group');
+}
+
 // Batched profile fetch (#105): POST /v1/multiget bundles up to ~50 per-user
 // reads into one HTTP call. Each bundled `body` is the COMPLETE /users/{uid}
 // object (primary_email + parents.parent[]). Paths MUST carry the /v1 prefix.

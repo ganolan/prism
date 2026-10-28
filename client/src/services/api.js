@@ -98,6 +98,11 @@ export const resumeSync = () => request('/sync/resume', { method: 'POST', body: 
 export const searchPeople = (q, maxPages) =>
   request(`/people/search?q=${encodeURIComponent(q)}${maxPages ? `&maxPages=${maxPages}` : ''}`);
 export const getPeopleSessionStatus = () => request('/people/session-status');
+// #203: a profile for anyone People search finds → { student_id } (a Prism student) or { profile }.
+export const getPerson = (uid, { refresh = false } = {}) => request(`/people/${uid}${refresh ? '?refresh=1' : ''}`);
+export const addPersonNote = (uid, content) => request(`/people/${uid}/notes`, { method: 'POST', body: JSON.stringify({ content }) });
+export const deletePersonNote = (uid, noteId) => request(`/people/${uid}/notes/${noteId}`, { method: 'DELETE' });
+export const deletePerson = (uid) => request(`/people/${uid}`, { method: 'DELETE' });
 
 // Features
 export const getFeatures = () => request('/features');

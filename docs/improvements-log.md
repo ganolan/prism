@@ -14,6 +14,22 @@ systems as they are; never overstate.
 
 ---
 
+## A profile and notes for anyone in the school directory (#203, October 2026)
+
+**Status quo.** Schoology's people search finds anyone in the school. Its profile pages show a name, an email and,
+when filled in, a few rows, with no role shown.
+
+**The problem.** A teacher who works with students outside their classes, such as in an after-school program, has
+no place to keep notes on them. Telling a student, a staff member and a parent apart takes reading their page.
+
+**What Prism does.**
+- **A profile for each person found,** labeled Student, Staff or Parent, kept in Prism.
+- **The teacher's own notes** on anyone, which move to the student page if the student later joins a class.
+- **Dated data:** a profile states when it was read from Schoology.
+
+**Evidence.** Live check on 28 Oct 2026, read only: 1 student, 2 parents and 3 staff each labeled correctly
+(`.claude/schoology-api-reference.md`, "1a. Another user's profile").
+
 ## A student's counselors, with the primary one marked (#190, October 2026)
 
 **Status quo.** Each HKIS student belongs to a community with two counselors, and PowerSchool marks one of them

@@ -742,6 +742,12 @@ AI & ML 1(A-B) plus the staff their pages link to).** Probes: `scripts/probe-peo
     **Position**, Bio, Activities & Interests, Interests, Phone and Website. That one's Position read "HS Counselor, I Community"
     (a counsellor and their community, typed by hand). Position is absent from that person's REST profile. The other 11 left Position empty,
     so the Info page cannot name the counsellors either.
+  - **A parent's (2026-10-28, #203 live check, 2 parents of one student):** rows Contact Information, Email and **Children**;
+    REST `child_uids` is a **string** (a student's is an empty object), and its uids resolved to 3 named children through
+    `/v1/multiget` for 2 of 2. Email not `@hkis.edu.hk` for 2 of 2. Same REST keys as above.
+  - **REST `/v1/users/{uid}/sections` for a student Graham does not teach:** 11 sections for 1 of 1 (their current courses).
+  - **Built (#203):** `server/services/personProfile.js` tells student, staff and parent apart by these rows and the email
+    (a student's school email is their number), `scripts/check-person-profile.js` (kinds and filled fields only).
 
 **2. Archived / past courses: REST `GET /users/{teacherUid}/sections?include_past=1` lists them all (2026-10-23, #178); the HTML page below hides linked sections and is no longer read.**
 

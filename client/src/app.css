@@ -1829,6 +1829,13 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 .counselors__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
 .counselors__list { display: flex; flex-direction: column; gap: 0.5rem; }
 .counselors__item { padding: 0.5rem 0.65rem; background: var(--bg-subtle); border-radius: 8px; border: 1px solid var(--border); }
+/* #203: a profile page for anyone People search finds. */
+.person-head { display: flex; gap: 1rem; align-items: flex-start; }
+.person-head__main { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.person-kind { margin-left: 0.5rem; vertical-align: middle; }
+.person-row { display: flex; gap: 0.75rem; }
+.person-row__label { min-width: 8rem; }
+.person-note { border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem; }
 
 /* Student page: notes. */
 .note-add-btn { background: none; border: none; cursor: pointer; padding: 0.15rem 0.3rem; margin-left: 0.35rem; color: var(--text-muted); display: inline-flex; align-items: center; }

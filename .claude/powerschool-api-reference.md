@@ -884,8 +884,14 @@ enrolled, gradeLevel, ccId } } }`; `dcid` and `ccId` were 1-character strings th
   `{ attendanceList: [...] }` for linked sections.
 - **XSRF:** the bundle has Angular's XSRF support (`XSRF-TOKEN`); the plain-HTTP session holds only `JSESSIONID`, `psaid`
   and `currentSchool` and the app page sets no cookie, so no XSRF header would be sent. Unproven until a write.
-- **Open before Prism writes:** whether HKIS's page customizations have pre- or post-save steps (read
-  `pagecustomizations/insertions`), and one live write Graham approves on a target he names, read back.
+- **HKIS's customizations have no save step** (read 2026-10-29, Graham approved): `POST /ws/pagecustomizations/insertions`
+  with `{ path: "/integrations/attendance/index.html", insertions: ["content.footer"], parameters: [] }` answered 200
+  `{ "content.footer": <14.8 KB HTML> }`: a commented-out Reports link and the MBA alerts plugin's script (`apiac`, the
+  alert icons; its one `$j.post` is its own read of `/teachers/mba_alerts/queries/`). No `preSave`/`postSave`, no
+  `angularCustomizations`, nothing that saves. ⚠️ `parameters: {}` (the app's default body) answered 400 "Cannot deserialize
+  … ArrayList<Map<String,String>>": the server wants a list. The list view sends its own list (`sectionid`, `frn`,
+  `att_period`, …); that variant was not sent.
+- **Open before Prism writes:** one live write Graham approves on a target he names, read back.
 
 ### Student counsellors (#190, probed 2026-10-28, Graham approved: 3 students of one current class, shapes only)
 

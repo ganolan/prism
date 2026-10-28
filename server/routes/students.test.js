@@ -135,6 +135,22 @@ describe('GET /api/students/:id — graded tasks unpublished in Schoology', () =
   });
 });
 
+describe('GET /api/students/:id — counselors (#190)', () => {
+  test('the primary first, with the matched email; none stored is an empty list', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM student_counselors');
+    expect((await get(`/api/students/${studentId}`)).body.counselors).toEqual([]);
+    const add = db.prepare("INSERT INTO student_counselors (student_id, ps_user_dcid, first_name, last_name, is_primary, email, read_at) VALUES (?, ?, ?, ?, ?, ?, 'x')");
+    add.run(studentId, '72', 'Ann', 'Chan', 0, null);
+    add.run(studentId, '71', 'Sam', 'Lee', 1, 'slee@hkis.edu.hk');
+    expect((await get(`/api/students/${studentId}`)).body.counselors).toEqual([
+      { id: '71', first_name: 'Sam', last_name: 'Lee', primary: true, email: 'slee@hkis.edu.hk' },
+      { id: '72', first_name: 'Ann', last_name: 'Chan', primary: false, email: null },
+    ]);
+    db.exec('DELETE FROM student_counselors');
+  });
+});
+
 describe('GET /api/students/:id — PowerSchool alerts (#117)', () => {
   test('ps_alerts and when they were last read; never the contact fields', async () => {
     const db = getDb();

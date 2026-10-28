@@ -305,6 +305,35 @@ function ContactEmail({ email, linked, added }) {
   );
 }
 
+// #190: the student's counselors from PowerSchool (the community's two; the primary marked), with the emails Prism
+// matched in Schoology. Public: shown with Private details off (Graham, 28 Oct 2026). Headed "Counselors" because the
+// student belongs to both; "Primary" marks PowerSchool's primary one. See docs/design-language.md "Counselors".
+function Counselors({ counselors }) {
+  if (!counselors?.length) return null;
+  const withEmail = counselors.filter((c) => c.email);
+  return (
+    <div className="counselors">
+      <div className="counselors__head">
+        <h3 style={{ margin: 0 }}>Counselors</h3>
+        {withEmail.length > 0 && (
+          <CopyButton text={withEmail.map((c) => `${c.first_name} ${c.last_name} <${c.email}>`).join('; ')} label="Copy emails" />
+        )}
+      </div>
+      <div className="counselors__list">
+        {counselors.map((c) => (
+          <div key={c.id} className="counselors__item">
+            <p className="text-sm parent-name">
+              <span style={{ fontWeight: 600 }}>{c.first_name} {c.last_name}</span>
+              {c.primary && <span className="badge badge-blue">Primary</span>}
+            </p>
+            {c.email ? <ContactEmail email={c.email} linked /> : <p className="text-sm text-muted">Email not found in Schoology</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ContactPhone({ phone, linked, added }) {
   return (
     <p className="text-sm">
@@ -641,6 +670,7 @@ export default function StudentPage() {
             </div>
           </div>
 
+          <Counselors counselors={student.counselors} />
           {!privateOn && <PrivateHidden title="Alerts, family contacts and notes are private." />}
           {/* Family Contacts */}
           {privateOn && (

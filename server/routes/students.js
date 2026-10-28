@@ -245,11 +245,16 @@ router.get('/:id', (req, res) => {
     guardiansSyncedAt = contacts.guardiansSyncedAt;
   }
 
+  // #190: the student's counselors from PowerSchool, the primary first, with the email matched from Schoology.
+  const counselors = db.prepare(`SELECT ps_user_dcid, first_name, last_name, is_primary, email FROM student_counselors
+    WHERE student_id = ? ORDER BY is_primary DESC, first_name, last_name`).all(student.id)
+    .map((c) => ({ id: c.ps_user_dcid, first_name: c.first_name, last_name: c.last_name, primary: !!c.is_primary, email: c.email }));
+
   // #117: PowerSchool alerts (labels + when last read), when the feature is on.
   const psAlerts = student && getFeatures().powerschool_alerts ? psAlertsForStudent(db, student.id) : null;
 
   res.json({
-    ...withBirthdays(db)(student), courses, grades, notes, flags, parents, grading_scales: getGradingScalesMap(),
+    ...withBirthdays(db)(student), courses, grades, notes, flags, parents, counselors, grading_scales: getGradingScalesMap(),
     ...(psAlerts ? { ps_alerts: psAlerts.alerts, ps_alerts_synced_at: psAlerts.synced_at } : {}),
     ...(guardiansSyncedAt !== undefined ? { guardians_synced_at: guardiansSyncedAt } : {}),
   });

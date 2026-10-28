@@ -240,6 +240,36 @@ describe('syncPsAlerts', () => {
   });
 });
 
+describe('syncPsAlerts: counselor emails (#190)', () => {
+  const sections = { 9001: [{ studentid: '101', studentdcid: '5001', values: {} }] };
+  const seed = (id) => db.prepare("INSERT INTO student_counselors (student_id, ps_user_dcid, first_name, last_name, is_primary, read_at) VALUES (?, '71', 'Sam', 'Lee', 1, 'x')").run(id);
+  const page = '<table><tr><th>Advisors</th><td><a href="/user/21">x</a></td></tr></table>';
+
+  test('runs after the alerts, from the Schoology Advisors row', async () => {
+    addCourse('S1', 'Alpha');
+    const a = addStudent('5001');
+    seed(a);
+    const web = fakePowerSchoolWeb({ sections });
+    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false, counselorEmails: {
+      readInfoPage: async () => page,
+      getProfiles: async () => new Map([['21', { uid: '21', name_first: 'Sam', name_last: 'Lee', primary_email: 'slee@hkis.edu.hk' }]]),
+    } } });
+    expect(r.counselorEmails).toMatchObject({ pages: 1, matched: 1 });
+    expect(db.prepare('SELECT email FROM student_counselors WHERE student_id = ?').get(a).email).toBe('slee@hkis.edu.hk');
+  });
+
+  test('a Schoology failure there is logged and leaves the alerts stored', async () => {
+    addCourse('S1', 'Alpha');
+    const a = addStudent('5001');
+    seed(a);
+    const web = fakePowerSchoolWeb({ sections });
+    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false, counselorEmails: {
+      readInfoPage: async () => { throw Object.assign(new Error('The saved Schoology session has expired'), { code: 'SESSION_EXPIRED' }); },
+    } } });
+    expect(r).toMatchObject({ read: 1, counselorEmails: { error: 'The saved Schoology session has expired' } });
+  });
+});
+
 describe('syncPsAlerts: guardian slots (#66)', () => {
   const lee = { student: 'Lee, Ana', g1: ['Lee, Mei', 'mei@example.org', '5550 0100'], g2: ['Lee, Jun', 'jun@example.org'] };
   const sections = { 9001: [{ studentid: '101', studentdcid: '5001', lastfirst: 'Lee, Ana', values: { x_homeemail: '2' } }] };

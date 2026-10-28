@@ -168,6 +168,19 @@ export class PowerSchoolWeb {
     return this.#getPage(path, { Accept: 'text/html', ...(referer ? { Referer: `${PS_BASE}${referer}` } : {}) });
   }
 
+  // One JSON read a PowerTeacher page's own script sends (#190: the counselor pop-up's GET
+  // /ws/studentcounselor/{dcid}, with the student's page as `referer`): Accept application/json,
+  // no X-Requested-With, as Angular's $http sends it. → parsed JSON. Errors as teacherPage; an
+  // answer that is not JSON is PS_SESSION with sessionEnded: true (a sign-in page).
+  async teacherJson(path, { referer } = {}) {
+    const text = await this.#getPage(path, { Accept: 'application/json', ...(referer ? { Referer: `${PS_BASE}${referer}` } : {}) });
+    const json = parseJson(text);
+    if (json === undefined) {
+      throw Object.assign(new WebSessionError('PS_SESSION', `PowerSchool answered ${path.split('?')[0]} with a page, not data`), { status: 200, sessionEnded: true });
+    }
+    return json;
+  }
+
   // One read. → parsed JSON. Any other answer throws PS_SESSION with `status` and
   // `sessionEnded`: true for a redirect (to sign-in) or a page that is not JSON (the
   // session is gone: relaunch and ask again), false for an error status, which is

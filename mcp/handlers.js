@@ -257,6 +257,22 @@ export async function getAlertDetailTool(db, { student, alert } = {}, { read = r
   };
 }
 
+// #190: a student's contacts for the agent: the counselors only (names, primary, email), as the student page shows
+// them. Family contacts are not served (Graham, 28 Oct 2026).
+export function getStudentContactsTool(db, { student } = {}) {
+  const s = resolveStudent(db, student);
+  const counselors = db.prepare(`SELECT first_name, last_name, is_primary, email FROM student_counselors
+    WHERE student_id = ? ORDER BY is_primary DESC, first_name, last_name`).all(s.id)
+    .map((c) => ({ first_name: c.first_name, last_name: c.last_name, primary: !!c.is_primary, email: c.email ?? null }));
+  const read = db.prepare('SELECT counselors_read_at FROM students WHERE id = ?').get(s.id);
+  return {
+    student_id: s.id,
+    counselors,
+    counselors_read_at: read?.counselors_read_at ?? null,
+    note: 'Counselors only: family contacts are not served by PrisMCP. From PowerSchool, read once a school year; primary is PowerSchool\'s primary counselor (the student belongs to both). email is matched in Schoology by name; null when no match was found. counselors_read_at null: not read yet.',
+  };
+}
+
 // #195: the roster's Mastery check, for one current course.
 export function getCategoryCheckTool(db, { course } = {}) {
   const courseId = resolveCourseRef(db, course);

@@ -1824,6 +1824,11 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 .contact-email-plain { min-width: 0; overflow-wrap: anywhere; }
 .parent-name { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
 .family-copy-all { display: inline-flex; align-items: center; gap: 0.4rem; }
+/* #190: the student's counselors, above the family contacts; public (shown with Private details off). */
+.counselors { margin-bottom: 1rem; }
+.counselors__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+.counselors__list { display: flex; flex-direction: column; gap: 0.5rem; }
+.counselors__item { padding: 0.5rem 0.65rem; background: var(--bg-subtle); border-radius: 8px; border: 1px solid var(--border); }
 
 /* Student page: notes. */
 .note-add-btn { background: none; border: none; cursor: pointer; padding: 0.15rem 0.3rem; margin-left: 0.35rem; color: var(--text-muted); display: inline-flex; align-items: center; }

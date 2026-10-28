@@ -29,8 +29,10 @@
  * See .claude/powerschool-api-reference.md "Student alerts (#117)".
  */
 import { getDb } from '../db/index.js';
-import { cookieJar } from './schoologyWeb.js';
+import { cookieJar, getResource } from './schoologyWeb.js';
+import { getUserProfilesBatch } from './schoology.js';
 import { syncDemographics } from './psDemographicsSync.js';
+import { fillCounselorEmails } from './counselorEmails.js';
 import { PowerSchoolWeb } from './powerschoolWeb.js';
 import { alertPlan, fieldValuesParams, sectionAlerts, dropMeta } from '../lib/psAlerts.js';
 import { parseEmergencyContacts, slotsByDcid } from '../lib/psEmergencyContacts.js';
@@ -178,14 +180,30 @@ export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(),
   // #191: each student's Demographics screen, once per school year, after the alerts and guardians are stored, so a
   // failure here costs them nothing. A security page still stops the sync (it is thrown).
   // deps.demographics: options for syncDemographics (tests), or false to leave the pass out.
-  if (deps.demographics === false) return summary;
+  if (deps.demographics !== false) {
+    try {
+      const relaunch = () => ps.launch(readSections[readSections.length - 1].schoologySectionId).catch((err) => { throw asLogin(err); });
+      summary.demographics = await syncDemographics(db, ps, readSections, { log, relaunch, ...(deps.demographics || {}) });
+    } catch (err) {
+      if (err.message === LOGIN_MESSAGE || err.code === 'PS_SECURITY') throw err;
+      summary.demographics = { error: err.message };
+      log(`Demographics not read (${err.message})`);
+    }
+  }
+
+  // #190: the counselors' emails, from each student's Schoology Advisors row, for counselors not matched yet.
+  // deps.counselorEmails: options for fillCounselorEmails (tests), or false to leave it out.
+  if (deps.counselorEmails === false) return summary;
   try {
-    const relaunch = () => ps.launch(readSections[readSections.length - 1].schoologySectionId).catch((err) => { throw asLogin(err); });
-    summary.demographics = await syncDemographics(db, ps, readSections, { log, relaunch, ...(deps.demographics || {}) });
+    const readInfoPage = async (uid) => {
+      const r = await getResource(sgyJar, `/user/${uid}/info`, { accept: 'text/html', fetchImpl: deps.fetchImpl ?? fetch });
+      if (r.status !== 200) throw new Error(`Schoology answered ${r.status} for a profile page`);
+      return r.text;
+    };
+    summary.counselorEmails = await fillCounselorEmails(db, { log, readInfoPage, getProfiles: getUserProfilesBatch, ...(deps.counselorEmails || {}) });
   } catch (err) {
-    if (err.message === LOGIN_MESSAGE || err.code === 'PS_SECURITY') throw err;
-    summary.demographics = { error: err.message };
-    log(`Demographics not read (${err.message})`);
+    summary.counselorEmails = { error: err.message };
+    log(`Counselor emails not read (${err.message})`);
   }
   return summary;
 }

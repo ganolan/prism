@@ -267,6 +267,8 @@ const MIGRATIONS = [
   `ALTER TABLE students ADD COLUMN home_room TEXT`,
   `ALTER TABLE students ADD COLUMN guardianship TEXT`,
   `ALTER TABLE students ADD COLUMN demographics_read_at TEXT`,
+  // #190: the student's counselors from PowerSchool, read once per student per school year (student_counselors).
+  `ALTER TABLE students ADD COLUMN counselors_read_at TEXT`,
 ];
 
 // Remove mastery score rows with no level. The full mastery sync stored an

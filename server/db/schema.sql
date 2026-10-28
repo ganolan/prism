@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS students (
   home_room TEXT,                       -- the home room teacher, as PowerSchool writes it ("Last, First")
   guardianship TEXT,                    -- PowerSchool's guardianship note, usually empty
   demographics_read_at TEXT,
+  counselors_read_at TEXT,             -- #190: student_counselors last read from PowerSchool
   school_uid TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
@@ -945,4 +946,20 @@ CREATE TABLE IF NOT EXISTS student_extra_time (
   student_id INTEGER PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
   percent INTEGER NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+-- #190: each student's counselors, from PowerSchool's GET /ws/studentcounselor/{dcid} (2 per student, one primary),
+-- read once per school year with the Demographics pass. email and schoology_uid come from the student's Schoology
+-- Advisors row, matched by name (null until matched); email_checked_at is when that match was last tried.
+CREATE TABLE IF NOT EXISTS student_counselors (
+  student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  ps_user_dcid TEXT NOT NULL,
+  first_name TEXT,
+  last_name TEXT,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  email TEXT,
+  schoology_uid TEXT,
+  email_checked_at TEXT,
+  read_at TEXT NOT NULL,
+  PRIMARY KEY (student_id, ps_user_dcid)
 );

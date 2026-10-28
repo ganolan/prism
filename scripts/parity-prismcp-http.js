@@ -219,6 +219,7 @@ export function buildCases(p) {
     ['school_calendar', 'school_calendar', { date: '2026-10-20', to: '2026-11-20' }],
     ['find_student', 'find_student', needs(p.student, { query: p.student?.last_name })],
     ['get_student_history', 'get_student_history', needs(p.student, { student: p.student?.id, limit: 5 })],
+    ['get_student_contacts', 'get_student_contacts', needs(p.student, { student: p.student?.id })],
     ['get_category_check', 'get_category_check', needs(c, { course: c })],
     ['get_test_day', 'get_test_day', needs(c, { course: c, today: '2026-10-20' })],
     ...quizCases(p),

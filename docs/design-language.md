@@ -1888,3 +1888,10 @@ The best parts of the roster drawer Graham rejected in #160, on the student page
 - **Graham's choice:** a task unpublished on Schoology appears on the student page while the student holds a grade on it (score, comment, flag, topic or row level), in every course, current or archived. An ungraded unpublished task stays hidden, as before.
 - **Mark:** a grey `badge badge-gray` "Unpublished on Schoology" after the task title in the card heading, the gradebook popover's wording.
 - **Why:** a past section's tasks can be unpublished after grading (78 of 82 in AP CSP 2025-26); hiding them hid a student's record. The course tabs keep their Unpublished filter.
+
+## Counselors (#190, 28 Oct 2026)
+
+- **A section headed "Counselors"** on the student page, above the family contacts: each counselor in the contact card style (`.counselors__item`), the primary first.
+- **"Primary", not "Assigned"** (Graham, 28 Oct 2026): a student belongs to both counselors of their community; PowerSchool's primary one carries a blue `Primary` badge.
+- **No community name:** PowerSchool does not name it, and Prism does not guess one.
+- **Public:** shown with Private details off (counselors are staff). Each email is a mailto link with a copy button; **Copy emails** copies both as "Name <email>"; a counselor Prism could not match shows "Email not found in Schoology".

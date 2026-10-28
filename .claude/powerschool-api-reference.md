@@ -860,6 +860,10 @@ menu → student home → `demo.html`). Read on AI & ML 1(A-B) (`8458134359`): *
   counsellor row. "C=Counselor" on Quick Lookup and Meeting Attendance is an attendance code. ⚠️ Schedule Matrix (All)'s
   table headers are the class's student names: a probe printing headers must mask them.
 - Probe: `scripts/probe-ps-counsellor.js <section>` (`COUNSELORS=1`, `JOIN=1`; prints keys, types, counts and matches only).
+- **Built (#190, 28 Oct 2026):** read on the Demographics pass's visit, once per student per school year
+  (`students.counselors_read_at`), only after the page's Student number matched; a list whose `studentDcid` is not the
+  student's is refused (`server/lib/psCounselors.js` `parseCounselors`). Stored in `student_counselors`; emails filled from
+  the Advisors row by `server/services/counselorEmails.js`, copied across students who share a counselor.
 
 ### Guardian contacts (#66, verified 2026-10-21)
 

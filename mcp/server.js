@@ -3,7 +3,7 @@ import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mc
 import { getDb } from '../server/db/index.js';
 import { getAssessmentContext } from '../server/services/assessmentContext.js';
 import { writeStudentSuggestions, upsertAssessmentAnalysis } from '../server/services/suggestions.js';
-import { getAssignmentContextTool, listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, getSupportSummaryTool, getAlertDetailTool, getCategoryCheckTool, getTestDayTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getTagResultsTool, getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool, getQuizResultsTool, writeQuizOverallSuggestionsTool } from './handlers.js';
+import { getAssignmentContextTool, listCourses, listAssignments, listStudents, listRubricsTool, readRubric, writeRubric, attachRubricTool, findStudentTool, getStudentHistoryTool, getSupportSummaryTool, getAlertDetailTool, getStudentContactsTool, getCategoryCheckTool, getTestDayTool, listQuizGroupsTool, loadQuizResultsTool, setQuestionTagsTool, getTagResultsTool, getFrqResponsesTool, writeFrqSuggestionsTool, listFrqWritebacksTool, markFrqWritebackTool, getQuizResultsTool, writeQuizOverallSuggestionsTool } from './handlers.js';
 import {
   getTriageTool, listReferralsTool, schoolCalendarTool, recordReferralTool, undoReferralTool, extendDeadlineTool, undoExtensionTool,
   setMakeupTrackingTool,
@@ -39,7 +39,8 @@ export const INSTRUCTIONS =
   'list_frq_writebacks and mark_frq_writeback are the fallback when that button is absent. Overall result: get_quiz_results, then ' +
   'write_quiz_overall_suggestions (an impression for the test comment on the test each student took, Prism builds it; levels and an optional narrative for the result task). ' +
   'Roster (teacher only): get_category_check (Prism against Schoology per reporting category), ' +
-  'get_test_day (extra time on upcoming tests), get_alert_detail (one PowerSchool alert).';
+  'get_test_day (extra time on upcoming tests), get_alert_detail (one PowerSchool alert). ' +
+  "A student's contacts: get_student_contacts (their counselors, the primary marked, with emails; family contacts are not served).";
 
 // A tool that waits for a queue run tells the client it is alive: an MCP progress notification
 // (every 10 s, from gradingSync's onProgress) when the request carries a progressToken. → a
@@ -642,6 +643,17 @@ export function createServer({ devCopy = false } = {}) {
       },
     },
     async (args) => text(() => getSupportSummaryTool(getDb(), args))
+  );
+
+  server.registerTool(
+    'get_student_contacts',
+    {
+      description: "A student's contacts: their counselors only, as the student page shows them (#190). Returns { student_id, counselors: [{ first_name, last_name, primary, email }], counselors_read_at }. Each student has the two counselors of their community; primary is PowerSchool's primary counselor (the student belongs to both: call it primary, not assigned). email is the school address Prism matched in Schoology, null when none matched. counselors_read_at is when Prism last read them from PowerSchool (once a school year; null: not read yet, so an empty list does not mean none). Family contacts are not served. Read-only.",
+      inputSchema: {
+        student: z.union([z.string(), z.number()]).describe('Prism student id (from find_student or list_students), schoology_uid, email, or a name that matches exactly one student'),
+      },
+    },
+    async (args) => text(() => getStudentContactsTool(getDb(), args))
   );
 
   server.registerTool(

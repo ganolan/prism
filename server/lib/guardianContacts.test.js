@@ -83,13 +83,14 @@ describe('statusFor', () => {
     expect(statusFor({ checked: true, slot: 1, flags: { dnc_g1: '', dnc_g2: '1', g1_deceased: '', g2_deceased: '1' }, correspondence: null })).toEqual({ status: 'contactable', primary: false });
   });
 
-  test('primary only for code 1 or 2 on the matching slot', () => {
+  // Code 3 is the G1+G2 Correspondence alert: both guardians are primary contacts (Graham, 28 Oct 2026).
+  test('primary for code 1 or 2 on the matching slot, and for code 3 on both', () => {
     const at = (slot, correspondence) => statusFor({ checked: true, slot, flags: none, correspondence }).primary;
     expect(at(1, '1')).toBe(true);
     expect(at(2, ' 2 ')).toBe(true);
     expect(at(1, '2')).toBe(false);
-    expect(at(1, '3')).toBe(false);
-    expect(at(2, '3')).toBe(false);
+    expect(at(1, '3')).toBe(true);
+    expect(at(2, '3')).toBe(true);
     expect(at(1, null)).toBe(false);
   });
 

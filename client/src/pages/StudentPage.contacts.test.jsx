@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 
 vi.mock('../components/MasteryPerformanceSummary.jsx', () => ({ default: () => null }));
@@ -110,6 +110,25 @@ describe('StudentPage family contacts (#66)', () => {
     expect(screen.queryByRole('button', { name: 'Copy' })).not.toBeInTheDocument();
     // Neither is flagged, so no reveal button.
     expect(screen.queryByRole('button', { name: /Show alerts/ })).not.toBeInTheDocument();
+  });
+
+  // 28 Oct 2026: each matched contact is tagged with its PowerSchool guardian slot, so "Correspondence G1",
+  // "G2" or "G1+G2" reads against the right card; with G1+G2 both are primary contacts (the server decides).
+  it('each matched contact is tagged G1 or G2 with an instant popover; an unmatched one has no tag', async () => {
+    load({ parents: [
+      parent(1, 'contactable', { contact: contactFor(1, 'contactable', { primary: true, ps: { email: 'g1@example.test', phone: null, slot: 1 } }) }),
+      parent(2, 'contactable', { contact: contactFor(2, 'contactable', { primary: true, ps: { email: 'g2@example.test', phone: null, slot: 2 } }) }),
+      parent(3, 'not_matched'),
+    ] });
+    renderPage();
+    const card = (n) => screen.getByText(`Guardian Number${n}`).closest('.parent-name');
+    await screen.findByText('Guardian Number1');
+    expect(within(card(1)).getByRole('img', { name: 'Guardian 1 in PowerSchool' })).toHaveTextContent(/^G1$/);
+    expect(within(card(2)).getByRole('img', { name: 'Guardian 2 in PowerSchool' })).toHaveTextContent(/^G2$/);
+    expect(within(card(3)).queryByRole('img', { name: /in PowerSchool/ })).toBeNull();
+    expect(screen.getAllByText('Primary contact')).toHaveLength(2);
+    fireEvent.mouseEnter(within(card(1)).getByRole('img', { name: 'Guardian 1 in PowerSchool' }));
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Guardian 1 in PowerSchool');
   });
 
   it('Primary contact shows without the reveal, and still after it', async () => {

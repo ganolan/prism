@@ -77,7 +77,8 @@ const isSet = (v) => v != null && String(v) !== '';
 /**
  * A placed parent's status; the first rule that applies decides.
  * → { status: 'not_checked' | 'not_matched' | 'do_not_contact' | 'deceased' | 'contactable', primary }.
- * primary: contactable and X_HOMEEMAIL names this slot alone ('1' or '2').
+ * primary: contactable and X_HOMEEMAIL sends the school's correspondence to this slot: '1' or '2' names one slot,
+ * '3' both (the G1+G2 Correspondence alert; Graham, 28 Oct 2026: both guardians are then primary contacts).
  */
 export function statusFor({ checked, slot, flags = {}, correspondence }) {
   if (!checked) return { status: 'not_checked', primary: false };
@@ -85,7 +86,7 @@ export function statusFor({ checked, slot, flags = {}, correspondence }) {
   if (isSet(flags[`dnc_g${slot}`])) return { status: 'do_not_contact', primary: false };
   if (isSet(flags[`g${slot}_deceased`])) return { status: 'deceased', primary: false };
   const code = correspondence == null ? '' : String(correspondence).trim();
-  return { status: 'contactable', primary: (code === '1' || code === '2') && code === String(slot) };
+  return { status: 'contactable', primary: code === String(slot) || code === '3' };
 }
 
 // Stronger first: a parent with both flags (from two slots, or two children) is do_not_contact.

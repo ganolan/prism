@@ -24,7 +24,8 @@ function psDetails(checked, parents, slots) {
   const placed = placeParents(parents, slots);
   const held = [...placed.values()].filter(Boolean);
   for (const [id, slot] of placed) {
-    if (slot && held.filter((s) => s === slot).length === 1) out.set(id, { email: slots[slot].email ?? null, phone: slots[slot].phone ?? null });
+    // slot: which PowerSchool guardian (1 or 2), so the page can tag the contact G1 or G2 (28 Oct 2026).
+    if (slot && held.filter((s) => s === slot).length === 1) out.set(id, { email: slots[slot].email ?? null, phone: slots[slot].phone ?? null, slot });
   }
   return out;
 }

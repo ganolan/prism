@@ -139,8 +139,8 @@ describe('GET /api/students/:id — guardian contact status (#66)', () => {
     addFamily();
     const { body } = await get(`/api/students/${studentId}`);
     const byName = Object.fromEntries(body.parents.map((p) => [p.first_name, p.contact]));
-    expect(byName.Robin).toEqual({ status: 'contactable', primary: true, reason: null, ps: { email: 'robin@example.test', phone: null }, email: 'robin@example.test', tel: [], copy: ['robin@example.test'] });
-    expect(byName.Kit).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: { email: 'kit@example.test', phone: null }, email: 'kit@example.test', tel: [], copy: [] });
+    expect(byName.Robin).toEqual({ status: 'contactable', primary: true, reason: null, ps: { email: 'robin@example.test', phone: null, slot: 1 }, email: 'robin@example.test', tel: [], copy: ['robin@example.test'] });
+    expect(byName.Kit).toEqual({ status: 'do_not_contact', primary: false, reason: 'Do not contact (PowerSchool)', ps: { email: 'kit@example.test', phone: null, slot: 2 }, email: 'kit@example.test', tel: [], copy: [] });
     expect(body.guardians_synced_at).toBe(SYNCED);
   });
 

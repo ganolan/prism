@@ -357,6 +357,11 @@ function ParentCard({ parent, studentId, onUpdated, revealed = false }) {
     <div style={{ padding: '0.5rem 0.65rem', background: 'var(--bg-subtle)', borderRadius: 8, border: '1px solid var(--border)' }}>
       <p className="text-sm parent-name">
         <span style={{ fontWeight: 600 }}>{parent.first_name} {parent.last_name}</span>
+        {/* Which PowerSchool guardian this contact is, so the correspondence alerts (G1, G2, G1+G2) read against
+            the right card (28 Oct 2026). Primary contact: the guardian (or, for G1+G2, both) the school writes to. */}
+        {parent.contact?.ps?.slot && (
+          <Tip className="contact-slot" text={`Guardian ${parent.contact.ps.slot} in PowerSchool`}>G{parent.contact.ps.slot}</Tip>
+        )}
         {status === 'contactable' && parent.contact.primary && <span className="badge badge-pink">Primary contact</span>}
         {!revealOnly && !editing && (
           <button

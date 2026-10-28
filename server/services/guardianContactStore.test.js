@@ -14,7 +14,8 @@ const addParent = (studentId, uid, first, last, email) => db.prepare(
 const addSlot = (studentId, slot, name, email, phone = null) => db.prepare(
   'INSERT INTO student_ps_guardians (student_id, slot, name, email, phone) VALUES (?, ?, ?, ?, ?)'
 ).run(studentId, slot, name, email, phone);
-const ps = (email, phone = null) => ({ email, phone });
+// A uniquely placed parent's PowerSchool details; `slot` (1 or 2) is checked in its own test below.
+const ps = (email, phone = null) => expect.objectContaining({ email, phone });
 const setPs = (studentId, fields) => {
   const cols = Object.keys(fields);
   db.prepare(`INSERT INTO student_powerschool (student_id, ${cols.join(', ')}) VALUES (?, ${cols.map(() => '?').join(', ')})`)
@@ -202,6 +203,20 @@ describe('contactsForStudents', () => {
     const out = contactsForStudents(db, [a]).get(a);
     expect(out.byParent.get(p)).toEqual({ status: 'contactable', primary: false, reason: null, ps: ps('robin@example.test', '5550 0100'), email: 'robin@example.test', tel: ['5550 0100'], copy: ['robin@example.test'] });
     expect(out.byParent.get(q).ps).toEqual(ps('kit@example.test', '5550 0101'));
+    // Which PowerSchool guardian each one is (the page tags them G1 and G2, 28 Oct 2026).
+    expect(out.byParent.get(p).ps.slot).toBe(1);
+    expect(out.byParent.get(q).ps.slot).toBe(2);
+  });
+
+  test('with the G1+G2 code (3) both guardians are primary contacts', () => {
+    const a = addStudent(1);
+    const p = addParent(a, 'p1', 'Robin', 'Sample', 'robin@example.test');
+    const q = addParent(a, 'p2', 'Kit', 'Sample', 'kit@example.test');
+    addSlot(a, 1, 'Sample, Robin', 'robin@example.test');
+    addSlot(a, 2, 'Sample, Kit', 'kit@example.test');
+    setPs(a, { guardians_synced_at: SYNCED, correspondence: '3' });
+    const out = contactsForStudents(db, [a]).get(a);
+    expect([out.byParent.get(p).primary, out.byParent.get(q).primary]).toEqual([true, true]);
   });
 
   test('a slot with no email falls back to the Schoology email', () => {

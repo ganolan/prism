@@ -1622,6 +1622,18 @@ describe('StudentRubricCard — consolidated Suggested Feedback block', () => {
     expect(screen.queryByRole('button', { name: /use suggestion/i })).not.toBeInTheDocument();
   });
 
+  // Graham, 28 Oct 2026 (Jai, CPT 1): a re-grade after a resubmission, over a grade already published. The new
+  // levels show as suggestions beside the published ones, and the revised narrative shows in full.
+  it('over a published grade: the new suggested level is marked beside the published one, and the revised comment shows', () => {
+    const student = { ...makeStudent(), scores: { t1: { grade: 'EX' } }, grade_comment: 'Published first comment', comment_status: 1 };
+    renderCard({ student, ...row({ suggestion_state: 'revised' }, { narrative_feedback: 'After your resubmission: ED', rubric_scores: { X1: 'ED' } }) });
+    expect(screen.getByText('After your resubmission: ED')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /use suggestion/i })).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Set Topic 1 to Exhibiting Depth')).getByTestId('ai-sparkle')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Set Topic 1 to Exhibiting')).queryByTestId('ai-sparkle')).toBeNull();
+    expect(screen.getByPlaceholderText(/Teacher comment/i)).toHaveValue('Published first comment');
+  });
+
   it('a revised suggestion shows in full, tagged Revised', () => {
     renderCard(row({ suggestion_state: 'revised' }, { narrative_feedback: 'Second, revised draft' }));
     expect(screen.getByText('Second, revised draft')).toBeInTheDocument();

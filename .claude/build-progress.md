@@ -2013,3 +2013,16 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Client:** `client/src/lib/birthdays.js` (rules, shared with the server), `components/Birthday.jsx` (`BirthdayMark`, `BirthdaysCard`), the age tag in `StudentTags`, home room and guardianship on the student page.
 - **Tests:** psDemographics, psDemographicsSync (click path and Referers, number check, once per school year, cap, relaunch, security stop, failure), birthdays (lib and service), Birthday.test.jsx, StudentPage.tags, RosterTab.
 
+## Family contacts: which guardian is which (2026-10-28)
+
+- **Graham:** the Correspondence G1+G2 / G1 only alerts showed on the student page with no sign of which contact is which.
+- **Server:** `psDetails` (`guardianContactStore.js`) gives a uniquely placed parent's `ps.slot` (1 or 2); `statusFor` (`server/lib/guardianContacts.js`) makes code 3 (G1+G2) primary for both guardians.
+- **Client:** a `G1` / `G2` tag after the contact's name, and Primary contact on each guardian the school writes to.
+- **Tests:** guardianContacts (code 3), guardianContactStore (slot, code 3), students route, StudentPage.contacts.
+
+## Suggestions on published, resubmitted work (2026-10-28)
+
+- **Graham:** a re-grade of Jai's resubmitted CPT 1 seemed to show no new levels or feedback.
+- **Checked on prod (read only):** the re-grade was written on 27 Oct 15:04 HKT (ED on all 5 topics, a new narrative over the September one), shown as Revised, then used and published (Schoology now holds ED on all 5 and an 867-character comment). Write path and card both work over a published grade; the first attempt had no PrisMCP access, as Graham thought.
+- **Test:** `AssessmentSummaryPage.test.jsx` "over a published grade" (suggested level marked beside the published one, the revised narrative shown).
+

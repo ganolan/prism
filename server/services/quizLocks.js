@@ -1,6 +1,7 @@
 // One lock per quiz group, shared by the loader, the writer and mark_frq_writeback (spec §14): a load
 // rewrites the stored Schoology copy the writer checks against, so neither runs while the other does,
-// and an agent cannot record a write-back in the middle of either. Per process (PrisMCP has its own).
+// and an agent cannot record a write-back in the middle of either. In memory: PrisMCP runs inside the
+// server since #131, so this one lock covers the pages and the agent tools.
 import { QuizError } from './quizError.js';
 
 const held = new Map(); // group id -> 'loading' | 'posting'

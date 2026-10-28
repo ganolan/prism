@@ -1445,7 +1445,7 @@ the repo.
   restored it: every field on the whole Q21 page equalled the stage D page and the grade was 4. So the
   PUT's `comment` saves the question comment, and for an essay already marked (`override` 1) the PUT is
   the complete save. **Not observed:** an essay never marked (`override` 0): whether the PUT sets
-  `points` and `override` there.
+  `points` and `override` there (to check on the first real publish, #205).
 - **Not observed:** where the page takes the CSRF values for the PUT (Prism's unsubmit reads
   `Drupal.settings.s_common.csrf_token` / `csrf_key` on a loaded page); whether the PUT's `comment` alone
   saves the question comment; an essay with `override` 0 (never marked) and whether a replay must set it

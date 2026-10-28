@@ -1141,7 +1141,8 @@ Order agreed with Graham: the skill, writer robustness, small items, then the ph
   the API reference.
 - **Unobserved shapes, probe if they come up:** a by-question page with more than 18 takers (pagination),
   a multi-row FRQ rubric (skipped today), an ungraded no-rubric FRQ (phase 2 note).
-- **Phase 1 list, accepted as they are (Graham, 2026-10-14):** BUSY is per process (server and PrisMCP);
+- **Phase 1 list, accepted as they are (Graham, 2026-10-14):** BUSY is per process (server and PrisMCP;
+  resolved by #131, which runs PrisMCP inside the server);
   the parser notes (multi-select MCQ, a row without a wrapper, image-only stems); the Quiz setup UI notes;
   no indexes on the quiz tables; the parity and verify script notes.
 - **Phase 4b list, fixed 2026-10-14 (Graham):** each save waits the client's pause, like each read, so the
@@ -1149,7 +1150,10 @@ Order agreed with Graham: the skill, writer robustness, small items, then the ph
   not save (behaviour from phase 4c, now tested); after a publish the bar shows what the publish left
   waiting until the count changes, then the current count. The template's attempt id check is covered:
   the by-question writer keys each entry by attempt.
-- **Can only be checked when they come up:** the first real publish and the three unobserved shapes above.
+- **Can only be checked when they come up:** the first real publish and the three unobserved shapes above,
+  tracked in #205. Since this section: #141 moved the writer and loader to plain HTTP (the HTTP 0 check,
+  the pause and the lock carried over), #131 made loads queue runs, and #200 moved Publish all to the
+  Attempts tab.
 
 ## Linked quizzes, phase 4c: posting by question (2026-10-13, branch `claude/angry-hopper-5c1f00`)
 

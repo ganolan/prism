@@ -515,7 +515,8 @@ the teacher chooses, saving the mark that student should get anyway, with the te
   Schoology's home again: a sign-in page stops the batch with `NO_SESSION`, no page with `UNREACHABLE`
   (2026-10-14; the loader does the same).
 - **One lock per quiz group:** a load, a publish and `mark_frq_writeback` never run at once on the same
-  group (`BUSY`), per process.
+  group (`BUSY`). The lock is in the server's memory; PrisMCP runs inside the server since #131, so it
+  covers the agent tools too.
 - **Guard:** the loader's read-only guard stays; the writer allows only the URL patterns the probe
   recorded.
 

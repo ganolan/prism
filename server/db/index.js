@@ -261,6 +261,12 @@ const MIGRATIONS = [
   // #187: a lesson's start and end time from its day's bell schedule (Test day's clock times).
   `ALTER TABLE class_meetings ADD COLUMN start_time TEXT`,
   `ALTER TABLE class_meetings ADD COLUMN end_time TEXT`,
+  // #191: PowerTeacher's Demographics screen, read once per student per school year.
+  `ALTER TABLE students ADD COLUMN date_of_birth TEXT`,
+  `ALTER TABLE students ADD COLUMN ps_grad_year INTEGER`,
+  `ALTER TABLE students ADD COLUMN home_room TEXT`,
+  `ALTER TABLE students ADD COLUMN guardianship TEXT`,
+  `ALTER TABLE students ADD COLUMN demographics_read_at TEXT`,
 ];
 
 // Remove mastery score rows with no level. The full mastery sync stored an

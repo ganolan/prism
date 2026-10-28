@@ -15,6 +15,7 @@ import { timelineContext } from '../services/submissionTimeline.js';
 import { setPublished, PublishError } from '../services/assessmentPublish.js';
 import { waitingCopies, flagLines } from '../services/savedGrades.js';
 import { loadClassTimes } from '../services/schoolCalendar.js';
+import { withBirthdays } from '../services/birthdays.js';
 
 const router = Router();
 
@@ -138,8 +139,9 @@ router.get('/:id/students', (req, res) => {
   // Learning, health and other only: family alerts never reach a roster.
   const alerts = getFeatures().powerschool_alerts ? psAlertsByStudent(db, students.map(s => s.id)) : null;
 
+  const birthday = withBirthdays(db); // #191: age and birthday_today from the date of birth
   const enriched = students.map(s => ({
-    ...s,
+    ...birthday(s),
     graded_count: summaryMap[s.id]?.graded_count || 0,
     avg_pct: summaryMap[s.id]?.avg_pct || null,
     ...(alerts ? { ps_alerts: forRoster(alerts.get(s.id)) } : {}),

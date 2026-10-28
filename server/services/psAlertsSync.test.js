@@ -131,7 +131,7 @@ describe('syncPsAlerts', () => {
     addCourse('S3', 'Old', { archived: 1 }); addCourse('S4', 'Template', { excluded: 1 });
     const a = addStudent('5001'); const b = addStudent('5002'); const c = addStudent('5003');
     const web = fakePowerSchoolWeb({ schoology: { S1: '9001', S2: '9002' }, sections });
-    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } });
+    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } });
     expect(r).toMatchObject({ processed: 2, read: 2, failed: 0, students: 3, withAlerts: 3 });
     expect(web.launches()).toBe(1); // one PowerSchool session for the whole sync
     expect(web.requests.filter((q) => q.path.endsWith('getAlertTypes.json'))).toHaveLength(1);
@@ -150,7 +150,7 @@ describe('syncPsAlerts', () => {
     const s1 = addCourse('S1', 'Alpha'); addCourse('S2', 'Beta');
     addStudent('5001'); addStudent('5002'); addStudent('5003');
     const web = fakePowerSchoolWeb({ schoology: { S1: '9001', S2: '9002' }, sections });
-    const r = await syncPsAlerts({ db, courseIds: [s1], deps: { fetchImpl: web.fetchImpl, jar: web.jar } });
+    const r = await syncPsAlerts({ db, courseIds: [s1], deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } });
     expect(r).toMatchObject({ processed: 1, students: 2 });
   });
 
@@ -159,7 +159,7 @@ describe('syncPsAlerts', () => {
     const a = addStudent('5001');
     db.prepare("INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'ilp'), (?, 'epipen')").run(a, a);
     const web = fakePowerSchoolWeb({ sections: { 9001: [{ studentid: '101', studentdcid: '5001', values: {} }] } });
-    await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } });
+    await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } });
     expect(keysOf(a)).toEqual([]);
   });
 
@@ -171,7 +171,7 @@ describe('syncPsAlerts', () => {
       schoology: { S1: '9001', S2: '9002' }, sections,
       failRead: (name, e) => name === 'getAdvTriggerMatches.html' && e.params.studentIds === '101,102',
     });
-    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } });
+    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } });
     expect(r).toMatchObject({ read: 1, failed: 1 });
     expect(r.results.find((x) => x.courseName === 'Alpha')).toMatchObject({ status: 'failed' });
     expect(keysOf(a)).toEqual(['ilp']);
@@ -182,7 +182,7 @@ describe('syncPsAlerts', () => {
     addCourse('S1', 'Alpha');
     const a = addStudent('5001');
     const web = fakePowerSchoolWeb({ sections, expireOnce: 'stuFieldValues.json' });
-    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } });
+    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } });
     expect(r).toMatchObject({ read: 1, failed: 0 });
     expect(web.launches()).toBe(2);
     expect(keysOf(a)).toEqual(['accommodation_plan', 'allergies']);
@@ -196,7 +196,7 @@ describe('syncPsAlerts', () => {
       schoology: { S1: '9001', S2: '9002' }, sections,
       failRead: (name) => name === 'getStudentsInSection.json' && '<h1>Security Violation Logged: Attempted to run an unauthorized action</h1>',
     });
-    await expect(syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } })).rejects.toMatchObject({ code: 'PS_SECURITY' });
+    await expect(syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } })).rejects.toMatchObject({ code: 'PS_SECURITY' });
     expect(web.requests.filter((q) => q.path.endsWith('getStudentsInSection.json'))).toHaveLength(1);
     expect(web.launches()).toBe(1);
     expect(keysOf(a)).toEqual(['ilp']);
@@ -205,7 +205,7 @@ describe('syncPsAlerts', () => {
   test('an expired Schoology session stops the sync with the log-in message', async () => {
     addCourse('S1', 'Alpha');
     const web = fakePowerSchoolWeb({ loginRedirect: true });
-    await expect(syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } })).rejects.toThrow(/mastery:login/);
+    await expect(syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } })).rejects.toThrow(/mastery:login/);
   });
 
   test('when no section can be read the sync throws, and nothing is cleared', async () => {
@@ -213,7 +213,7 @@ describe('syncPsAlerts', () => {
     const a = addStudent('5001');
     db.prepare("INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'ilp')").run(a);
     const web = fakePowerSchoolWeb({ sections, failRead: (name) => name === 'getStudentsInSection.json' });
-    await expect(syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } })).rejects.toThrow(/not read/);
+    await expect(syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } })).rejects.toThrow(/not read/);
     expect(keysOf(a)).toEqual(['ilp']);
   });
 
@@ -222,14 +222,14 @@ describe('syncPsAlerts', () => {
     const a = addStudent('5001');
     db.prepare("INSERT INTO student_ps_alerts (student_id, alert_key) VALUES (?, 'ilp')").run(a);
     const web = fakePowerSchoolWeb({ sections, catalogue: [{ id: '1', trigger_type: 'sf', name: 'Something new' }, {}] });
-    await expect(syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } })).rejects.toThrow(/catalogue/);
+    await expect(syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } })).rejects.toThrow(/catalogue/);
     expect(keysOf(a)).toEqual(['ilp']);
   });
 
   test('a course with no PowerSchool section is skipped; no courses means no requests', async () => {
     addCourse('S9', 'Master');
     const web = fakePowerSchoolWeb({ schoology: { S9: null } });
-    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } });
+    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } });
     expect(r).toMatchObject({ skipped: 1, read: 0 });
     expect(web.launches()).toBe(0);
 
@@ -245,7 +245,7 @@ describe('syncPsAlerts: guardian slots (#66)', () => {
   const sections = { 9001: [{ studentid: '101', studentdcid: '5001', lastfirst: 'Lee, Ana', values: { x_homeemail: '2' } }] };
   const slots = (id) => db.prepare('SELECT slot, name, email FROM student_ps_guardians WHERE student_id = ? ORDER BY slot').all(id);
   const phones = (id) => db.prepare('SELECT slot, phone FROM student_ps_guardians WHERE student_id = ? ORDER BY slot').all(id);
-  const run = (web) => syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar } });
+  const run = (web) => syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false } });
 
   test('stores each student\'s guardian slots, the correspondence code and guardians_synced_at', async () => {
     addCourse('S1', 'Alpha');

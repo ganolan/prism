@@ -296,6 +296,8 @@ export const getStatusLineUntil = ({ kind, studentId, assignmentId, lessons, res
     .filter(([, v]) => v != null && v !== '');
   return request(`/triage/status-line/until?${new URLSearchParams(q)}`);
 };
+// The dashboard's birthdays (#191): { today, students: [{ id, name, first, date, days, turns, birthday_today, courses }] }.
+export const getBirthdays = () => request('/students/birthdays');
 // A class's lessons from `from` to `to` with their bell-schedule times (#187): { meetings: [{ date, start, end }] }.
 export const getClassTimes = (courseId, from, to) => request(`/courses/${courseId}/class-times?from=${from}&to=${to}`);
 // Lesson hints for a school-day deadline: school days after `from` + the class's lessons.

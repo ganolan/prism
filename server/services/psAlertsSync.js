@@ -30,6 +30,7 @@
  */
 import { getDb } from '../db/index.js';
 import { cookieJar } from './schoologyWeb.js';
+import { syncDemographics } from './psDemographicsSync.js';
 import { PowerSchoolWeb } from './powerschoolWeb.js';
 import { alertPlan, fieldValuesParams, sectionAlerts, dropMeta } from '../lib/psAlerts.js';
 import { parseEmergencyContacts, slotsByDcid } from '../lib/psEmergencyContacts.js';
@@ -97,6 +98,7 @@ export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(),
   let plan = null;
   const byDcid = new Map();
   const guardiansByDcid = new Map();
+  const readSections = []; // { schoologySectionId, sectionDcid, roster }, for the Demographics pass (#191)
   for (const c of courses) {
     summary.processed++;
     try {
@@ -130,6 +132,7 @@ export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(),
       }
       const { found, roster } = section;
       for (const [dcid, entry] of found) byDcid.set(dcid, entry);
+      readSections.push({ schoologySectionId: c.schoology_section_id, sectionDcid, roster });
       if (roster.length) {
         // Its own try: a list that will not read costs the guardians, never the alerts just read.
         try {
@@ -171,5 +174,18 @@ export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(),
   summary.withAlerts = applied.withAlerts;
   summary.guardians.students = applyPsGuardians(db, guardiansByDcid).students;
   log(`Done: ${applied.students} students read, ${applied.withAlerts} with alerts (${summary.failed} courses not read), ${summary.guardians.students} with guardians (${summary.guardians.failed} lists not read).`);
+
+  // #191: each student's Demographics screen, once per school year, after the alerts and guardians are stored, so a
+  // failure here costs them nothing. A security page still stops the sync (it is thrown).
+  // deps.demographics: options for syncDemographics (tests), or false to leave the pass out.
+  if (deps.demographics === false) return summary;
+  try {
+    const relaunch = () => ps.launch(readSections[readSections.length - 1].schoologySectionId).catch((err) => { throw asLogin(err); });
+    summary.demographics = await syncDemographics(db, ps, readSections, { log, relaunch, ...(deps.demographics || {}) });
+  } catch (err) {
+    if (err.message === LOGIN_MESSAGE || err.code === 'PS_SECURITY') throw err;
+    summary.demographics = { error: err.message };
+    log(`Demographics not read (${err.message})`);
+  }
   return summary;
 }

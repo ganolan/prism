@@ -1865,3 +1865,10 @@ Prism's level is the correct one; Schoology's is what students and report cards 
 - **Each confirmed card** adds a muted "ends 9:38 AM" under the minutes. A student who runs past the lesson's end reads "ends 9:50 AM, 5 minutes after the lesson ends" in amber, bold (`.test-day-card__over`), so the teacher can plan where that student finishes.
 - **12-hour times** with AM/PM, as the sync status shows them. The schedule is not private: the bar line shows with Private details off; the student lines only with it on, as the cards do.
 
+## Birthdays and age (#191, 28 Oct 2026)
+
+- **Public, with Private details off:** only the fact that today is a student's birthday: a small cake after the name on the roster card and the student page header (`BirthdayMark`, `.birthday-mark` in `--accent`, popover and aria-label "Birthday today"), and on the dashboard one line per student, "It's Ana's birthday today." Never the age or the date. Nothing is drawn when nobody has a birthday.
+- **Private, with it on:** the age as the first tag after the name on the student page ("16", popover "Age 16, born 15/06/2010"); the dashboard's **Birthdays** card listing every current student whose birthday is from 3 days back to 7 days ahead, "turns 17 on Sat 31/10" or "turned 16 on Tue 27/10", with a cake on the ones marked today and their courses; the home room and guardianship lines on the student page.
+- **Weekend or holiday:** the mark shows on the school day before (Graham, 28 Oct 2026), so a Saturday birthday is marked on Friday and one in a holiday on the last school day before it (that student is on the list that day too).
+- **Where on the card:** the cake sits on the name line after the name, so the card gains no height (Graham picked it over a meta-line chip, 28 Oct 2026).
+

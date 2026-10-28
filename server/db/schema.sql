@@ -14,6 +14,12 @@ CREATE TABLE IF NOT EXISTS students (
   picture_url TEXT,
   grad_year INTEGER,
   gender TEXT,                          -- PowerSchool's section student list (one letter), for Class Tools' filter (#73)
+  -- PowerTeacher's Demographics screen (#191), read once per student per school year (psDemographicsSync.js):
+  date_of_birth TEXT,                   -- 'YYYY-MM-DD'
+  ps_grad_year INTEGER,                 -- PowerSchool's Graduation Year; when set it is grad_year (authoritative)
+  home_room TEXT,                       -- the home room teacher, as PowerSchool writes it ("Last, First")
+  guardianship TEXT,                    -- PowerSchool's guardianship note, usually empty
+  demographics_read_at TEXT,
   school_uid TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))

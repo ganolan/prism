@@ -6,9 +6,11 @@ import { preferredFirstName, studentFullName } from '../../lib/studentNames.js';
 import { formatDate } from '../../lib/formatDate.js';
 import { alertChipLabel } from '../../lib/rosterVitals.js';
 import { Tip } from '../HelpDot.jsx';
+import { BirthdayMark } from '../Birthday.jsx';
 
 // One student on the Roster tab (#160). Left: the photo, then the name line: the one name the student
-// goes by. The card shows no gender or age tag: those are on the student page only (Graham, 27 Oct 2026;
+// goes by, then a small cake on a student's birthday (public, never the date or age: #191, Graham 28 Oct 2026).
+// The card shows no gender or age tag: those are on the student page only (Graham, 27 Oct 2026;
 // components/StudentTags.jsx), and the roster keeps its Gender filter and sort.
 // Under it one line: grade, student number (the email's local part) and an Email copy button. Right, only with
 // Private details on: the unread comments count and the alert chips, in fixed-width slots so they line
@@ -75,7 +77,7 @@ export default function RosterCard({ student, showPrivate, unread = null, alerts
   const grade = gradeText(student.grad_year);
   const open = (e) => {
     // Needs attention's rows hold editors and panels: a tap there never leaves the page.
-    if (e.target.closest('a, button, input, select, textarea, label, .roster-card__items')) return;
+    if (e.target.closest('a, button, input, select, textarea, label, .birthday-mark, .roster-card__items')) return;
     navigate(`/student/${student.id}`);
   };
   return (
@@ -84,6 +86,7 @@ export default function RosterCard({ student, showPrivate, unread = null, alerts
       <span className="roster-card__id">
         <span className="roster-card__nameline">
           <Link className="roster-card__name" to={`/student/${student.id}`}>{studentFullName(student)}</Link>
+          <BirthdayMark student={student} />
         </span>
         <span className="roster-card__meta">
           {grade && <span>{grade}</span>}

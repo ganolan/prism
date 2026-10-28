@@ -159,7 +159,8 @@ export function applyGradeLevels(db, gradeByDcid, now = new Date()) {
   const nowDate = typeof now === 'string' ? new Date(now) : now;
   const yearEnd = currentSchoolYearEndYear(nowDate);
   const ts = nowDate.toISOString();
-  const update = db.prepare('UPDATE students SET grad_year = ?, updated_at = ? WHERE school_uid = ?');
+  // PowerSchool's own Graduation Year (Demographics, #191) is authoritative; the derived year only fills in.
+  const update = db.prepare('UPDATE students SET grad_year = ?, updated_at = ? WHERE school_uid = ? AND ps_grad_year IS NULL');
   let updated = 0;
   const tx = db.transaction((entries) => {
     for (const [dcid, gradeLevel] of entries) {

@@ -71,4 +71,29 @@ describe('StudentPage gender tag', () => {
     act(() => setPrivateDetails(false));
     expect(container.querySelector('.student-tags, .student-tag')).toBeNull();
   });
+
+  // #191: the age (private, first), the public birthday mark, and the Demographics lines (private).
+  it('the age comes first with its date of birth in the popover; home room and guardianship show; all private', async () => {
+    getStudent.mockResolvedValue({ ...base, gender: 'F', age: 16, date_of_birth: '2010-06-15', birthday_today: false, home_room: 'Teacher, Sam', guardianship: 'Court order' });
+    const { container } = renderPage();
+    const row = await nameRow();
+    const tags = [...row.querySelectorAll('.student-tag')].map((t) => t.textContent);
+    expect(tags).toEqual(['16', 'F']);
+    expect(within(row).getByRole('img', { name: 'Age 16, born 15/06/2010' })).toBeInTheDocument();
+    expect(screen.getByText('Home room: Teacher, Sam')).toBeInTheDocument();
+    expect(screen.getByText('Guardianship: Court order')).toBeInTheDocument();
+    act(() => setPrivateDetails(false));
+    expect(container.querySelector('.student-tag')).toBeNull();
+    expect(container).not.toHaveTextContent(/Teacher, Sam|Court order|15\/06\/2010/);
+  });
+
+  it('the birthday mark is public: shown with Private details off, beside the name, with no age or date', async () => {
+    setPrivateDetails(false);
+    getStudent.mockResolvedValue({ ...base, age: 16, date_of_birth: '2010-10-28', birthday_today: true });
+    const { container } = renderPage();
+    const row = await nameRow();
+    expect(within(row).getByRole('img', { name: 'Birthday today' })).toBeInTheDocument();
+    expect(container).not.toHaveTextContent(/16|28\/10/);
+  });
 });
+

@@ -1999,6 +1999,16 @@ a.roster-attention__email:hover { background: var(--accent-subtle); border-color
 .test-day-card__time { grid-area: tm; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 10px; min-width: 0; }
 .test-day-card__total { font-size: 1.1rem; font-weight: 750; font-variant-numeric: tabular-nums; }
 .test-day-card__muted { font-size: 0.8rem; color: var(--text-muted); }
+/* #191: the public birthday mark beside a name, and the dashboard's birthdays card. */
+.birthday-mark { display: inline-flex; align-items: center; flex: none; color: var(--accent); cursor: help; }
+.birthdays-card { padding: 12px 16px; margin-bottom: 1rem; }
+.birthdays-card__title { margin: 0 0 0.5rem; font-size: 0.95rem; font-weight: 600; }
+.birthdays-card__today { margin: 0; display: flex; align-items: center; gap: 8px; color: var(--text); }
+.birthdays-card__today svg, .birthdays-card__row--today svg { color: var(--accent); flex: none; }
+.birthdays-card__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.birthdays-card__row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 0.88rem; }
+.birthdays-card__gap { width: 14px; flex: none; }
+.birthdays-card__courses { font-size: 0.78rem; }
 /* #187: the lesson's clock times on the test's date, and a student who runs past the lesson's end. */
 .test-day__clock { margin: 0; font-size: 0.84rem; color: var(--text-muted); }
 .test-day-card__over { font-size: 0.8rem; font-weight: 600; color: var(--badge-amber-text); }

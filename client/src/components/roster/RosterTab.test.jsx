@@ -338,6 +338,23 @@ describe('RosterTab gender', () => {
     expect(screen.getByRole('group', { name: 'Gender' })).toBeInTheDocument();
   });
 
+  // #191: the public birthday mark sits after the name, with Private details off too; a tap shows its popover only.
+  it('a birthday shows a cake after the name, with Private details off or on, and a tap does not open the student page', () => {
+    renderTab('/course/5', { students: [
+      student(1, { first_name: 'Ana', last_name: 'Lee', birthday_today: true, age: 16, date_of_birth: '2010-10-28' }),
+      student(2, { first_name: 'Bo', last_name: 'Mur', birthday_today: false }),
+    ] });
+    const mark = within(cardOf('Ana Lee')).getByRole('img', { name: 'Birthday today' });
+    expect(mark.closest('.roster-card__nameline')).not.toBeNull();
+    expect(within(cardOf('Bo Mur')).queryByRole('img', { name: 'Birthday today' })).toBeNull();
+    expect(cardOf('Ana Lee')).not.toHaveTextContent(/2010|28\/10/);
+    fireEvent.click(mark);
+    expect(screen.queryByText(/Student page/)).not.toBeInTheDocument();
+    expect(document.querySelector('.help-pop')).toHaveTextContent('Birthday today');
+    toggle();
+    expect(within(cardOf('Ana Lee')).getByRole('img', { name: 'Birthday today' })).toBeInTheDocument();
+  });
+
   it('the meta line is grade, student number, Email: no gender', () => {
     renderTab();
     toggle();

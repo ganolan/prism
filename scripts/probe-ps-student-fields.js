@@ -225,9 +225,9 @@ if (only === 'page') {
 // menu in the session got PowerSchool's "Security Violation Logged" page (2026-10-17).
 // Prints each target row's masked value (line count and lengths), coverage per row and
 // agreement with the /ws/pt/v1 record.
-const DEMO_ROWS = ['Address', 'Mailing Address', 'Gender', 'Grade Level', 'Graduation Year', 'Age', 'DOB'];
+const DEMO_ROWS = ['Address', 'Mailing Address', 'Gender', 'Grade Level', 'Graduation Year', 'Age', 'DOB', 'Home Room', 'Guardianship', 'Student ID', 'Student number'];
 // #191: a value's format, never the value: every digit 9, every letter a ("99/99/9999").
-const FORMAT_ROWS = new Set(['Age', 'DOB']);
+const FORMAT_ROWS = new Set(['Age', 'DOB', 'Graduation Year', 'Home Room', 'Guardianship']);
 const formatOf = (v) => v.replace(/\d/g, '9').replace(/[A-Za-z]/g, 'a');
 // Which day order the DOB row uses, told only by whether it agrees with the Age row ("N years M months"),
 // never by printing either value: → { mdy, dmy } booleans (#191).
@@ -255,7 +255,17 @@ function demoRows(html) {
   }
   return rows;
 }
+let prismNumbers = null;
 if (want('demo')) {
+  try {
+    const api = process.env.PRISM_API || 'http://127.0.0.1:3001';
+    const courses = await (await fetch(`${api}/api/courses`)).json();
+    const course = courses.find((c) => String(c.schoology_section_id) === String(sectionId));
+    if (course) {
+      const studs = await (await fetch(`${api}/api/courses/${course.id}/students`)).json();
+      prismNumbers = new Map(studs.filter((x) => /^1_\d+$/.test(x.school_uid || '') && x.email).map((x) => [x.school_uid.slice(2), x.email.split('@')[0]]));
+    }
+  } catch { prismNumbers = null; }
   console.log(`6. demo: PowerTeacher Demographics screen for ${sample.length} students`);
   const q = `sectionid=${sectionDcid}&frn=003${sectionDcid}`;
   let referer = null;
@@ -282,6 +292,15 @@ if (want('demo')) {
       if (v && v.length) cov.set(l, cov.get(l) + 1);
       const fmt = FORMAT_ROWS.has(l) && v?.length ? `, format ${v.map(formatOf).join(' | ')}` : '';
       console.log(`    student ${i + 1} ${l}: ${rows.has(l) ? (v.length ? `${v.length} line(s), lengths ${v.map(x => x.length).join('+')}${fmt}` : 'row present, empty') : 'row absent'}`);
+    }
+    // #191: does the page name the student asked for? Compared with Prism's student number (its email's local
+    // part, from a running Prism's API, PRISM_API, default prod), printed as match / no match only.
+    if (prismNumbers) {
+      const mine = prismNumbers.get(String(s.studentdcid));
+      for (const l of ['Student ID', 'Student number']) {
+        const v = rows.get(l)?.[0];
+        console.log(`    student ${i + 1} ${l} vs Prism's number: ${v == null || mine == null ? 'not compared' : v === mine ? 'match' : 'no match'}`);
+      }
     }
     if (rows.get('DOB')?.[0] && rows.get('Age')?.[0]) {
       const { mdy, dmy } = dobOrderFits(rows.get('DOB')[0], rows.get('Age')[0]);

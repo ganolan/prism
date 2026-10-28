@@ -1,9 +1,10 @@
 import { useHelpPop } from './HelpDot.jsx';
 import { genderTag } from '../lib/genderTag.js';
+import { formatDate } from '../lib/formatDate.js';
 
 // The small muted tags beside a student's name in the student page header (27 Oct 2026), Private details
-// only: StudentPage draws none of this with the switch off. Today the group holds the gender tag; age
-// (#191) is meant to be added as its first tag, so a new tag is one more child here. The Roster tab's
+// only: StudentPage draws none of this with the switch off. The group holds the age (#191, from PowerSchool's date
+// of birth; its popover gives the date) and then the gender tag. The Roster tab's
 // cards drew this group from 25 Oct (#160) until Graham moved it here on 27 Oct: the roster keeps the
 // Gender filter and sort, and shows no tag.
 //
@@ -22,8 +23,10 @@ export function Tag({ label, children }) {
 
 export default function StudentTags({ student }) {
   const gender = genderTag(student.gender);
+  const dob = student.date_of_birth ? formatDate(`${student.date_of_birth}T00:00:00`) : null;
   return (
     <span className="student-tags">
+      {student.age != null && <Tag label={`Age ${student.age}${dob ? `, born ${dob}` : ''}`}>{student.age}</Tag>}
       <Tag label={gender.label}>{gender.code}</Tag>
     </span>
   );

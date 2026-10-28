@@ -14,6 +14,7 @@ import TriageSection from '../components/triage/TriageSection.jsx';
 import StatsStrip from '../components/triage/StatsStrip.jsx';
 import { courseTriageSummary, courseRedLine } from '../lib/triage.js';
 import { usePrivateDetails } from '../lib/privateDetails.js';
+import { BirthdaysCard } from '../components/Birthday.jsx';
 import { Tip } from '../components/HelpDot.jsx';
 
 // The first run (#171): a course whose first read has not finished yet is 'pending', and stays off
@@ -328,6 +329,7 @@ export default function Dashboard() {
         <div className="triage-layout">
           <div className="triage-layout__main">
             {firstRunLine && <p className="text-sm text-muted dashboard-progress" role="status">{firstRunLine}</p>}
+            <BirthdaysCard />
             {shown.length === 0 ? (
               !firstRunLine && (
                 <div className="card empty-state">

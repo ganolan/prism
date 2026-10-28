@@ -25,6 +25,7 @@ import { preferredFirstName } from '../lib/studentNames.js';
 import { usePrivateDetails } from '../lib/privateDetails.js';
 import { PrivateHidden } from '../components/PrivateDetails.jsx';
 import StudentTags from '../components/StudentTags.jsx';
+import { BirthdayMark } from '../components/Birthday.jsx';
 import { Tip } from '../components/HelpDot.jsx';
 
 function CopyButton({ text, label }) {
@@ -552,7 +553,8 @@ export default function StudentPage() {
               <div className="student-profile__info">
                 <div className="student-name-row">
                   <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 700, lineHeight: 1.2 }}>{titleName}</h2>
-                  {privateOn && <StudentTags student={student} />}{/* gender (age next, #191): not in the page with Private details off */}
+                  <BirthdayMark student={student} />{/* public: "Birthday today" only (#191) */}
+                  {privateOn && <StudentTags student={student} />}{/* age and gender: not in the page with Private details off */}
                   {student.grad_year && (() => {
                     const badge = formatGradeBadge(student.grad_year);
                     if (!badge) return null;
@@ -578,6 +580,13 @@ export default function StudentPage() {
                 )}
                 {showLegalName && (
                   <p className="text-sm text-muted" style={{ marginTop: '0.2rem' }}>Legal name: {legalFullName}</p>
+                )}
+                {/* PowerSchool's Demographics screen (#191): private. */}
+                {privateOn && student.home_room && (
+                  <p className="text-sm text-muted" style={{ marginTop: '0.2rem' }}>Home room: {student.home_room}</p>
+                )}
+                {privateOn && student.guardianship && (
+                  <p className="text-sm text-muted" style={{ marginTop: '0.2rem' }}>Guardianship: {student.guardianship}</p>
                 )}
                 {editing ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem' }}>

@@ -15,6 +15,7 @@ import { waitingCopies, flagLines } from '../services/savedGrades.js';
 import { buildAssessmentView, courseFlags, courseViewContext } from '../services/assessmentView.js';
 import { getAttachmentForAssignment } from '../services/rubricAttach.js';
 import { getUnfinishedGrading } from '../services/unfinishedGrading.js';
+import { birthdaysAround, withBirthdays } from '../services/birthdays.js';
 
 const router = Router();
 
@@ -44,6 +45,11 @@ const SUPPORT_SUMMARY_STATUS = {
   NO_ALERT: 404, NOT_FOUND: 404, NOT_LINKED: 404, NO_COURSE: 409, NOT_ON_ROSTER: 409,
   SESSION_EXPIRED: 503, SECURITY_VIOLATION: 502, PS_FAILED: 502,
 };
+// GET /api/students/birthdays — the dashboard's birthdays (#191): students of the current courses whose birthday is
+// from 3 days back to 7 days ahead, nearest first, with the age they turn. Private: the dashboard shows it only with
+// Private details on (and its "birthday today" names only, without it).
+router.get('/birthdays', (req, res) => res.json(birthdaysAround(getDb())));
+
 router.get('/:id/support-summary', async (req, res) => {
   if (!getFeatures().powerschool_alerts) return res.status(404).json({ error: 'PowerSchool alerts are off' });
   try {
@@ -229,7 +235,7 @@ router.get('/:id', (req, res) => {
   const psAlerts = student && getFeatures().powerschool_alerts ? psAlertsForStudent(db, student.id) : null;
 
   res.json({
-    ...student, courses, grades, notes, flags, parents, grading_scales: getGradingScalesMap(),
+    ...withBirthdays(db)(student), courses, grades, notes, flags, parents, grading_scales: getGradingScalesMap(),
     ...(psAlerts ? { ps_alerts: psAlerts.alerts, ps_alerts_synced_at: psAlerts.synced_at } : {}),
     ...(guardiansSyncedAt !== undefined ? { guardians_synced_at: guardiansSyncedAt } : {}),
   });

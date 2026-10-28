@@ -1883,3 +1883,8 @@ The best parts of the roster drawer Graham rejected in #160, on the student page
 - **Unread comments filter** beside the Courses heading: a `.filter-btn` pill with the number of tasks with an unread student comment (from this student's comment summaries), shown while one has. On, each course shows only those tasks and a course with none is left out; "No task has an unread comment now." when they have all been read. Cleared when the page moves to another student.
 - **Absences** wait for #39 (attendance).
 
+## Graded unpublished tasks on the student page (#206, 28 Oct 2026)
+
+- **Graham's choice:** a task unpublished on Schoology appears on the student page while the student holds a grade on it (score, comment, flag, topic or row level), in every course, current or archived. An ungraded unpublished task stays hidden, as before.
+- **Mark:** a grey `badge badge-gray` "Unpublished on Schoology" after the task title in the card heading, the gradebook popover's wording.
+- **Why:** a past section's tasks can be unpublished after grading (78 of 82 in AP CSP 2025-26); hiding them hid a student's record. The course tabs keep their Unpublished filter.

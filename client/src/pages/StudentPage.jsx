@@ -163,11 +163,16 @@ export function CourseSection({
                 const aid = g.schoology_assignment_id;
                 const assessmentHref = `/course/${g.course_id}/assessment/${aid}`;
                 // Name → the assignment's /assessment/ page, for every assignment (as in the
-                // gradebook + Assessments tab): unaligned work is graded there too (#41).
+                // gradebook + Assessments tab): unaligned work is graded there too (#41). A task
+                // unpublished on Schoology is listed only while the student holds a grade on it,
+                // and is marked (a past section's tasks can be unpublished after grading).
                 const title = (
-                  <Link to={assessmentHref} className="link" style={{ fontWeight: 600 }}>
-                    {g.assignment_title}
-                  </Link>
+                  <>
+                    <Link to={assessmentHref} className="link" style={{ fontWeight: 600 }}>
+                      {g.assignment_title}
+                    </Link>
+                    {g.published === 0 && <span className="badge badge-gray">Unpublished on Schoology</span>}
+                  </>
                 );
                 const card = edit.card(aid);
                 const summary = commentSummaries?.[aid] || null;

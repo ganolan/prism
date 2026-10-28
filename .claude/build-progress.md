@@ -173,7 +173,7 @@ Comprehensive probing of ~40+ Schoology API endpoint patterns. Key findings:
 - Student page: exception and late/draft badges per assignment
 - Student page: student ID from email prefix (not school_uid which is Schoology-internal like "1_38757")
 - Course page: section_school_code shown in header
-- All assignment/grade queries filter `published = 1` (excludes unpublished)
+- All assignment/grade queries filter `published = 1` (excludes unpublished). Since 28 Oct 2026 the student page also lists an unpublished task the student holds a grade on, tagged "Unpublished on Schoology" (see "Student page: graded tasks unpublished on Schoology").
 - Mastery topic derivation fixed: queries join through mastery_scores→assignments by course_id, not measurement_topics.course_id (fixes shared standards across courses — MAD now shows mastery)
 
 ### Known Issues
@@ -1381,7 +1381,7 @@ the counts matched the laptop run exactly):** Graham asked for these fixes, all 
 - **Verify script:** it now refuses a `DB_PATH` under `~/prism/` instead of refusing the mini's hostname.
 - **Seen and left as they are:** the Quiz setup modal shows no parity status for an existing group; the
   gradebook's Ep 1 Result cell is plain points, so its modal (and Attempt link) cannot be opened from
-  there; the student page omits the unpublished Result task, and shows the Attempt link on the test row.
+  there; the student page omits the unpublished Result task (since 28 Oct 2026 only while the student has no grade on it), and shows the Attempt link on the test row.
 
 **Phase 1b, charts and tag text (2026-10-13, approved by Graham from screenshots):** `ScoreDots` (MCQ
 dot plot, Dots / Box toggle, name on hover), `LevelBar` (level-coloured stacked bar in the summary and
@@ -2037,3 +2037,12 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Client:** `StudentAlerts.jsx` replaced `PsAlertReveal.jsx` (deleted with its test, its `.ps-support-summary` CSS and the client's `getSupportSummary`; the server route `/api/students/:id/support-summary` and PrisMCP's `get_support_summary` stay). It reuses the roster's `AlertDetail` (exported from `roster/AlertPopover.jsx`) and `getAlertDetail`. Header line `.student-meta` (grade, student number, `CopyEmail` from `RosterCard.jsx`). `RecentTasks.jsx` + `lib/recentTasks.js` (the last 6 due in current courses, status in `timelineParts` words, flags as `FlagSymbol`). Unread comments pill beside Courses, from `useStudentCommentSummaries`.
 - **Absences:** wait for #39.
 - **Tests:** recentTasks, RecentTasks, StudentPage.psAlerts (rewritten), StudentPage.contacts (Show family alerts counts), StudentPage.tags (header line), StudentPage.feedback (Unread comments filter), privateDetailsPages.
+
+## Student page: graded tasks unpublished on Schoology (#206, 2026-10-28)
+
+- **Graham:** most of Alison's AP CSP 2025-26 grades were missing from her student page on prod.
+- **Cause (checked on prod, read only):** Schoology reports 78 of the 82 tasks in AP CSP 7(A-B) 2025-26 (section `7899896088`) as `published: 0`, in the section list and the single GET; Prism's copy matched. The student page (`GET /api/students/:id` and `/grade-cards`) listed only `published = 1` tasks, so 4 ungraded formatives were left. `get_student_history` already listed all 23 graded tasks, each labelled unpublished. Other archived courses have 0 to 2 unpublished tasks (2024-25 AP CSP has 18). Schoology's REST shows no record of who unpublished them.
+- **Graham's decision (28 Oct):** show a graded unpublished task in every course, tagged; an ungraded unpublished task stays hidden.
+- **Server:** `LISTED_TASK` in `server/routes/students.js`: published, or the student holds a score, a non-blank comment, a Schoology flag, a topic level or a feedback-row level on it (as `get_student_history` counts "assessed"). Used by both routes, so each listed task has its card. Rows carry `published`.
+- **Client:** a grey `badge badge-gray` "Unpublished on Schoology" after the task title on the student page.
+- **Tests:** `students.test.js` (each kind of grade keeps the task, a blank comment or another student's level does not), `students.gradeCards.test.js`, `StudentPage.feedback.test.jsx`.

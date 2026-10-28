@@ -92,6 +92,49 @@ describe('GET /api/students/:id — submission timeline per assignment', () => {
   });
 });
 
+// A task unpublished in Schoology after it was graded (Graham unpublished most of a past AP CSP
+// section's tasks, 28 Oct 2026): the student page still lists it while the student holds a grade on it,
+// and marks it. An unpublished task the student holds nothing on stays hidden.
+describe('GET /api/students/:id — graded tasks unpublished in Schoology', () => {
+  const titles = async () => (await get(`/api/students/${studentId}`)).body.grades.map((g) => g.assignment_title);
+  const task = (sid, title) => getDb().prepare(
+    `INSERT INTO assignments (course_id, schoology_assignment_id, title, published) SELECT course_id, ?, ?, 0 FROM assignments WHERE id = ?`
+  ).run(sid, title, assignmentId).lastInsertRowid;
+
+  test('a score, a comment, a flag, a topic level or a row level keeps it listed, marked published 0', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM mastery_scores; DELETE FROM rubric_row_levels; DELETE FROM measurement_topics; DELETE FROM reporting_categories;');
+    const scored = task('u-score', 'Scored');
+    const commented = task('u-comment', 'Commented');
+    const flagged = task('u-flag', 'Flagged');
+    task('u-topic', 'Topic level');
+    task('u-row', 'Row level');
+    const blank = task('u-blank', 'Blank comment');
+    task('u-none', 'No grade row');
+    db.prepare('INSERT INTO grades (student_id, assignment_id, score) VALUES (?, ?, 3)').run(studentId, scored);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, grade_comment) VALUES (?, ?, 'Well done')`).run(studentId, commented);
+    db.prepare('INSERT INTO grades (student_id, assignment_id, exception) VALUES (?, ?, 3)').run(studentId, flagged);
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, grade_comment) VALUES (?, ?, '  ')`).run(studentId, blank);
+    const courseId = db.prepare('SELECT course_id FROM assignments WHERE id = ?').get(assignmentId).course_id;
+    db.prepare(`INSERT INTO reporting_categories (id, course_id, external_id, title) VALUES ('c1', ?, 'X.1', 'Cat')`).run(courseId);
+    db.prepare(`INSERT INTO measurement_topics (id, category_id, course_id, external_id, title) VALUES ('t1', 'c1', ?, 'X.1.1', 'Topic')`).run(courseId);
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, grade) VALUES ('u1', 'u-topic', 't1', 'EX')`).run();
+    db.prepare(`INSERT INTO mastery_scores (student_uid, assignment_schoology_id, topic_id, grade) VALUES ('other', 'u-blank', 't1', 'EX')`).run();
+    db.prepare(`INSERT INTO rubric_row_levels (assignment_schoology_id, student_uid, criterion_name, level) VALUES ('u-row', 'u1', 'Design', 'D')`).run();
+    try {
+      const listed = await titles();
+      expect(listed).toEqual(expect.arrayContaining(['Project', 'Scored', 'Commented', 'Flagged', 'Topic level', 'Row level']));
+      expect(listed).not.toContain('Blank comment');
+      expect(listed).not.toContain('No grade row');
+      const { body } = await get(`/api/students/${studentId}`);
+      expect(body.grades.find((g) => g.assignment_title === 'Scored').published).toBe(0);
+      expect(body.grades.find((g) => g.assignment_title === 'Project').published).toBe(1);
+    } finally {
+      db.exec('DELETE FROM mastery_scores; DELETE FROM rubric_row_levels; DELETE FROM measurement_topics; DELETE FROM reporting_categories;');
+    }
+  });
+});
+
 describe('GET /api/students/:id — PowerSchool alerts (#117)', () => {
   test('ps_alerts and when they were last read; never the contact fields', async () => {
     const db = getDb();

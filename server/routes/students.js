@@ -75,6 +75,18 @@ router.get('/:id/alert-detail/:alertKey', async (req, res) => {
   }
 });
 
+// The student page's tasks: every published task, and an unpublished one while the student holds a
+// grade on it (a score, a comment, a Schoology flag, a topic level or a feedback-row level), as
+// get_student_history counts it. A past section's tasks can be unpublished after they were graded
+// (78 of 82 in AP CSP 2025-26, 28 Oct 2026); hiding them hid the student's grades. The row carries
+// `published` so the page marks such a task. Params: student id, then schoology_uid twice.
+const LISTED_TASK = `(a.published = 1
+  OR EXISTS (SELECT 1 FROM grades hg WHERE hg.assignment_id = a.id AND hg.student_id = ?
+             AND (hg.score IS NOT NULL OR TRIM(COALESCE(hg.grade_comment, '')) != '' OR COALESCE(hg.exception, 0) != 0))
+  OR EXISTS (SELECT 1 FROM mastery_scores hm WHERE hm.assignment_schoology_id = a.schoology_assignment_id AND hm.student_uid = ?)
+  OR EXISTS (SELECT 1 FROM rubric_row_levels hr WHERE hr.assignment_schoology_id = a.schoology_assignment_id AND hr.student_uid = ?))`;
+const listedTaskParams = (student) => [student.id, student.schoology_uid || '', student.schoology_uid || ''];
+
 router.get('/:id', (req, res) => {
   const db = getDb();
   const student = db.prepare('SELECT * FROM students WHERE id = ?').get(req.params.id);
@@ -98,12 +110,12 @@ router.get('/:id', (req, res) => {
       g.first_submitted_at, g.test_attempt,
       a.id as assignment_id, a.accepts_submissions, a.is_test,
       a.title as assignment_title, a.due_date, a.is_lti_submission, a.max_points as assignment_max_points,
-      a.grading_scale_id, a.display_weight, a.schoology_assignment_id,
+      a.grading_scale_id, a.display_weight, a.schoology_assignment_id, a.published,
       c.course_name, c.id as course_id,
       CASE WHEN g.id IS NOT NULL THEN 1 ELSE 0 END as has_grade_row
     FROM enrolments e
     JOIN courses c ON c.id = e.course_id
-    JOIN assignments a ON a.course_id = c.id AND a.published = 1 AND a.removed_at IS NULL
+    JOIN assignments a ON a.course_id = c.id AND a.removed_at IS NULL
     LEFT JOIN grades g ON g.student_id = e.student_id AND g.assignment_id = a.id
     LEFT JOIN folders f ON f.schoology_folder_id = a.folder_id AND f.course_id = a.course_id
     LEFT JOIN folders fp ON fp.schoology_folder_id = f.parent_id AND fp.course_id = f.course_id AND f.parent_id != '0'
@@ -115,6 +127,7 @@ router.get('/:id', (req, res) => {
           WHERE aa.assignment_id = a.id AND aa.schoology_uid = ?
         )
       )
+      AND ${LISTED_TASK}
     ORDER BY
       c.course_name,
       CASE WHEN a.folder_id IS NULL OR a.folder_id = '0' THEN a.display_weight
@@ -125,7 +138,7 @@ router.get('/:id', (req, res) => {
            ELSE a.display_weight END ASC,
       CASE WHEN f.parent_id IS NOT NULL AND f.parent_id != '0' THEN a.display_weight ELSE 0 END ASC,
       a.title
-  `).all(req.params.id, student.schoology_uid || '');
+  `).all(req.params.id, student.schoology_uid || '', ...listedTaskParams(student));
 
   // The submission timeline per assignment (due, extension, submitted when and how
   // late, clock day if missing, referral): one context per course.
@@ -307,13 +320,14 @@ router.get('/:id/grade-cards', (req, res) => {
   const tasks = db.prepare(`
     SELECT a.id, a.schoology_assignment_id
     FROM assignments a
-    WHERE a.course_id = ? AND a.published = 1 AND a.removed_at IS NULL
+    WHERE a.course_id = ? AND a.removed_at IS NULL
       AND EXISTS (SELECT 1 FROM enrolments e WHERE e.student_id = ? AND e.course_id = a.course_id)
       AND (a.num_assignees IS NULL OR a.num_assignees = 0
            OR EXISTS (SELECT 1 FROM assignment_assignees aa WHERE aa.assignment_id = a.id AND aa.schoology_uid = ?))
       AND (? IS NULL OR a.schoology_assignment_id = ?)
+      AND ${LISTED_TASK}
     ORDER BY a.id
-  `).all(courseId, student.id, student.schoology_uid || '', only, only);
+  `).all(courseId, student.id, student.schoology_uid || '', only, only, ...listedTaskParams(student));
 
   const drafts = new Map(db.prepare('SELECT assignment_id, draft_json FROM assessment_drafts WHERE student_id = ?')
     .all(student.id).map((d) => [d.assignment_id, d.draft_json]));

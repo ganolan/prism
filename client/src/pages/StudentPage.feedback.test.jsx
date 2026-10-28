@@ -138,6 +138,19 @@ describe('CourseSection: every task is the grade card (#176)', () => {
     expect(follows(pill, screen.getByText('Select, analyze'))).toBe(true);
   });
 
+  it('a graded task unpublished on Schoology is marked beside its title', async () => {
+    renderSection([grade({ published: 0 })], one());
+    const title = await screen.findByRole('link', { name: 'Portfolio' });
+    const tag = screen.getByText('Unpublished on Schoology');
+    expect(follows(title, tag)).toBe(true);
+  });
+
+  it('a published task has no Unpublished tag', async () => {
+    renderSection([grade({ published: 1 })], one());
+    await screen.findByRole('link', { name: 'Portfolio' });
+    expect(screen.queryByText('Unpublished on Schoology')).not.toBeInTheDocument();
+  });
+
   it('an unaligned task\'s title links to its /assessment/ page too, as in the gradebook (#41)', async () => {
     renderSection([grade({ grading_scale_id: '7165818', mastery: null })], one({ topics: [], student: { score: 100, scores: {} } }));
     expect(await screen.findByRole('link', { name: 'Portfolio' })).toHaveAttribute('href', '/course/1/assessment/sa-10');

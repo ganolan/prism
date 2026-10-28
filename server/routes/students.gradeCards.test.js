@@ -82,6 +82,14 @@ describe('GET /api/students/:id/grade-cards', () => {
     expect(body.cards['sa-2'].student).toMatchObject({ id: ada, has_grade_row: false });
   });
 
+  test('an unpublished task has a card only for a student graded on it', async () => {
+    const unpub = db.prepare(`SELECT id FROM assignments WHERE schoology_assignment_id = 'sa-unpub'`).get().id;
+    db.prepare(`INSERT INTO grades (student_id, assignment_id, grade_comment) VALUES (?, ?, 'Graded before it was unpublished')`).run(ada, unpub);
+    const cards = async (sid) => Object.keys((await get(`/api/students/${sid}/grade-cards?courseId=${courseId}`)).body.cards).sort();
+    expect(await cards(ada)).toEqual(['sa-1', 'sa-2', 'sa-unpub']);
+    expect(await cards(bob)).toEqual(['sa-1', 'sa-2']);
+  });
+
   test('assignmentId narrows to one card', async () => {
     const { body } = await get(`/api/students/${ada}/grade-cards?courseId=${courseId}&assignmentId=sa-2`);
     expect(Object.keys(body.cards)).toEqual(['sa-2']);

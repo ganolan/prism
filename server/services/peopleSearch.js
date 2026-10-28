@@ -12,7 +12,7 @@
  * the old browser read with scripts/parity-page-reads.js.
  *
  * Pagination: 10 results per page; a page with < 10 rows is the last one.
- * Each result row already carries name/role/school/photo — enough for a
+ * Each result row already carries name/school/photo (no role) — enough for a
  * result list. Full profile (email, parents) is a per-user follow-up via the
  * public OAuth `getUserProfile(uid)`, fetched lazily on click rather than for
  * every row (rate-limit friendly).

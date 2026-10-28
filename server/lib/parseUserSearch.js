@@ -17,9 +17,9 @@
  *                     > span.item-school > a[href="/{schoolId}"] ← school
  *
  * Note: `.item-type` is the generic entity type — observed as "Person" for
- * every /search/user row — NOT the user's role. The actual role (Parent /
- * Student / Staff) lives on the profile read (`GET /v1/users/{uid}.role_id`),
- * fetched lazily per user, not in the search row.
+ * every /search/user row — NOT the user's role. The search row carries no
+ * role, and neither does REST `GET /v1/users/{uid}` for anyone but the teacher
+ * (`role_id` absent for 15 of 15 other users, 2026-10-28, #203).
  *     div.network-button-links > a.action-message[href="/messages/new/{id}"]
  */
 import { parse } from 'node-html-parser';

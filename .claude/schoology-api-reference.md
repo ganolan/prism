@@ -50,7 +50,7 @@ Last live re-verification: 2026-05-30 — spot-checked the public REST inventory
 | Method | Endpoint | Status | Notes |
 |--------|----------|--------|-------|
 | GET | `/v1/users/me` | 200 (via redirect) | Follow 303 manually. Returns full profile. |
-| GET | `/v1/users/{uid}` | 200 | Full profile: `uid`, `name_first`, `name_first_preferred`, `name_last`, `name_display`, `primary_email`, `role_id`, `school_id`, `building_id`, `picture_url`, `gender`, `position`, `grad_year`, `tz_offset`, `tz_name`, `parents`, `child_uids`, `permissions`, `language`. **Note:** `grad_year` is only present on teacher/staff profiles (and typically empty). Student profiles do NOT include `grad_year` — that data must come from PowerSchool. Student profiles also lack `position`, `password`, `username`. |
+| GET | `/v1/users/{uid}` | 200 | ⚠️ **For another user the answer omits `role_id`, `position`, `gender`, `grad_year` and `username`** (2026-10-28, 15 of 15 users; "1a. Another user's profile" under the internal API). The fields below were seen on the teacher's own profile. Full profile: `uid`, `name_first`, `name_first_preferred`, `name_last`, `name_display`, `primary_email`, `role_id`, `school_id`, `building_id`, `picture_url`, `gender`, `position`, `grad_year`, `tz_offset`, `tz_name`, `parents`, `child_uids`, `permissions`, `language`. **Note:** `grad_year` is only present on teacher/staff profiles (and typically empty). Student profiles do NOT include `grad_year` — that data must come from PowerSchool. Student profiles also lack `position`, `password`, `username`. |
 | GET | `/v1/users/{uid}/sections` | 200 | Array of section objects with `course_title`, `section_title`, `course_id`, `id`. |
 | GET | `/v1/users/{uid}/grades` | 200 | Grade overview per section. Empty for teacher accounts. |
 | GET | `/v1/users/{uid}/updates` | 200 | Feed/update posts for the user. |
@@ -698,8 +698,8 @@ li.search-summary > div.item.user-list-item
 Per result: user id from `.item-title a` href (`/user/(\d+)`), name from its text, school from `.item-school a`.
 ⚠️ `.item-type` is **not** the user's role — it is the generic entity type, and was **"Person" for every row** when
 verified live (an earlier draft of this doc guessed "Parent/Student/Staff" from a masked length — wrong; "Person" is also
-6 chars). The actual role (Parent/Student/Staff) is **not** in the search row — read it from the profile
-(`GET /v1/users/{uid}.role_id`) per user. This is the only confirmed way to reach users outside your enrollments (public REST `/search` 403s;
+6 chars). The actual role (Parent/Student/Staff) is **not** in the search row, nor in another user's REST profile (`role_id` is
+absent there: see 1a below, 2026-10-28). This is the only confirmed way to reach users outside your enrollments (public REST `/search` 403s;
 `/users` multi-get ignores filters). Browser-session auth (same Playwright session as mastery sync), not OAuth. Each
 `/user/{id}` then joins to the documented public profile read (`GET /v1/users/{uid}`, 200 via OAuth).
 *(2026-10-17, #141: Prism now sends this GET over **plain HTTP**, no browser: the saved session's school-host cookies
@@ -713,6 +713,35 @@ query in a row returned different users, so the pages of a multi-page search shi
 pages or show on both (`paginatePeopleSearch` dedupes, which is why a 5-page search can return 44–49 users, not 50,
 and why a complete 2–4-page search of a full name sometimes differed by 1–4 users). A one-page answer was always the
 same.)*
+
+**1a. Another user's profile: REST and the Info page (2026-10-28, #190 and #203; read only, Graham approved 3 students of
+AI & ML 1(A-B) plus the staff their pages link to).** Probes: `scripts/probe-people-profile.js`, `scripts/probe-people-profile-2.js`
+(both print labels and counts, never names, ids or emails).
+- **REST `GET /v1/users/{uid}` for another user omits `role_id`, `position`, `gender`, `grad_year` and `username`.** For
+  3 of 3 students and 12 of 12 staff the keys were exactly: `uid, id, school_id, synced, building_id, additional_buildings,
+  name_title, name_title_show, name_first, name_first_preferred, use_preferred_first_name, name_middle, name_middle_show,
+  name_last, name_display, primary_email, picture_url, parents, child_uids, send_message, language, permissions`
+  (`permissions` = `{is_directory_public, allow_connections}`). Only the teacher's own profile carried `role_id` (Staff 263181).
+  So REST alone cannot tell a counsellor from a principal, or a student from staff. (The User Endpoints row above lists the
+  fuller field set seen on the teacher's own profile.)
+- **REST `/v1/users/{uid}/groups` answers 200 for another user** (`{group, links}`), each group with `category` and, on a
+  staff member's list, `admin` (0 or 1). The students' groups were 2 to 4 each, categories `sports`, `community` and none.
+  ⚠️ **Schoology's `community` category is not an HKIS counselling community:** the `community` groups held were school-wide
+  ones (an announcements group, a parent club). No group named for a counselling community was seen.
+- **No REST association reads:** `/v1/users/{uid}/advisors`, `/advisees`, `/associations`, `/relationships` and `/parents`
+  answered **400**; `/network` **403** (students, and `/advisees` for the teacher too).
+- **The web Info page `GET /user/{uid}/info` (plain HTTP, saved session, `Accept: text/html`, about 96 KB)** draws a table
+  of `<tr><th>{label}</th><td>{value}</td></tr>` rows; `/user/{uid}` returns the same page. Tabs linked: `info`, `portfolios`,
+  `courses`. No `/iapi` XHR literals in the page.
+  - **A student's rows:** Contact Information, Email, **Parents** (2 `/user/{id}` links each) and **Advisors**, plus About
+    Me, Bio, Activities & Interests and Activities when the student filled them in (1 of 3).
+  - **Advisors** held 7, 7 and 8 `/user/{id}` links, comma-separated, in alphabetical order. **5 staff were on all 3
+    students' rows** (school leaders, by Graham's description in #190); the other 2, 2 and 3 were different for each student.
+    This is the list Graham describes in #190, which mixes counsellors with leaders.
+  - **A staff member's rows:** Contact Information and Email for 11 of 12; one also showed About Me, **Subjects taught**,
+    **Position**, Bio, Activities & Interests, Interests, Phone and Website. That one's Position read "HS Counselor, I Community"
+    (a counsellor and their community, typed by hand). Position is absent from that person's REST profile. The other 11 left Position empty,
+    so the Info page cannot name the counsellors either.
 
 **2. Archived / past courses: REST `GET /users/{teacherUid}/sections?include_past=1` lists them all (2026-10-23, #178); the HTML page below hides linked sections and is no longer read.**
 

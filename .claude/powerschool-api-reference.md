@@ -779,7 +779,24 @@ date range), which could replace the `section_attendance` range in `server/lib/p
 the Demographics screen. Building any feature on these fields is a new issue (#116 is the probe only).
 *(Done 2026-10-18 for grade level, #164: see "Grade level from the section student list (#164)" below.)*
 
-### Grade level from the section student list (#164, verified 2026-10-18)
+### Date of birth (#191, probed 2026-10-28, Graham approved: one current class, formats only)
+
+Two surfaces, both read only on AI & ML 1(A-B) (`8458134359`), values never printed.
+
+- **The attendance app's birthday alert** (found in its bundle: `getAlertMap`, `case "dob"`, `alertMap.dob.dateOfBirth`,
+  message key `psx.html.teachers_alerts.birthdayalert.xx_s_birthday_is_xx`). `GET /ws/attendance/section_attendance?…&includeStudentAlerts=true`
+  answers keys `maxEditablePastDate, maxEditableFutureDate, startDate, endDate, sectionAttendances, attendanceTakenBySectionId,
+  studentTardyCount, studentAbsentCount, studentAlerts, record`; `studentAlerts` is keyed by student id, each a map of alerts
+  `{ type, attributes }`. A `type: "dob"` alert has one attribute, `dateOfBirth`, a string shaped `99/99/9999` (the app parses it
+  with the locale's `L` format and shows "Today" or "MMM D"). **Only students near their birthday carry it:** 1 of 18, and the
+  same 1 of 18 for the ranges 2026-09-01 to 09-15, 10-08 to 10-28 and 12-01 to 12-10, so the window follows today, not the range
+  asked for. Its length is not known. A source for "birthday soon", not for every student's age. (`scripts/probe-ps-dob-alert.js`.)
+- **The Demographics screen** (the #116 click path, unchanged): rows **DOB** (`99/99/9999`, **MM/DD/YYYY**: for 3 of 3 students
+  only that order agrees with the Age row) and **Age** (`99 aaaaa 99 aaaaaa`, e.g. "N years M months"), set for 3 of 3. No
+  Security Violation page. (`scripts/probe-ps-student-fields.js <section> demo 3`, which now prints these rows' formats and the
+  order check, never a value.)
+
+
 
 Prism's grade-level read is now the section student list, over plain HTTP on the attendance LTI session
 (`PowerSchoolWeb`, no browser); the `section_attendance` range read ("Step 3" above) is kept as the fallback.

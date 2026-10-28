@@ -24,7 +24,8 @@ import { PowerSchoolWeb, PS_BASE } from '../server/services/powerschoolWeb.js';
 
 const sectionId = process.argv[2];
 const only = process.argv[3];
-const N = Number(process.argv[4] || 3);
+// Never more than 3 students (Graham's approvals: #116 on 17/10/2026, #191 on 28/10/2026, up to 3 in one class).
+const N = Math.max(0, Math.min(3, Number(process.argv[4] || 3) || 0));
 if (!sectionId) { console.error('usage: probe-ps-student-fields.js <schoologySectionId> [step] [n]'); process.exit(1); }
 const want = (step) => (!only && step !== 'page') || only === step;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -98,6 +99,9 @@ if (want('bundle')) {
     const js = await res.text();
     // PROBE_OUT=<dir>: keep the app bundle (code, no student data) for a closer read.
     if (process.env.PROBE_OUT && /main\./.test(url)) (await import('fs')).writeFileSync(`${process.env.PROBE_OUT}/attendance-main.js`, js);
+    // #191: any date-of-birth field the app's code names (code, not data).
+    const births = new Set([...js.matchAll(/[A-Za-z_.]*(?:birth|Birth|dob|DOB|Dob)[A-Za-z_]*/g)].map((m) => m[0]));
+    if (births.size) console.log(`  ${new URL(url).pathname}: birth/dob identifiers ${JSON.stringify([...births].slice(0, 30))}`);
     for (const m of js.matchAll(/["'`](\/ws\/(?:pt\/v1|schema|v1)\/[^"'`\s]*)["'`]/g)) {
       const at = m.index;
       if (!literals.has(m[1])) literals.set(m[1], js.slice(Math.max(0, at - 160), at + m[0].length + 200).replace(/\s+/g, ' '));
@@ -221,7 +225,25 @@ if (only === 'page') {
 // menu in the session got PowerSchool's "Security Violation Logged" page (2026-10-17).
 // Prints each target row's masked value (line count and lengths), coverage per row and
 // agreement with the /ws/pt/v1 record.
-const DEMO_ROWS = ['Address', 'Mailing Address', 'Gender', 'Grade Level', 'Graduation Year'];
+const DEMO_ROWS = ['Address', 'Mailing Address', 'Gender', 'Grade Level', 'Graduation Year', 'Age', 'DOB'];
+// #191: a value's format, never the value: every digit 9, every letter a ("99/99/9999").
+const FORMAT_ROWS = new Set(['Age', 'DOB']);
+const formatOf = (v) => v.replace(/\d/g, '9').replace(/[A-Za-z]/g, 'a');
+// Which day order the DOB row uses, told only by whether it agrees with the Age row ("N years M months"),
+// never by printing either value: → { mdy, dmy } booleans (#191).
+export function dobOrderFits(dob, age, today = new Date()) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dob || '');
+  const a = /^(\d+)\s+\D+?(\d+)\s+\D+$/.exec(age || '');
+  if (!m || !a) return { mdy: false, dmy: false };
+  const months = Number(a[1]) * 12 + Number(a[2]);
+  const fits = (mo, d, y) => {
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+    let n = (today.getFullYear() - y) * 12 + (today.getMonth() + 1 - mo);
+    if (today.getDate() < d) n -= 1;
+    return n === months;
+  };
+  return { mdy: fits(Number(m[1]), Number(m[2]), Number(m[3])), dmy: fits(Number(m[2]), Number(m[1]), Number(m[3])) };
+}
 const cellText = (h) => h.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 function demoRows(html) {
   const rows = new Map();
@@ -258,7 +280,12 @@ if (want('demo')) {
     for (const l of DEMO_ROWS) {
       const v = rows.get(l);
       if (v && v.length) cov.set(l, cov.get(l) + 1);
-      console.log(`    student ${i + 1} ${l}: ${rows.has(l) ? (v.length ? `${v.length} line(s), lengths ${v.map(x => x.length).join('+')}` : 'row present, empty') : 'row absent'}`);
+      const fmt = FORMAT_ROWS.has(l) && v?.length ? `, format ${v.map(formatOf).join(' | ')}` : '';
+      console.log(`    student ${i + 1} ${l}: ${rows.has(l) ? (v.length ? `${v.length} line(s), lengths ${v.map(x => x.length).join('+')}${fmt}` : 'row present, empty') : 'row absent'}`);
+    }
+    if (rows.get('DOB')?.[0] && rows.get('Age')?.[0]) {
+      const { mdy, dmy } = dobOrderFits(rows.get('DOB')[0], rows.get('Age')[0]);
+      console.log(`    student ${i + 1} DOB order: MM/DD/YYYY ${mdy ? 'fits' : 'does not fit'} the Age row; DD/MM/YYYY ${dmy ? 'fits' : 'does not fit'}`);
     }
     perDcid.set(String(s.studentdcid), rows);
   }

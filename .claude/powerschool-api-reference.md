@@ -660,6 +660,10 @@ rather than reusing one frame (a shared-frame loop failed 5/6 reads; per-navigat
 
 **`/ws/pt/v1/attendance/getattendance_integration` — endpoint LIVE, correct params NOT yet found (2026-05-30).**
 
+*(Resolved 2026-10-29, #39: the app sends `sectionId` (capital I), `date` and `periodId`, all **PSM** ids:
+`section_info.psmSectionId` and a value of `section_info.periodIdToPsmPeriodIdMap`. With those it answers 200. It is the
+seating-chart view's read, which is why the list grid never fired it. See "Attendance: reading and marking (#39)" below.)*
+
 ⚠️ *Correction:* an earlier revision of this doc documented a rich `attendance_data`/`students`/`attendance_codes`
 response shape for this endpoint. **That shape was never observed and has been removed as fabricated.** What is
 actually verified:
@@ -688,7 +692,7 @@ remains the only confirmed-working attendance read.**
 > "Block number" above. The displayed "Block N" comes from `section_info.bellScheduleItems[].period.name`.
 
 - `GET /ws/pt/v1/attendance/getattendanceformultisection` — same family, same unknown param mapping; not probed further.
-- ⚠️ `POST /ws/pt/v1/attendance/saveattendance` and `/saveattendances` — attendance **writes** (the write path #39 needs; not probed, read-only policy).
+- ⚠️ `POST /ws/pt/v1/attendance/saveattendance` and `/saveattendances` — attendance **writes** (the write path #39 needs; not probed, read-only policy). *(2026-10-29, #39, from the app's code: these are **PUT**s, sent by the seating-chart view; the list grid saves with `POST /ws/attendance/section_attendance`. See "Attendance: reading and marking (#39)".)*
 
 **Referenced in the app bundle but NOT exercised on load (candidates — string literals, not yet shape-probed):**
 - `/ws/pt/v1/student/...` — student data (PT v1; PII — probe carefully). *(Probed 2026-10-17, #116: `GET /ws/pt/v1/student/{psmStudentId}`
@@ -829,6 +833,59 @@ second launch is gone: the grade pass took 480 ms for 9 sections, all from the l
 number", "Plain HTTP, no browser".)*
 
 Gender is in the same list (`…students[].gender`). *(2026-10-24, #73: Prism now stores it as `students.gender` from this read only, trimmed, for Class Tools' roster filter; the `section_attendance` fallback has no gender, so a section read that way keeps its students' stored gender.)*
+
+### Attendance: reading and marking (#39, probed 2026-10-29, read only, one class)
+
+Read on AI & ML 1(A-B) (`8458134359`) over plain HTTP on the alert sync's PowerSchool session (the LTI launch, then GETs
+with `Accept: application/json`). Counts and shapes only. Probe: `scripts/probe-ps-attendance.js <section> [days back]`.
+The app's code read from its bundle (`/scripts/sgy-att-scripts/main.*.js`, 943 KB, 29 Oct 2026); no write was sent.
+
+**The code catalog is in `section_info`** (`GET /ws/attendance/section_info?sectionDcid=&multiSections=false&startDate=&endDate=`):
+`attendanceCodes[]` (21 for HS 2026-27) `{ id, dcid, schoolNumber, yearId, attCode, attCodeTranslated, alternateCode,
+description, descriptionTranslated, sortOrder, assignmentFilter, calcAda, calcAdm, presenceStatus, courseCreditPoints }`, plus
+`attCodeToIdMap` (attCode → id). `presenceStatus` was null for all 21. The catalog, in sort order (school data):
+`""` Present, `A` Absence, `X` Absence (Excused), `I` Illness, `IE` Illness (Extended), `T` Tardy, `TB` Tardy (For More
+Than 15 Mins), `TX` Tardy (Excused), `F1` Trip (Fie Sch), `F2` Trip (Sports), `M1` Exam (In Sch), `M2` Exam (Out Sch), `SI`
+Suspended (In), `SO` Suspended (Out), `C` Counselor, `D` Doctor Appointment, `N` With Nurse, `P` AP/Principal, `L` Letter
+Unex, `U` Absence for Summative, `Y` Option. `assignmentFilter` is 1 for Present, A, X and T, 0 for the rest.
+The same answer has `attendanceModeCode` (15 characters), `attendanceTypeCode`, `intervalLength`, `periodIdToPsmPeriodIdMap`
+(1 entry), `sectionMeetings[] { …, periodNumber, cycleDayLetter, meeting }` (letters A and B), `maxEditablePastDate`, `maxEditableFutureDate`.
+
+**Which days the class met:** a day the section met has a section-day in `section_attendance`; days in session with the
+section's cycle letter did not all have one (6 such days in 14 calendar days, 3 with a section-day: 14, 16 and 27 Oct).
+
+**The list grid's read, `GET /ws/attendance/section_attendance?sectionDcid=&userDcid=&startDate=&endDate=&includeStudentAlerts=false&multiSections=false`:**
+a 14-day range is one call (3 section-days, 54 marks). `sectionAttendances[] { sectionId, date, periodId, meetingMode,
+meetingType, multiSection, multiMeetingType, stateId, commentsEnabled, studentAttendance[] { studentId, dcid,
+meetingAttendance[], onTrack, enrolled, lastName, firstName, middleName, lastFirst, localizedFullName, track, gradeLevel,
+ccId, ccDateEnrolled, ccDateLeft } }`, top-level `studentTardyCount` / `studentAbsentCount` (keyed by student). Marks in
+the range: 47 Present (code `""`), 1 each T, TB, L and A, 3 F2. A day the section did not meet: `sectionAttendances` empty.
+- **Whether attendance was taken:** a **one-day** read carries `attendanceTakenBySectionId: { <sectionId>: [record] }`, an
+  array with one record `{ dcid, id, sectionId, attendanceDate, periodId, attendanceInterval, … }` on a day attendance was
+  submitted (27 Oct: 1), `[]` otherwise; a range read answers `null`. ⚠️ The 27 Oct record's `attendanceDate` read
+  `2026-10-26` (a UTC date for a Hong Kong day, probably): compare by the day asked, not that field.
+- **Edit window:** `maxEditablePastDate` 2026-10-29 and `maxEditableFutureDate` 2026-10-28, read on 29 Oct 2026 (HKT
+  morning); what the app does with a past date later than the future date was not tested.
+
+**The seating-chart read, `GET /ws/pt/v1/attendance/getattendance_integration?sectionId={psmSectionId}&date=YYYY-MM-DD&periodId={psmPeriodId}`:**
+200 (27 Oct, 3.5 KB): `{ sectionAttendance: { sectionId, date, periodId, meetingMode, meetingType, commentsEnabled,
+studentAttendance[18] { studentId, dcid, meetingAttendance[] { intervalNumber, intervalDuration, code, readOnly }, onTrack,
+enrolled, gradeLevel, ccId } } }`; `dcid` and `ccId` were 1-character strings there. No names in this read.
+
+**Marking: the routes the app sends, from its code (not sent):**
+- **List grid save:** `POST /ws/attendance/section_attendance?_={unix}`, `Content-Type: application/json`, body an
+  **array of section-days** `{ commentsEnabled, date, meetingMode, meetingType, periodId, sectionId, studentAttendance:
+  [{ studentId, dcid, meetingAttendance: [{ code, comment, intervalDuration, intervalNumber }] }] }`, built from the read
+  above, with marks only for students `onTrack` that day. After a save the app runs the page's customizations' post-save
+  steps (`sortedCustomizations.postSave`, each given `{ sectionid, frn: "003"+dcid, att_period, att_date, Att_Mode_Code,
+  pagetype, ATT_Source_Code: "Teacher", Period_ID }`) and before it their pre-save checks; the customizations come from
+  `POST /ws/pagecustomizations/insertions` (school-installed HTML and scripts; not read here).
+- **Seating chart save:** `PUT /ws/pt/v1/attendance/saveattendance` `{ sectionAttendance: {…} }`, or `PUT …/saveattendances`
+  `{ attendanceList: [...] }` for linked sections.
+- **XSRF:** the bundle has Angular's XSRF support (`XSRF-TOKEN`); the plain-HTTP session holds only `JSESSIONID`, `psaid`
+  and `currentSchool` and the app page sets no cookie, so no XSRF header would be sent. Unproven until a write.
+- **Open before Prism writes:** whether HKIS's page customizations have pre- or post-save steps (read
+  `pagecustomizations/insertions`), and one live write Graham approves on a target he names, read back.
 
 ### Student counsellors (#190, probed 2026-10-28, Graham approved: 3 students of one current class, shapes only)
 

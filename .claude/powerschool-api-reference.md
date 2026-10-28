@@ -830,6 +830,37 @@ number", "Plain HTTP, no browser".)*
 
 Gender is in the same list (`…students[].gender`). *(2026-10-24, #73: Prism now stores it as `students.gender` from this read only, trimmed, for Class Tools' roster filter; the `section_attendance` fallback has no gender, so a section read that way keeps its students' stored gender.)*
 
+### Student counsellors (#190, probed 2026-10-28, Graham approved: 3 students of one current class, shapes only)
+
+**A student's counsellors are a plain-HTTP JSON read: `GET /ws/studentcounselor/{studentDcid}`**, sent with
+`Accept: application/json` and the student's Demographics screen as Referer, after the #116 click path (home → summary →
+menu → student home → `demo.html`). Read on AI & ML 1(A-B) (`8458134359`): **200 `application/json`, about 274 bytes, for
+3 of 3 students; no Security Violation page.** Whether the read needs the click path first was not tested.
+- **Shape:** an array of `{ id: number, studentDcid: number, userDcid: number, userFirstName: string, userLastName: string,
+  isPrimary: boolean, "@extensions": null }`. **2 counsellors for 3 of 3 students, exactly 1 `isPrimary: true` each.**
+  The record holds no email, no title and no community name.
+- **Pairs:** 4 distinct counsellors across the 3 students; 2 of the 3 students had the same pair with the same primary.
+  So the pair stands for the community; nothing in this read names it.
+- **Where it comes from:** each student page's header holds a counsellor icon (`a.counselor`, Angular `counselorAlertController`,
+  `data-require-path="angular,components/counselor/index"`, `var _curStudentDcid`). Its click calls
+  `counselorService.getStudentCounselor(dcid)` (`/scripts/components/counselor/services/counselorService.js`), sorts the
+  primary first and shows "First Last (Primary)", or "No assigned counselors". The icon was on Demographics and Standards Grades.
+- ⚠️ **The same service also writes:** `POST /ws/studentcounselor/{dcid}` (save a student's counsellors) and
+  `POST /ws/studentcounselor/mass/{userDcid}` (make one counsellor primary for a selection, removing others). Never send them.
+  Its school list, `POST /ws/schema/query/com.powerschool.core.access_roles.school_users_by_roleavailableaccess?pagesize=0`
+  with `{roleAvailableAccessCode: 'COUN', schoolId}`, was not sent.
+- **Email, from Schoology:** for 6 of 6 counsellors (3 students × 2), exactly one person in the student's Schoology
+  **Advisors** row (`/user/{uid}/info`, `.claude/schoology-api-reference.md` "1a. Another user's profile") matched by
+  first or preferred first name plus last name, case-folded, and that REST profile's `primary_email` was an `@hkis.edu.hk`
+  address. Students joined by Schoology `school_uid` = `"1_" + dcid`.
+- **No other screen names a counsellor:** the student home's picker (22 screens: Archived Files, Cumulative Grade Information,
+  Demographics, Graduation Plan Progress, Historical Grades and its Detail View, Meeting Attendance, Net Access Summary,
+  Print A Report, Quick Lookup, Recommendations, Schedule Matrix (All), Schedule Matrix, Schedule, Standard Definition,
+  Student Photo, Submit Log Entry (not opened), Teacher Comments, Term Grades, View All Grades, Standards Grades, plus Student Support and Student Forms) had no
+  counsellor row. "C=Counselor" on Quick Lookup and Meeting Attendance is an attendance code. ⚠️ Schedule Matrix (All)'s
+  table headers are the class's student names: a probe printing headers must mask them.
+- Probe: `scripts/probe-ps-counsellor.js <section>` (`COUNSELORS=1`, `JOIN=1`; prints keys, types, counts and matches only).
+
 ### Guardian contacts (#66, verified 2026-10-21)
 
 Which Prism parent is PowerSchool's Guardian 1 or Guardian 2, and what PowerSchool says about each. Read only, over plain

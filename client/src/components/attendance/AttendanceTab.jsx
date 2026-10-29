@@ -235,14 +235,6 @@ export default function AttendanceTab({ courseId }) {
 
       {lesson?.lesson && (
         <>
-          {fillLabel(choices, lesson) && (
-            <div className="attendance__actions">
-              <button className="secondary" onClick={() => setChoices((prev) => markAllPresent(prev, lesson))} disabled={saving}>
-                {fillLabel(choices, lesson)}
-              </button>
-            </div>
-          )}
-
           <ul className="attendance__list">
             {lesson.students.map((st) => {
               const choice = choices[st.ps_student_id];
@@ -279,8 +271,14 @@ export default function AttendanceTab({ courseId }) {
             })}
           </ul>
 
-          {/* The counts and Save under the list: teachers read the whole list before saving (Graham, 29 Oct 2026). */}
+          {/* The fill button, the counts and Save under the list: teachers read the whole list, and count the
+              class, before marking the rest present and saving (Graham, 29 Oct 2026). */}
           <div className="attendance__save">
+            {fillLabel(choices, lesson) && (
+              <button className="secondary" onClick={() => setChoices((prev) => markAllPresent(prev, lesson))} disabled={saving}>
+                {fillLabel(choices, lesson)}
+              </button>
+            )}
             <span className="text-sm attendance__counts" aria-live="polite">
               Present {c.present}, Tardy {c.tardy}, Absent {c.absent}{c.other ? `, Other ${c.other}` : ''}{c.unmarked ? `, Not marked ${c.unmarked}` : ''}
             </span>

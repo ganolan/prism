@@ -39,10 +39,11 @@ describe('AttendanceTab (#39)', () => {
     // The first order reversed: Other, Absent, Tardy, Present on the far right (Graham, 29 Oct 2026).
     expect(within(row('Student One')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Other ▾', 'Absent', 'Tardy', 'Present']);
     expect(screen.getByText('Today (Thu 29/10), 08:35 to 09:45')).toBeInTheDocument();
-    // The counts and Save come after the list.
+    // The fill button, the counts and Save come after the list (Graham, 29 Oct 2026).
     const list = screen.getByRole('list');
-    const saveBtn = screen.getByRole('button', { name: 'Save to PowerSchool' });
-    expect(list.compareDocumentPosition(saveBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const el of [screen.getByRole('button', { name: 'Mark all 2 present' }), screen.getByText(/Not marked 2/), screen.getByRole('button', { name: 'Save to PowerSchool' })]) {
+      expect(list.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
     expect(within(row('Student Two')).queryByRole('button')).toBeNull();
     expect(within(row('Student Two')).getByText('Office: Illness (I)')).toBeInTheDocument();
     expect(within(row('Student Two')).getByText('Called in sick')).toBeInTheDocument();

@@ -891,7 +891,17 @@ enrolled, gradeLevel, ccId } } }`; `dcid` and `ccId` were 1-character strings th
   `angularCustomizations`, nothing that saves. ⚠️ `parameters: {}` (the app's default body) answered 400 "Cannot deserialize
   … ArrayList<Map<String,String>>": the server wants a list. The list view sends its own list (`sectionid`, `frn`,
   `att_period`, …); that variant was not sent.
-- **Open before Prism writes:** one live write Graham approves on a target he names, read back.
+- **First live write (2026-10-29 08:41 HKT, Graham approved: AP CSP, Schoology section 8458134140, that day's lesson,
+  marks unchanged):** after Graham submitted attendance in Schoology, a one-day read showed 1 section-day, 9 marks (all
+  Present) and 1 attendance-taken record. A second read just before the write was unchanged. `POST
+  /ws/attendance/section_attendance?_={unix}` with `Content-Type: application/json`, the session cookies, `Referer` the
+  attendance app page, no XSRF header, and the body built as the app builds it (an array of 1 section-day, 9 students)
+  answered **200 with an empty body**. The read-back: 9 marks, every one as before, and still 1 attendance-taken record (no
+  second one). Script: `scripts/probe-ps-attendance-write.js` (dry run by default; refuses any other section).
+- ⚠️ **Not yet shown:** that a save **changes** a mark. An unchanged re-save proves the route, the body and the session are
+  accepted, not that a different code is applied. The next live write changes one mark Graham names, reads it back, and
+  restores it if asked.
+- **Edit window still open:** the write was on the day itself; whether a past day can be saved was not tried.
 
 ### Student counsellors (#190, probed 2026-10-28, Graham approved: 3 students of one current class, shapes only)
 

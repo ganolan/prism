@@ -90,9 +90,12 @@ if (!same(again.marks, back.marks)) process.exit(5);
 
 // --cycle: T → Present → A → Present for the first student, each read back; then exit.
 async function runCycle() {
-  const target = again.body[0].studentAttendance.find((st) => st.meetingAttendance.length === 1);
-  if (!target) { console.log('Refused: no student with exactly one mark.'); process.exit(6); }
+  // TARGET="Last, First" picks that student (Graham, 29 Oct 2026: the same student on a past lesson); default the first.
+  const list = again.body[0].studentAttendance.filter((st) => st.meetingAttendance.length === 1);
+  const target = process.env.TARGET ? list.find((st) => st.name === process.env.TARGET) : list[0];
+  if (!target) { console.log('Refused: that student has no single mark in this lesson.'); process.exit(6); }
   const original = target.meetingAttendance[0].code ?? '';
+  if (original !== '') { console.log('Refused: the student was not Present in this lesson, so "back to Present" would change it.'); process.exit(6); }
   console.log(`   cycle student: ${target.name} (first on the list), now ${original === '' ? 'Present' : original}`);
   const keyOf = (m) => [...m.keys()].find((k) => k.split('|')[2] === String(target.studentId));
   let current = again;
@@ -109,7 +112,10 @@ async function runCycle() {
     current = back;
     return { ok };
   };
-  for (const [code, label] of [['T', 'set Tardy'], [original, 'back to Present'], ['A', 'set Absent'], [original, 'back to Present']]) {
+  // CYCLE=A: Absent then back to Present only (Graham, 29 Oct 2026, the past-lesson test).
+  const steps = process.env.CYCLE === 'A' ? [['A', 'set Absent'], [original, 'back to Present']]
+    : [['T', 'set Tardy'], [original, 'back to Present'], ['A', 'set Absent'], [original, 'back to Present']];
+  for (const [code, label] of steps) {
     const r = await step(code, label);
     if (!r.ok) {
       console.log(`Stopped at "${label}"${r.why ? ` (${r.why})` : ''}: restoring the student's first code.`);

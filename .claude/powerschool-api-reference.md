@@ -904,9 +904,18 @@ enrolled, gradeLevel, ccId } } }`; `dcid` and `ccId` were 1-character strings th
   Every write answered **200, empty body**; every read-back showed that student's new code and the other 8 marks
   unchanged, and still 1 attendance-taken record. The lesson ended as submitted (9 Present). So the list grid's save sets
   a code as sent, for the students in the body. `scripts/probe-ps-attendance-write.js --cycle`.
-- **Not observed:** whether a code set and cleared within minutes reaches anything outside PowerSchool (e.g. a parent
-  absence notice); the marks PowerSchool held after the cycle were the submitted ones.
-- **Edit window still open:** the write was on the day itself; whether a past day can be saved was not tried.
+- **Notices:** nothing leaves PowerSchool when a mark is saved; attendance is checked in batches at the end of the day
+  (Graham, 29 Oct 2026), so a code set and cleared within minutes reaches no one.
+- **A past lesson saves the same way (2026-10-29 ~09:00 HKT, Graham approved: the same student, Absent then Present, on
+  AP CSP's lesson of Tue 27 Oct):** the same body with that lesson's `date` from its own read. Both writes 200, empty body;
+  read-backs exact (the student A, then Present; the other 8 marks, one of them `I`, unchanged). So the editable dates in
+  `section_info` (29/10 to 28/10 that morning) did not stop a save two days back. `TARGET="Last, First" CYCLE=A --cycle`.
+- **Attendance-taken records are a log of saves:** after that past-lesson save, 27 Oct's one-day read held **2** records
+  `{ dcid, id, sectionId, attendanceDate, periodId, attendanceInterval, attendanceTakenDate }`: the teacher's own
+  (`attendanceDate` 2026-10-26, `attendanceTakenDate` 2026-10-26) and Prism's (`attendanceTakenDate` 2026-10-28). Both dates
+  are UTC (one day behind Hong Kong). Today's lesson kept 1 record through the teacher's submit and 6 Prism saves, all on
+  the same UTC day. So PowerSchool adds one record per lesson per day a save is made, and "attendance taken" is "any
+  record".
 
 ### Student counsellors (#190, probed 2026-10-28, Graham approved: 3 students of one current class, shapes only)
 

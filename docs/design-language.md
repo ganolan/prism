@@ -1906,7 +1906,7 @@ The best parts of the roster drawer Graham rejected in #160, on the student page
 
 ## Attendance tab (#39, 29 Oct 2026)
 
-- **Where:** a tab on a current course's page (after Analytics), private (`PrivateHidden` "Attendance is private."). The triage rail is hidden by default there, as on the Gradebook.
+- **Where:** a tab on a current course's page, second after Roster (Graham, 29 Oct 2026: attendance matters, so not last), private (`PrivateHidden` "Attendance is private."). The triage rail is hidden by default there, as on the Gradebook.
 - **Lesson:** a select of the class's lessons in the last 3 weeks, newest first ("Thu 29/10, 08:35 to 09:45"), and a badge: green "Taken in PowerSchool" or amber "Not taken yet".
 - **Present is a choice** (Graham, 29 Oct 2026, an improvement on Schoology's blank cell). Before attendance is taken a blank mark shows as not marked (the row tinted), not as Present.
 - **One short line per student** (Graham, 29 Oct 2026: buttons spread along the line took too much room): the name on the left, and in a right-hand column one joined pill strip `.att-strip` of small segments **Present** (green when chosen) | **Tardy** (amber) | **Absent** (red) | **Other ▾**. Graham chose this over a letters-only strip and a native select.

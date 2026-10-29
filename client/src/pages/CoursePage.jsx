@@ -47,7 +47,8 @@ import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts 
 const SHORT_BADGE = { late: 'L', draft: 'D', overdue: 'O', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
 // The course page's tabs, in order: [view key, label].
 const COURSE_VIEWS = [['roster', 'Roster'], ['gradebook', 'Gradebook'], ['assessments', 'Assessments'], ['analytics', 'Analytics']];
-// #39: a current course also has Attendance (feature `attendance`), taken in Prism and saved to PowerSchool.
+// #39: a current course also has Attendance (feature `attendance`), taken in Prism and saved to PowerSchool. It is
+// the second tab, after Roster (Graham, 29 Oct 2026: attendance is important, not an afterthought at the end).
 const ATTENDANCE_VIEW = ['attendance', 'Attendance'];
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-amber', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
@@ -98,7 +99,7 @@ export default function CoursePage() {
   // null until the course has loaded.
   const courseLive = course ? !course.archived : null;
   const { features, loading: flagsLoading } = useFeatureFlags();
-  const views = courseLive && features.attendance ? [...COURSE_VIEWS, ATTENDANCE_VIEW] : COURSE_VIEWS;
+  const views = courseLive && features.attendance ? [COURSE_VIEWS[0], ATTENDANCE_VIEW, ...COURSE_VIEWS.slice(1)] : COURSE_VIEWS;
   // A remembered Attendance tab on a course without one (archived, or the feature off) opens the Roster.
   const attendanceGone = view === 'attendance' && course && !flagsLoading && !views.includes(ATTENDANCE_VIEW);
   useEffect(() => { if (attendanceGone) setStickyView('roster'); }, [attendanceGone]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -303,6 +303,9 @@ describe('CoursePage attendance tab', () => {
     loaded({ archived: 0 });
     renderAt('/course/5?tab=attendance');
     expect(await screen.findByRole('tab', { name: 'Attendance' })).toHaveAttribute('aria-selected', 'true');
+    // Second, after Roster (Graham, 29 Oct 2026).
+    expect(within(screen.getByRole('tablist', { name: 'Course views' })).getAllByRole('tab').map((t) => t.textContent))
+      .toEqual(['Roster', 'Attendance', 'Gradebook', 'Assessments', 'Analytics']);
     expect(await screen.findByText(/no lesson in the last 3 weeks/)).toBeInTheDocument();
     act(() => setPrivateDetails(false));
     expect(await screen.findByText('Attendance is private.')).toBeInTheDocument();

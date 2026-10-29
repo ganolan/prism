@@ -497,9 +497,10 @@ describe('RosterTab modes', () => {
   it('four mode tabs, remembered in the URL as ?mode=', () => {
     renderTab();
     const modes = screen.getByRole('tablist', { name: 'Roster view' });
-    // #192: the first is "Details and Attendance", since "Roster" repeated the parent tab; its id stays `roster`.
-    expect(within(modes).getAllByRole('tab').map((b) => b.textContent)).toEqual(['Details and Attendance', 'Needs attention', 'Test day', 'Mastery']);
-    expect(within(modes).getByRole('tab', { name: 'Details and Attendance' })).toHaveClass('subtab-btn', 'active');
+    // #192: "Roster" repeated the parent tab; "Details and Attendance" became "Details" once attendance had its own
+    // course tab (#39, 29 Oct 2026). Its id stays `roster`.
+    expect(within(modes).getAllByRole('tab').map((b) => b.textContent)).toEqual(['Details', 'Needs attention', 'Test day', 'Mastery']);
+    expect(within(modes).getByRole('tab', { name: 'Details' })).toHaveClass('subtab-btn', 'active');
     fireEvent.click(within(modes).getByRole('tab', { name: 'Mastery' }));
     expect(screen.getByTestId('search')).toHaveTextContent('mode=mastery');
     expect(within(modes).getByRole('tab', { name: 'Mastery' })).toHaveAttribute('aria-selected', 'true');

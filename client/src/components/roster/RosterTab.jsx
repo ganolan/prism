@@ -34,7 +34,7 @@ import { getCourseCommentSummaries } from '../../services/api.js';
 
 export const ROSTER_MODES = [
   // "Roster" would repeat the parent tab (#192). Entering attendance on class days is #39.
-  { id: 'roster', label: 'Details and Attendance' },
+  { id: 'roster', label: 'Details' }, // "Details and Attendance" until attendance got its own course tab (#39, 29 Oct 2026)
   { id: 'attention', label: 'Needs attention' },
   { id: 'testday', label: 'Test day' },
   { id: 'mastery', label: 'Mastery' },

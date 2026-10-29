@@ -30,7 +30,7 @@ describe('AttendanceTab (#39)', () => {
     await screen.findByText('Student One');
     expect(getAttendance).toHaveBeenCalledWith('580', '2026-10-29');
     expect(screen.getByText('Not taken yet')).toBeInTheDocument();
-    expect(within(row('Student One')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Present', 'Tardy', 'Absent']);
+    expect(within(row('Student One')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Present', 'Tardy', 'Absent', 'Other ▾']);
     expect(within(row('Student Two')).queryByRole('button')).toBeNull();
     expect(within(row('Student Two')).getByText('Office: Illness (I)')).toBeInTheDocument();
     expect(within(row('Student Two')).getByText('Called in sick')).toBeInTheDocument();
@@ -54,11 +54,26 @@ describe('AttendanceTab (#39)', () => {
     expect(screen.getByText('Taken in PowerSchool')).toBeInTheDocument();
   });
 
-  it('an Other code from the school\'s list', async () => {
+  it('Other opens a menu of the school\'s other codes; the chosen code shows on the segment, ticked in the menu', async () => {
     renderTab();
     await screen.findByText('Student One');
-    fireEvent.change(within(row('Student One')).getByRole('combobox', { name: 'Other code for Student One' }), { target: { value: 'I' } });
+    const other = within(row('Student One')).getByRole('button', { name: 'Other code for Student One' });
+    expect(other).toHaveAttribute('aria-haspopup', 'menu');
+    fireEvent.click(other);
+    const menu = screen.getByRole('menu', { name: 'Other codes for Student One' });
+    expect(within(menu).getAllByRole('menuitemradio').map((i) => i.textContent)).toEqual(['IIllness']); // Present, Tardy, Absent are on the strip
+    fireEvent.click(within(menu).getByRole('menuitemradio', { name: /Illness/ }));
+    expect(screen.queryByRole('menu')).toBeNull();
+    const chosen = within(row('Student One')).getByRole('button', { name: 'Other code for Student One: I, Illness' });
+    expect(chosen).toHaveTextContent('I: Illness');
     expect(screen.getByText(/Other 2/)).toBeInTheDocument();
+    fireEvent.click(chosen);
+    expect(screen.getByRole('menuitemradio', { name: /Illness/ })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    // Choosing Present on the strip clears the Other segment.
+    fireEvent.click(within(row('Student One')).getByRole('button', { name: 'Present' }));
+    expect(within(row('Student One')).getByRole('button', { name: 'Other code for Student One' })).toHaveTextContent('Other');
   });
 
   it('a refused save shows why and the lesson as PowerSchool now holds it', async () => {

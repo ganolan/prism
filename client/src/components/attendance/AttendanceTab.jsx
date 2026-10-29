@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getAttendance, getClassTimes, saveAttendance } from '../../services/api.js';
 import { formatTime, localIsoDate } from '../../lib/formatDate.js';
@@ -14,6 +14,52 @@ import {
 const LOOKBACK_DAYS = 21;
 
 const dayLabel = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: '2-digit' });
+
+// The strip's fourth segment (Graham chose it 29 Oct 2026, after the grade card's Flags control): "Other ▾", or the
+// chosen code ("I: Illness ▾"); it opens a menu of the school's other codes, the chosen one ticked. Escape or a click
+// outside closes it; arrow keys move between codes.
+function OtherMenu({ codes, choice, name, disabled, onChoose }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  const chosen = codes.find((c) => c.code === choice);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (!wrap.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    wrap.current?.querySelector('[role="menuitemradio"]')?.focus();
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+  const onKey = (e) => {
+    if (e.key === 'Escape') { setOpen(false); wrap.current?.querySelector('button')?.focus(); return; }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const items = [...wrap.current.querySelectorAll('[role="menuitemradio"]')];
+    const i = items.indexOf(document.activeElement);
+    items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+  };
+  return (
+    <span className="att-other" ref={wrap} onKeyDown={onKey}>
+      <button type="button" className={`att-seg att-seg--other${chosen ? ' active' : ''}`} aria-haspopup="menu" aria-expanded={open}
+        aria-label={chosen ? `Other code for ${name}: ${chosen.code}, ${chosen.description}` : `Other code for ${name}`}
+        disabled={disabled} onClick={() => setOpen((o) => !o)}>
+        {chosen ? `${chosen.code}: ${chosen.description}` : 'Other'} <span aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div className="att-menu" role="menu" aria-label={`Other codes for ${name}`}>
+          <div className="att-menu__heading" role="presentation">Other codes</div>
+          {codes.map((c) => (
+            <button key={c.code} type="button" role="menuitemradio" aria-checked={c.code === choice} className="att-menu__item"
+              onClick={() => { onChoose(c.code); setOpen(false); }}>
+              <span className="att-menu__code">{c.code}</span>
+              <span>{c.description}</span>
+              <span className="att-menu__tick" aria-hidden="true">{c.code === choice ? '✓' : ''}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
 
 export default function AttendanceTab({ courseId }) {
   const [meetings, setMeetings] = useState(null); // [{ date, start, end }], newest first
@@ -127,19 +173,16 @@ export default function AttendanceTab({ courseId }) {
                   )}
                   {!st.markable && <span className="text-sm text-muted">Mark this student on Schoology: PowerSchool holds more than one mark for them in this lesson.</span>}
                   {editable(st) && (
-                    <span className="attendance__choices" role="group" aria-label={`Attendance for ${st.name}`}>
+                    <span className="att-strip" role="group" aria-label={`Attendance for ${st.name}`}>
                       {MAIN_CODES.map((m) => (
                         <button key={m.label} type="button" aria-pressed={choice === m.code}
-                          className={`att-choice att-choice--${m.label.toLowerCase()}${choice === m.code ? ' active' : ''}`}
+                          className={`att-seg att-seg--${m.label.toLowerCase()}${choice === m.code ? ' active' : ''}`}
                           onClick={() => choose(st.ps_student_id, m.code)} disabled={saving}>
                           {m.label}
                         </button>
                       ))}
-                      <select className={`att-other${isOther ? ' active' : ''}`} value={isOther ? choice : ''} disabled={saving}
-                        aria-label={`Other code for ${st.name}`} onChange={(e) => e.target.value && choose(st.ps_student_id, e.target.value)}>
-                        <option value="">Other…</option>
-                        {others.map((o) => <option key={o.code} value={o.code}>{o.code}: {o.description}</option>)}
-                      </select>
+                      <OtherMenu codes={others} choice={isOther ? choice : null} name={st.name} disabled={saving}
+                        onChoose={(code) => choose(st.ps_student_id, code)} />
                     </span>
                   )}
                 </li>

@@ -2064,3 +2064,11 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Client:** `PersonPage.jsx` at `/people/:uid` (People search results link there); `PersonAvatar.jsx` shared with `PeoplePage.jsx`; the stale "background browser" line on the search page removed.
 - **Live check (read only, approved):** 1 student, 2 parents, 3 advisors classified right; parents' `child_uids` a string, 3 children named; `scripts/check-person-profile.js`.
 - **Tests:** personProfile (kinds, re-read, failed re-read, children, notes, delete, adoption), people routes, students route (notes arrive), PersonPage.
+
+## Attendance tab (#39, 2026-10-29)
+
+- **Spike and live writes (read only, then approved writes on AP CSP):** catalog in `section_info`, the list grid's read and save on `/ws/attendance/section_attendance`; unchanged re-save, a T/A cycle and a past lesson each read back exact. Probes `scripts/probe-ps-attendance.js`, `scripts/probe-ps-attendance-write.js`.
+- **Graham's decisions (29 Oct):** skip the design questions; Present a selectable choice, Mark all present, office absences picked up (they are PowerSchool's `readOnly` marks).
+- **Server:** `server/services/attendanceMarking.js` (`readLesson`, `saveLesson` with fingerprint re-read, office and code refusals, read-back; session per section for 10 minutes); `PowerSchoolWeb.sendJson`; `GET/POST /api/attendance/:courseId` (`server/routes/attendance.js`, feature `attendance` in config.yaml). Archived and linked courses refused.
+- **Client:** `components/attendance/AttendanceTab.jsx`, `lib/attendance.js`; the Attendance tab on CoursePage (current courses, Private details); `useFeatureFlags` tolerates an empty answer.
+- **Tests:** attendanceMarking (read, refusals, CHANGED, MISMATCH, office, relaunch), attendance routes, lib/attendance, AttendanceTab, CoursePage (tab and privacy).

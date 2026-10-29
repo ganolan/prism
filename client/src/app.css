@@ -1836,6 +1836,23 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 .person-row { display: flex; gap: 0.75rem; }
 .person-row__label { min-width: 8rem; }
 .person-note { border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem; }
+/* #39: the Attendance tab. Present is a choice like Tardy and Absent; an office mark is locked. Rows wrap at any width. */
+.attendance__bar, .attendance__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+.attendance__lesson { display: inline-flex; align-items: center; gap: 0.5rem; }
+.attendance__counts { flex: 1 1 auto; color: var(--text-muted); }
+.attendance__list { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--border); }
+.attendance__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; padding: 0.5rem 0.25rem; border-bottom: 1px solid var(--border); }
+.attendance__row--unmarked { background: var(--bg-subtle); }
+.attendance__name { flex: 1 1 12rem; min-width: 0; font-weight: 500; }
+.attendance__office { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.attendance__choices { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.att-choice { padding: 0.3rem 0.75rem; border-radius: 999px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); cursor: pointer; font-size: 0.85rem; }
+.att-choice:hover:not(:disabled) { border-color: var(--accent); }
+.att-choice--present.active { background: var(--success-bg); border-color: var(--success); color: var(--badge-green-text); }
+.att-choice--tardy.active { background: var(--warning-light); border-color: var(--warning); color: var(--badge-amber-text); }
+.att-choice--absent.active { background: var(--danger-bg); border-color: var(--danger); color: var(--badge-red-text); }
+.att-other { font-size: 0.85rem; padding: 0.25rem 0.4rem; border-radius: 999px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); }
+.att-other.active { border-color: var(--accent); background: var(--bg-subtle); }
 
 /* Student page: notes. */
 .note-add-btn { background: none; border: none; cursor: pointer; padding: 0.15rem 0.3rem; margin-left: 0.35rem; color: var(--text-muted); display: inline-flex; align-items: center; }

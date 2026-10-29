@@ -26,6 +26,7 @@ import quizzesRouter from './routes/quizzes.js';
 import submissionCommentsRouter from './routes/submissionComments.js';
 import submissionFilesRouter from './routes/submissionFiles.js';
 import extraTimeRouter from './routes/extraTime.js';
+import attendanceRouter from './routes/attendance.js';
 import { mountMcp } from './routes/mcp.js';
 import { getGradingScalesMap } from './db/scales.js';
 import { getFeatures, getServerConfig } from './middleware/featureGate.js';
@@ -82,6 +83,7 @@ app.use('/api/quizzes', quizzesRouter);
 app.use('/api/submission-comments', submissionCommentsRouter);
 app.use('/api/submission-files', submissionFilesRouter);
 app.use('/api/extra-time', extraTimeRouter);
+app.use('/api/attendance', attendanceRouter);
 
 // Feature flags endpoint
 app.get('/api/features', (req, res) => {

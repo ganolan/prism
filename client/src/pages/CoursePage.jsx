@@ -1,3 +1,5 @@
+import AttendanceTab from '../components/attendance/AttendanceTab.jsx';
+import { useFeatureFlags } from '../hooks/useFeatureFlags.js';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { getCourse, getCourseStudents, getGradebook, getMasteryForCourse, getSubmissionLinks, getTriage, setMakeUpIgnored, setAssessmentPublished, getQuizGroups, getCourseCommentSummaries, getSubmissionFiles, getRubricConfig } from '../services/api.js';
@@ -45,6 +47,8 @@ import { DEFAULT_TYPE_FILTER, isUnpublished, passesTypeFilter, typeFilterCounts 
 const SHORT_BADGE = { late: 'L', draft: 'D', overdue: 'O', 'not-started': 'NS', submitted: 'S', 'in-progress': 'IP' };
 // The course page's tabs, in order: [view key, label].
 const COURSE_VIEWS = [['roster', 'Roster'], ['gradebook', 'Gradebook'], ['assessments', 'Assessments'], ['analytics', 'Analytics']];
+// #39: a current course also has Attendance (feature `attendance`), taken in Prism and saved to PowerSchool.
+const ATTENDANCE_VIEW = ['attendance', 'Attendance'];
 const BADGE_TONE_CLASS = { red: 'badge-red', blue: 'badge-blue', amber: 'badge-amber', green: 'badge-green', yellow: 'badge-amber', neutral: 'badge-gray' };
 
 export default function CoursePage() {
@@ -93,6 +97,11 @@ export default function CoursePage() {
   // Triage is for current courses only — none on an archived course's page.
   // null until the course has loaded.
   const courseLive = course ? !course.archived : null;
+  const { features, loading: flagsLoading } = useFeatureFlags();
+  const views = courseLive && features.attendance ? [...COURSE_VIEWS, ATTENDANCE_VIEW] : COURSE_VIEWS;
+  // A remembered Attendance tab on a course without one (archived, or the feature off) opens the Roster.
+  const attendanceGone = view === 'attendance' && course && !flagsLoading && !views.includes(ATTENDANCE_VIEW);
+  useEffect(() => { if (attendanceGone) setStickyView('roster'); }, [attendanceGone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Assessments-tab wait column: every assignment still owed feedback (incl.
   // formative). The same read gives the Roster tab this course's triage (Needs attention, and
@@ -175,7 +184,7 @@ export default function CoursePage() {
   if (loading) return <div className="loading">Loading...</div>;
   if (!course) return <div className="error-msg">Course not found</div>;
 
-  const railHiddenHere = view === 'gradebook' || view === 'roster';
+  const railHiddenHere = view === 'gradebook' || view === 'roster' || view === 'attendance';
   const railShown = railChoice ?? (view === 'roster' && privateOn);
   // On the Roster tab the rail is in the page only while shown.
   const railMounted = courseLive && (view !== 'roster' || railShown);
@@ -234,7 +243,7 @@ export default function CoursePage() {
         {/* The active tab joins the panel under it, which holds the tab's content (#194). */}
         <div className="course-header__tabs">
           <div className="tab-row tab-row--joined" role="tablist" aria-label="Course views">
-            {COURSE_VIEWS.map(([key, label]) => (
+            {views.map(([key, label]) => (
               <button key={key} type="button" role="tab" aria-selected={view === key}
                 className={`tab-btn${view === key ? ' active' : ''}`} onClick={() => setView(key)}>
                 {label}
@@ -298,11 +307,14 @@ export default function CoursePage() {
             />
           )}
           {privateOn && view === 'analytics' && <AnalyticsView id={id} />}
+          {/* #39: attendance (codes, office marks and their comments) is private. */}
+          {!privateOn && view === 'attendance' && <PrivateHidden title="Attendance is private." />}
+          {privateOn && view === 'attendance' && courseLive && features.attendance && <AttendanceTab key={id} courseId={id} />}
         </div>
         {railMounted && (
           <TriageSection
             id="course-triage" version={triageVersion} courseId={Number(id)}
-            hidden={view === 'gradebook' && !railShown}
+            hidden={(view === 'gradebook' || view === 'attendance') && !railShown}
             onLoaded={(t) => setTriageRed(redCount(t))}
             onMakeUpIgnored={(aid) => patchMakeUpIgnored(aid, true)}
           />

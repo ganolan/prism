@@ -11,6 +11,7 @@ features:
   submission_comments: true
   submission_files: true
   powerschool_alerts: true          # #117: PowerSchool student alerts (accommodation, health) on the roster, student page and PrisMCP
+  attendance: true                  # #39: take attendance on a course's Attendance tab, saved to PowerSchool
 
 sync:
   submissionConcurrency: 6

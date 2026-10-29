@@ -12,7 +12,7 @@ async function request(path, options = {}) {
     // grade's flagCleared and resubmissionFields (write-comment with feedback rows not saved).
     throw Object.assign(new Error(err.error || `Request failed: ${res.status}`), {
       status: res.status, code: err.code, published: err.published, comment: err.comment, differences: err.differences,
-      flagCleared: err.flagCleared, resubmissionFields: err.resubmissionFields,
+      flagCleared: err.flagCleared, resubmissionFields: err.resubmissionFields, lesson: err.lesson,
     });
   }
   return res.json();
@@ -303,6 +303,9 @@ export const getStatusLineUntil = ({ kind, studentId, assignmentId, lessons, res
 export const getBirthdays = () => request('/students/birthdays');
 // A class's lessons from `from` to `to` with their bell-schedule times (#187): { meetings: [{ date, start, end }] }.
 export const getClassTimes = (courseId, from, to) => request(`/courses/${courseId}/class-times?from=${from}&to=${to}`);
+// #39: one lesson's attendance from PowerSchool, and saving it (a refused save carries the fresh `lesson`).
+export const getAttendance = (courseId, date) => request(`/attendance/${courseId}?date=${date}`);
+export const saveAttendance = (courseId, body) => request(`/attendance/${courseId}`, { method: 'POST', body: JSON.stringify(body) });
 // Lesson hints for a school-day deadline: school days after `from` + the class's lessons.
 export const getLessonPlan = (courseId, from, countFrom) => request(
   `/triage/lesson-plan?courseId=${courseId}${from ? `&from=${from}` : ''}${countFrom ? `&countFrom=${countFrom}` : ''}`,

@@ -14,6 +14,24 @@ systems as they are; never overstate.
 
 ---
 
+## Attendance with Present as a choice, and office marks shown (#39, October 2026)
+
+**Status quo.** Teachers take attendance on Schoology's Attendance page, which saves to PowerSchool. Present is a
+blank cell, and the page shows no sign of whether attendance was already taken for a lesson (#39, Graham).
+
+**The problem.** A blank cell looks the same whether the teacher marked a student present or skipped them, so a
+missed student passes as present.
+
+**What Prism does.**
+- **Present, Tardy and Absent as choices** on every student, with the school's other codes in a menu.
+- **Mark all present** for the rest of the class, and Save waits until every student is marked.
+- **Office marks** (illness, trips, late passes) shown locked, with the office's note.
+- **Taken or not:** each lesson states whether attendance is already in PowerSchool.
+- **Every save is checked:** Prism reads the marks back from PowerSchool after saving.
+
+**Evidence.** Live checks on 29 Oct 2026 (AP CSP, approved): a re-save, a Tardy and Absent cycle and a past lesson,
+each read back exactly (`.claude/powerschool-api-reference.md`, "Attendance: reading and marking (#39)").
+
 ## A profile and notes for anyone in the school directory (#203, October 2026)
 
 **Status quo.** Schoology's people search finds anyone in the school. Its profile pages show a name, an email and,

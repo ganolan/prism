@@ -281,3 +281,39 @@ describe('CoursePage triage', () => {
     expect(container.querySelector('.triage')).toBeNull();
   });
 });
+
+// #39: a current course has an Attendance tab (feature `attendance`); attendance is private.
+describe('CoursePage attendance tab', () => {
+  function loaded(course) {
+    vi.mocked(api.getCourse).mockResolvedValue({ id: 5, course_name: 'AP CSP', studentCount: 0, ...course });
+    vi.mocked(api.getCourseStudents).mockResolvedValue([]);
+    vi.mocked(api.getGradebook).mockResolvedValue({ assignments: [], students: [], grades: {}, folders: [], grading_scales: {} });
+    vi.mocked(api.getMasteryForCourse).mockResolvedValue({ topics: [], scores: [], rollups: [], alignments: [] });
+    vi.mocked(api.getTriage).mockResolvedValue({ settings: {}, lateWork: [], feedbackOwed: [], makeUps: [] });
+    vi.mocked(api.getFeatures).mockResolvedValue({ attendance: true });
+    vi.mocked(api.getClassTimes).mockResolvedValue({ meetings: [] });
+  }
+  const renderAt = (url) => render(
+    <MemoryRouter initialEntries={[url]}>
+      <Routes><Route path="/course/:id" element={<CoursePage />} /></Routes>
+    </MemoryRouter>,
+  );
+
+  it('a current course has the tab; with Private details off it shows only the PrivateHidden box', async () => {
+    loaded({ archived: 0 });
+    renderAt('/course/5?tab=attendance');
+    expect(await screen.findByRole('tab', { name: 'Attendance' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByText(/no lesson in the last 3 weeks/)).toBeInTheDocument();
+    act(() => setPrivateDetails(false));
+    expect(await screen.findByText('Attendance is private.')).toBeInTheDocument();
+    expect(screen.queryByText(/no lesson in the last/)).toBeNull();
+  });
+
+  it('an archived course has no Attendance tab', async () => {
+    loaded({ archived: 1 });
+    renderAt('/course/5');
+    await screen.findByRole('tab', { name: 'Roster' });
+    await waitFor(() => expect(api.getFeatures).toHaveBeenCalled());
+    expect(screen.queryByRole('tab', { name: 'Attendance' })).toBeNull();
+  });
+});

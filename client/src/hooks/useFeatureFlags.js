@@ -6,7 +6,8 @@ export function useFeatureFlags() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getFeatures().then(setFeatures).catch(console.error).finally(() => setLoading(false));
+    // A read that answers nothing (or fails) leaves every feature off.
+    Promise.resolve().then(getFeatures).then((f) => setFeatures(f || {})).catch(console.error).finally(() => setLoading(false));
   }, []);
 
   return { features, loading };

@@ -916,6 +916,13 @@ enrolled, gradeLevel, ccId } } }`; `dcid` and `ccId` were 1-character strings th
   are UTC (one day behind Hong Kong). Today's lesson kept 1 record through the teacher's submit and 6 Prism saves, all on
   the same UTC day. So PowerSchool adds one record per lesson per day a save is made, and "attendance taken" is "any
   record".
+- **Built (#39, 29 Oct 2026):** `server/services/attendanceMarking.js` reads a lesson (`section_info` for the catalog,
+  a one-day `section_attendance`) on a PowerSchool session kept 10 minutes per section, and saves with the request above
+  (`PowerSchoolWeb.sendJson`): it reads again, refuses when the marks' fingerprint (every on-track mark's code, comment and
+  readOnly) differs from what the page showed, refuses a changed `readOnly` (office) mark or a code outside the catalog,
+  writes, and reads back every mark. Office marks: `readOnly` true, usually with a comment (14 Oct to 29 Oct across 9
+  sections: I, F2, T, TB, L, M2, SI read-only; teachers' A and T not). Live read check: AP CSP 29/10 (9 Present, taken),
+  27/10 (1 office I), 28/10 (no lesson).
 
 ### Student counsellors (#190, probed 2026-10-28, Graham approved: 3 students of one current class, shapes only)
 

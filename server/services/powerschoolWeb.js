@@ -181,6 +181,35 @@ export class PowerSchoolWeb {
     return json;
   }
 
+  // One JSON write as a PowerTeacher app sends it (#39: the attendance list grid's save, POST
+  // /ws/attendance/section_attendance with a JSON body; Referer the attendance app page, as the app runs
+  // there). Never retried. → { status, text } for a 2xx answer (the save answers 200 with an empty body).
+  // A redirect is PS_SESSION with sessionEnded: true (nothing was saved), another status PS_SESSION with
+  // sessionEnded: false; a "Security Violation Logged" page is PS_SECURITY.
+  async sendJson(path, body, { method = 'POST' } = {}) {
+    const res = await this.fetchImpl(`${PS_BASE}${path}${path.includes('?') ? '&' : '?'}_=${Math.floor(Date.now() / 1000)}`, {
+      method,
+      body: JSON.stringify(body),
+      headers: {
+        cookie: this.jar.header(),
+        Accept: 'application/json, text/plain, */*',
+        'Content-Type': 'application/json',
+        Referer: `${PS_BASE}/integrations/attendance/index.html`,
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    this.jar.take(res);
+    const text = await res.text();
+    if (SECURITY_VIOLATION.test(text)) throw securityError(path.split('?')[0]);
+    if (res.status < 200 || res.status >= 300) {
+      throw Object.assign(new WebSessionError('PS_SESSION', `PowerSchool answered ${res.status} for ${path.split('?')[0]}`), {
+        status: res.status, sessionEnded: res.status >= 300 && res.status < 400,
+      });
+    }
+    return { status: res.status, text };
+  }
+
   // One read. → parsed JSON. Any other answer throws PS_SESSION with `status` and
   // `sessionEnded`: true for a redirect (to sign-in) or a page that is not JSON (the
   // session is gone: relaunch and ask again), false for an error status, which is

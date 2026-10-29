@@ -898,9 +898,14 @@ enrolled, gradeLevel, ccId } } }`; `dcid` and `ccId` were 1-character strings th
   attendance app page, no XSRF header, and the body built as the app builds it (an array of 1 section-day, 9 students)
   answered **200 with an empty body**. The read-back: 9 marks, every one as before, and still 1 attendance-taken record (no
   second one). Script: `scripts/probe-ps-attendance-write.js` (dry run by default; refuses any other section).
-- ⚠️ **Not yet shown:** that a save **changes** a mark. An unchanged re-save proves the route, the body and the session are
-  accepted, not that a different code is applied. The next live write changes one mark Graham names, reads it back, and
-  restores it if asked.
+- **A save changes a mark (2026-10-29 ~08:50 HKT, Graham approved: "pick a student to mark tardy ... test absent too ...
+  set it back to present afterwards"; all 9 were present):** the same route and body with one student's `code` changed,
+  4 writes in a row, each built from a fresh read and refused if any mark had changed: `T`, then `""`, then `A`, then `""`.
+  Every write answered **200, empty body**; every read-back showed that student's new code and the other 8 marks
+  unchanged, and still 1 attendance-taken record. The lesson ended as submitted (9 Present). So the list grid's save sets
+  a code as sent, for the students in the body. `scripts/probe-ps-attendance-write.js --cycle`.
+- **Not observed:** whether a code set and cleared within minutes reaches anything outside PowerSchool (e.g. a parent
+  absence notice); the marks PowerSchool held after the cycle were the submitted ones.
 - **Edit window still open:** the write was on the day itself; whether a past day can be saved was not tried.
 
 ### Student counsellors (#190, probed 2026-10-28, Graham approved: 3 students of one current class, shapes only)

@@ -24,7 +24,7 @@ missed student passes as present.
 
 **What Prism does.**
 - **Present, Tardy and Absent as choices** on every student, with the school's other codes in a menu.
-- **Mark all present** for the rest of the class, and Save waits until every student is marked.
+- **One click marks the rest present** ("Mark the remaining 6 present"), and Save waits until every student is marked.
 - **Office marks** (illness, trips, late passes) shown locked, with the office's note.
 - **Taken or not:** each lesson states whether attendance is already in PowerSchool.
 - **Every save is checked:** Prism reads the marks back from PowerSchool after saving.

@@ -85,7 +85,8 @@ describe('no em dashes in UI copy (AGENTS.md Frontend Conventions)', () => {
 
 // Phrases Graham has rejected in UI copy (the writing-style plugin's list holds the reasons). "at once"
 // reads as both "immediately" and "at the same time" (24 Oct 2026): write "immediately".
-const REJECTED = [/\bat once\b/i];
+// "Mark all present" (Graham, 29 Oct 2026): it reads as overriding marks already chosen; the button names its count.
+const REJECTED = [/\bat once\b/i, /\bmark all present\b/i];
 
 describe('no rejected phrases in UI copy', () => {
   test('client/src has none outside comments', () => {

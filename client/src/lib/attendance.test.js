@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { initialChoices, markAllPresent, counts, canSave, marksToSend, otherCodes, codeLabel, isDirty } from './attendance.js';
+import { initialChoices, markAllPresent, counts, canSave, marksToSend, otherCodes, codeLabel, isDirty, fillLabel } from './attendance.js';
 
 // #39. A lesson as GET /api/attendance/:courseId answers it.
 const CODES = [{ code: '', description: 'Present' }, { code: 'A', description: 'Absence' }, { code: 'I', description: 'Illness' }, { code: 'T', description: 'Tardy' }];
@@ -14,7 +14,13 @@ describe('attendance rules', () => {
   it('once taken, a blank mark is Present', () => {
     expect(initialChoices(lesson([st('1', '')], true))).toEqual({ 1: '' });
   });
-  it('Mark all present fills only the students not marked, never an office mark', () => {
+  it('the fill button\'s label names the count: all, the remaining, or none left', () => {
+    const l = lesson([st('1', ''), st('2', 'I', { office: true }), st('3', '')]);
+    expect(fillLabel({ 1: null, 2: 'I', 3: null }, l)).toBe('Mark all 2 present');
+    expect(fillLabel({ 1: 'A', 2: 'I', 3: null }, l)).toBe('Mark the remaining 1 present');
+    expect(fillLabel({ 1: 'A', 2: 'I', 3: '' }, l)).toBeNull();
+  });
+  it('filling as Present marks only the students not marked, never an office mark', () => {
     const l = lesson([st('1', ''), st('2', 'I', { office: true }), st('3', '')]);
     const c = markAllPresent({ 1: null, 2: 'I', 3: 'A' }, l);
     expect(c).toEqual({ 1: '', 2: 'I', 3: 'A' });

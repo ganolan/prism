@@ -38,12 +38,14 @@ describe('AttendanceTab (#39)', () => {
     expect(screen.getByRole('button', { name: 'Save to PowerSchool' })).toBeDisabled();
   });
 
-  it('Mark all present fills the rest; Save sends every choice with the fingerprint and shows the read-back', async () => {
+  it('the fill button names how many it marks; it fills only the rest; Save sends every choice and shows the read-back', async () => {
     vi.mocked(saveAttendance).mockResolvedValue({ lesson: { ...structuredClone(LESSON), taken: true, students: LESSON.students.map((s) => (s.ps_student_id === '13' ? { ...s, code: 'T' } : s)) }, changed: 1 });
     renderTab();
     await screen.findByText('Student One');
+    expect(screen.getByRole('button', { name: 'Mark all 2 present' })).toBeInTheDocument();
     fireEvent.click(within(row('Student Three')).getByRole('button', { name: 'Tardy' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Mark all present' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark the remaining 1 present' }));
+    expect(screen.queryByRole('button', { name: /present$/ })).toBeNull(); // none left to fill
     expect(within(row('Student One')).getByRole('button', { name: 'Present' })).toHaveAttribute('aria-pressed', 'true');
     expect(within(row('Student Three')).getByRole('button', { name: 'Tardy' })).toHaveAttribute('aria-pressed', 'true');
     fireEvent.click(screen.getByRole('button', { name: 'Save to PowerSchool' }));
@@ -64,7 +66,7 @@ describe('AttendanceTab (#39)', () => {
     vi.mocked(saveAttendance).mockRejectedValue(Object.assign(new Error('Attendance changed in PowerSchool since this lesson was opened.'), { code: 'CHANGED', lesson: fresh }));
     renderTab();
     await screen.findByText('Student One');
-    fireEvent.click(screen.getByRole('button', { name: 'Mark all present' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark all 2 present' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save to PowerSchool' }));
     expect(await screen.findByText(/Attendance changed in PowerSchool/)).toBeInTheDocument();
     expect(within(row('Student One')).getByText('Office: Absence (A)')).toBeInTheDocument();

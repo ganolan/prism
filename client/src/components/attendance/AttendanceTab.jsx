@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom';
 import { getAttendance, getClassTimes, saveAttendance } from '../../services/api.js';
 import { formatTime, localIsoDate } from '../../lib/formatDate.js';
 import {
-  MAIN_CODES, PRESENT, canSave, codeLabel, counts, editable, initialChoices, isDirty, markAllPresent, marksToSend, otherCodes,
+  MAIN_CODES, PRESENT, canSave, codeLabel, counts, editable, fillLabel, initialChoices, isDirty, markAllPresent, marksToSend, otherCodes,
 } from '../../lib/attendance.js';
 
 // #39: take attendance for one of the course's lessons and save it to PowerSchool, as the Schoology Attendance page
-// does. Present is a choice like Tardy and Absent (Graham, 29 Oct 2026); Mark all present fills the rest; marks the
+// does. Present is a choice like Tardy and Absent (Graham, 29 Oct 2026); "Mark the remaining N present" fills the rest
+// (named so it never reads as overriding marks already chosen); marks the
 // office entered (PowerSchool's readOnly) are shown locked. Every save is read back. See docs/design-language.md
 // "Attendance tab".
 const LOOKBACK_DAYS = 21;
@@ -95,9 +96,11 @@ export default function AttendanceTab({ courseId }) {
       {lesson?.lesson && (
         <>
           <div className="attendance__actions">
-            <button className="secondary" onClick={() => setChoices((prev) => markAllPresent(prev, lesson))} disabled={saving || c.unmarked === 0}>
-              Mark all present
-            </button>
+            {fillLabel(choices, lesson) && (
+              <button className="secondary" onClick={() => setChoices((prev) => markAllPresent(prev, lesson))} disabled={saving}>
+                {fillLabel(choices, lesson)}
+              </button>
+            )}
             <span className="text-sm attendance__counts" aria-live="polite">
               Present {c.present}, Tardy {c.tardy}, Absent {c.absent}{c.other ? `, Other ${c.other}` : ''}{c.unmarked ? `, Not marked ${c.unmarked}` : ''}
             </span>

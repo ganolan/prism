@@ -26,11 +26,20 @@ export function initialChoices(lesson) {
   return out;
 }
 
-// Mark all present: every editable student not marked yet becomes Present; marks already chosen stay.
+// Fill the rest as Present: every editable student not marked yet becomes Present; marks already chosen stay.
 export function markAllPresent(choices, lesson) {
   const out = { ...choices };
   for (const st of lesson?.students || []) if (editable(st) && out[st.ps_student_id] == null) out[st.ps_student_id] = PRESENT;
   return out;
+}
+
+// The fill button's label, with the count, so it never reads as overriding marks already chosen (Graham, 29 Oct
+// 2026: "Mark all present" might make teachers think it overrides what they entered). → null when none is left.
+export function fillLabel(choices, lesson) {
+  const markable = (lesson?.students || []).filter(editable).length;
+  const left = counts(choices, lesson).unmarked;
+  if (!left) return null;
+  return left === markable ? `Mark all ${left} present` : `Mark the remaining ${left} present`;
 }
 
 // → { present, tardy, absent, other, unmarked } over the students who can be marked or carry an office mark.

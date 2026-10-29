@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-vi.mock('../../services/api.js', () => ({ getAttendance: vi.fn(), getClassTimes: vi.fn(), saveAttendance: vi.fn() }));
-import { getAttendance, getClassTimes, saveAttendance } from '../../services/api.js';
+vi.mock('../../services/api.js', () => ({ getAttendance: vi.fn(), getAttendanceDays: vi.fn(), getClassTimes: vi.fn(), saveAttendance: vi.fn() }));
+import { getAttendance, getAttendanceDays, getClassTimes, saveAttendance } from '../../services/api.js';
 import AttendanceTab from './AttendanceTab.jsx';
 
 // #39. Masked fixtures: no real names.
@@ -19,10 +19,16 @@ const LESSON = {
 const renderTab = () => render(<MemoryRouter><AttendanceTab courseId="580" /></MemoryRouter>);
 const row = (name) => screen.getByText(name).closest('li');
 
+const MEETINGS = [{ date: '2026-10-27', start: '08:35', end: '09:45' }, { date: '2026-10-29', start: '08:35', end: '09:45' }, { date: '2026-10-30', start: '10:00', end: '11:10' }];
+// Thu 29 Oct 2026, 10:00 in Hong Kong (the same date in UTC, so CI agrees). Only Date is faked.
+const at = (iso) => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(iso)); };
 beforeEach(() => {
-  vi.mocked(getClassTimes).mockResolvedValue({ meetings: [{ date: '2026-10-27', start: '08:35', end: '09:45' }, { date: '2026-10-29', start: '08:35', end: '09:45' }] });
+  at('2026-10-29T02:00:00Z');
+  vi.mocked(getClassTimes).mockResolvedValue({ meetings: MEETINGS });
+  vi.mocked(getAttendanceDays).mockResolvedValue({ days: MEETINGS.map((m) => ({ ...m, taken: m.date === '2026-10-27' ? true : m.date === '2026-10-29' ? false : null })) });
   vi.mocked(getAttendance).mockResolvedValue(structuredClone(LESSON));
 });
+afterEach(() => vi.useRealTimers());
 
 describe('AttendanceTab (#39)', () => {
   it('opens the latest lesson; Present, Tardy and Absent on each row; the office mark locked with its comment', async () => {
@@ -87,10 +93,33 @@ describe('AttendanceTab (#39)', () => {
     expect(within(row('Student One')).getByText('Office: Absence (A)')).toBeInTheDocument();
   });
 
-  it('another lesson from the list', async () => {
+  it('the calendar: lesson days with their status, today outlined, a later lesson not clickable; another lesson opens', async () => {
     renderTab();
     await screen.findByText('Student One');
-    fireEvent.change(screen.getByRole('combobox', { name: 'Lesson' }), { target: { value: '2026-10-27' } });
+    const cal = screen.getByLabelText('Lessons');
+    expect(within(cal).getByText('October 2026')).toBeInTheDocument();
+    expect(within(cal).getByRole('button', { name: 'Tue 27/10, 08:35, attendance taken' })).toBeInTheDocument();
+    expect(within(cal).getByRole('button', { name: 'Thu 29/10, 08:35, not taken yet' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(cal).queryByRole('button', { name: /Fri 30\/10/ })).toBeNull();
+    expect(screen.queryByText(/no lesson today/)).toBeNull();
+    fireEvent.click(within(cal).getByRole('button', { name: /Tue 27\/10/ }));
     await waitFor(() => expect(getAttendance).toHaveBeenLastCalledWith('580', '2026-10-27'));
+  });
+
+  it('on a day without a lesson it opens the last lesson, saying so and naming the next', async () => {
+    at('2026-10-28T02:00:00Z'); // Wed 28 Oct: no lesson
+    renderTab();
+    await screen.findByText('Student One');
+    expect(getAttendance).toHaveBeenCalledWith('580', '2026-10-27');
+    expect(screen.getByText(/This class has no lesson today \(Wed 28\/10\)\. Showing the last lesson, Tue 27\/10\. Next lesson: Thu 29\/10\./)).toBeInTheDocument();
+  });
+
+  it('a save marks the day taken on the calendar', async () => {
+    vi.mocked(saveAttendance).mockResolvedValue({ lesson: { ...structuredClone(LESSON), taken: true }, changed: 0 });
+    renderTab();
+    await screen.findByText('Student One');
+    fireEvent.click(screen.getByRole('button', { name: 'Mark all 2 present' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save to PowerSchool' }));
+    expect(await screen.findByRole('button', { name: 'Thu 29/10, 08:35, attendance taken' })).toBeInTheDocument();
   });
 });

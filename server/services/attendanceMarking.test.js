@@ -2,7 +2,7 @@
 import { describe, test, expect, beforeEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../db/index.js';
-import { readLesson, saveLesson, clearAttendanceSessions, fingerprint, catalog } from './attendanceMarking.js';
+import { readLesson, saveLesson, clearAttendanceSessions, fingerprint, catalog, lessonDays } from './attendanceMarking.js';
 
 const DAY = '2026-10-29';
 const CODES = [
@@ -136,6 +136,33 @@ describe('saveLesson', () => {
     ps.read = async (...a) => { if (!ended) { ended = true; throw Object.assign(new Error('302'), { sessionEnded: true }); } return read(...a); };
     await saveLesson(db, course, { date: DAY, marks: { 11: 'A' }, fingerprint: fp }, opts);
     expect(calls.launches).toBe(2);
+  });
+});
+
+describe('lessonDays (the calendar)', () => {
+  test('each lesson in the range, taken or not up to today, null after today; one read per past lesson', async () => {
+    for (const [d, start] of [['2026-10-27', '08:35'], ['2026-10-29', '08:35'], ['2026-10-30', '10:00']]) {
+      db.prepare("INSERT INTO class_meetings (course_id, date, start_time, end_time, synced_at) VALUES (?, ?, ?, '09:45', 'x')").run(course, d, start);
+    }
+    const reads = [];
+    const ps = {
+      launchIds: async () => ({ sectionDcid: '777', userDcid: '9', form: {} }),
+      launch: async () => {},
+      read: async (path, params) => {
+        reads.push(params.startDate);
+        return params.startDate === '2026-10-27' ? lessonOf([student(11, 501, mark(''))], 1) : lessonOf([student(11, 501, mark(''))], 0);
+      },
+    };
+    const days = await lessonDays(db, course, '2026-10-01', '2026-10-31', { today: '2026-10-29', makePs: () => ps });
+    expect(days).toEqual([
+      { date: '2026-10-27', start: '08:35', end: '09:45', taken: true },
+      { date: '2026-10-29', start: '08:35', end: '09:45', taken: false },
+      { date: '2026-10-30', start: '10:00', end: '09:45', taken: null },
+    ]);
+    expect(reads).toEqual(['2026-10-27', '2026-10-29']);
+  });
+  test('a range over 45 days is refused', async () => {
+    await expect(lessonDays(db, course, '2026-08-01', '2026-10-31', { today: '2026-10-29' })).rejects.toMatchObject({ code: 'BAD_VALUE' });
   });
 });
 

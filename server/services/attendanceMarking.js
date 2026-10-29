@@ -13,6 +13,7 @@ import { createHash } from 'crypto';
 import { cookieJar } from './schoologyWeb.js';
 import { PowerSchoolWeb } from './powerschoolWeb.js';
 import { studentFullName } from './studentNames.js';
+import { loadClassTimes } from './schoolCalendar.js';
 
 export class AttendanceError extends Error {
   constructor(code, message, extra = {}) { super(message); this.code = code; Object.assign(this, extra); }
@@ -126,6 +127,36 @@ async function readRaw(s, day) {
 const checkDay = (day) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(day || ''))) throw new AttendanceError('BAD_VALUE', 'date must be YYYY-MM-DD');
 };
+
+export const MAX_DAYS_RANGE = 45;
+
+/**
+ * The calendar's lesson days (Graham, 29 Oct 2026: a month grid, each lesson marked taken or not): the class's lessons
+ * from Prism's timetable (class_meetings, as GET /api/courses/:id/class-times), and for each one up to `today` a one-day
+ * read of whether PowerSchool holds attendance for it (a range read answers no taken records). → [{ date, start, end,
+ * taken: true | false | null }], null for a lesson after today or one PowerSchool has no lesson for.
+ */
+export async function lessonDays(db, courseId, from, to, { today, ...opts } = {}) {
+  checkDay(from); checkDay(to);
+  if ((Date.parse(to) - Date.parse(from)) / 86400000 > MAX_DAYS_RANGE) throw new AttendanceError('BAD_VALUE', `A range is at most ${MAX_DAYS_RANGE} days.`);
+  const sectionId = courseSection(db, courseId);
+  const meetings = loadClassTimes(db, courseId, from, to);
+  const past = meetings.filter((m) => m.date <= today);
+  const taken = new Map();
+  if (past.length) {
+    await withSession(sectionId, opts, async (s) => {
+      for (const m of past) {
+        const att = await s.ps.read('/ws/attendance/section_attendance', {
+          sectionDcid: s.ids.sectionDcid, userDcid: s.ids.userDcid, startDate: m.date, endDate: m.date, includeStudentAlerts: 'false', multiSections: 'false',
+        }, { method: 'GET', accept: 'application/json' });
+        const lesson = [].concat(att?.sectionAttendances || []).length > 0;
+        const records = Object.values(att?.attendanceTakenBySectionId || {}).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0);
+        taken.set(m.date, lesson ? records > 0 : null);
+      }
+    });
+  }
+  return meetings.map((m) => ({ date: m.date, start: m.start, end: m.end, taken: taken.has(m.date) ? taken.get(m.date) : null }));
+}
 
 /** One lesson's attendance for the Attendance tab. → lessonView. */
 export async function readLesson(db, courseId, day, opts = {}) {

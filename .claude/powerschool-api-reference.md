@@ -922,7 +922,9 @@ enrolled, gradeLevel, ccId } } }`; `dcid` and `ccId` were 1-character strings th
   readOnly) differs from what the page showed, refuses a changed `readOnly` (office) mark or a code outside the catalog,
   writes, and reads back every mark. Office marks: `readOnly` true, usually with a comment (14 Oct to 29 Oct across 9
   sections: I, F2, T, TB, L, M2, SI read-only; teachers' A and T not). Live read check: AP CSP 29/10 (9 Present, taken),
-  27/10 (1 office I), 28/10 (no lesson).
+  27/10 (1 office I), 28/10 (no lesson). The calendar's taken dots (`lessonDays`, `GET /api/attendance/:courseId/days`) need
+  one one-day read per lesson, since a range read answers `attendanceTakenBySectionId: null`: AP CSP's 7 October lessons
+  took 1.6 s with the launch (29/10/2026).
 
 ### Student counsellors (#190, probed 2026-10-28, Graham approved: 3 students of one current class, shapes only)
 

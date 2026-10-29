@@ -1873,6 +1873,27 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 .att-menu__item:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
 .att-menu__code { font-weight: 700; }
 .att-menu__tick { color: var(--accent); text-align: center; }
+/* The lesson calendar (Graham, 29 Oct 2026): a small Monday-to-Friday month grid beside the lesson's date line. Lesson
+   days are buttons with a status dot (green taken, amber not yet); later lessons a hollow dot; other days greyed;
+   today outlined; the open lesson filled. */
+.attendance__top { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.75rem 1.5rem; margin-bottom: 0.75rem; }
+.attendance__top .attendance__bar { flex: 1 1 14rem; margin-bottom: 0; }
+.attendance__date { font-weight: 600; }
+.att-cal { border: 1px solid var(--border); border-radius: 10px; padding: 0.4rem 0.5rem 0.5rem; background: var(--card-bg); }
+.att-cal__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem; }
+.att-cal__month { font-size: 0.85rem; font-weight: 600; }
+.att-cal__grid { display: grid; grid-template-columns: repeat(5, 2.1rem); gap: 2px; }
+.att-cal__dow { font-size: 0.68rem; text-align: center; color: var(--text-muted); font-weight: 600; }
+.att-cal__day { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 2rem; border-radius: 6px; border: 1px solid transparent; font: inherit; font-size: 0.8rem; background: transparent; color: var(--text); }
+.att-cal__day--none, .att-cal__day--out { color: var(--text-muted); opacity: 0.45; }
+.att-cal__day--later { color: var(--text-muted); }
+.att-cal__day--lesson { cursor: pointer; background: var(--bg-subtle); font-weight: 600; }
+.att-cal__day--lesson:hover:not(:disabled) { border-color: var(--accent); }
+.att-cal__day--today { border-color: var(--accent); }
+.att-cal__day--selected { background: var(--accent); color: var(--card-bg); }
+.att-cal__dot { width: 5px; height: 5px; border-radius: 50%; margin-top: 1px; border: 1px solid var(--text-muted); box-sizing: border-box; }
+.att-cal__dot--taken { background: var(--success); border-color: var(--success); }
+.att-cal__dot--missing { background: var(--warning); border-color: var(--warning); }
 
 /* Student page: notes. */
 .note-add-btn { background: none; border: none; cursor: pointer; padding: 0.15rem 0.3rem; margin-left: 0.35rem; color: var(--text-muted); display: inline-flex; align-items: center; }

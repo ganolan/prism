@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { featureGate } from '../middleware/featureGate.js';
 import { getDb } from '../db/index.js';
-import { readLesson, saveLesson } from '../services/attendanceMarking.js';
+import { readLesson, saveLesson, lessonDays } from '../services/attendanceMarking.js';
+import { todayLocal } from '../lib/schoolDays.js';
 
 // #39: a course's attendance, taken in Prism and saved to PowerSchool (services/attendanceMarking.js).
 const router = Router();
@@ -16,6 +17,14 @@ function fail(res, err) {
   console.error('[attendance] Error:', err);
   return res.status(502).json({ error: `PowerSchool could not be read: ${err.message}` });
 }
+
+// GET /api/attendance/:courseId/days?from=YYYY-MM-DD&to=YYYY-MM-DD — the calendar: each lesson day and whether
+// attendance is taken (null after today). At most 45 days.
+router.get('/:courseId/days', featureGate('attendance'), async (req, res) => {
+  try {
+    res.json({ today: todayLocal(), days: await lessonDays(getDb(), Number(req.params.courseId), String(req.query.from || ''), String(req.query.to || ''), { today: todayLocal() }) });
+  } catch (err) { fail(res, err); }
+});
 
 // GET /api/attendance/:courseId?date=YYYY-MM-DD — one lesson: codes, each student's mark, office marks, taken.
 router.get('/:courseId', featureGate('attendance'), async (req, res) => {

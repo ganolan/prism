@@ -305,6 +305,7 @@ export const getBirthdays = () => request('/students/birthdays');
 export const getClassTimes = (courseId, from, to) => request(`/courses/${courseId}/class-times?from=${from}&to=${to}`);
 // #39: one lesson's attendance from PowerSchool, and saving it (a refused save carries the fresh `lesson`).
 export const getAttendance = (courseId, date) => request(`/attendance/${courseId}?date=${date}`);
+export const getAttendanceDays = (courseId, from, to) => request(`/attendance/${courseId}/days?from=${from}&to=${to}`);
 export const saveAttendance = (courseId, body) => request(`/attendance/${courseId}`, { method: 'POST', body: JSON.stringify(body) });
 // Lesson hints for a school-day deadline: school days after `from` + the class's lessons.
 export const getLessonPlan = (courseId, from, countFrom) => request(

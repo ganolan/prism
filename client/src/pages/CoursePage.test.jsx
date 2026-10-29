@@ -292,6 +292,7 @@ describe('CoursePage attendance tab', () => {
     vi.mocked(api.getTriage).mockResolvedValue({ settings: {}, lateWork: [], feedbackOwed: [], makeUps: [] });
     vi.mocked(api.getFeatures).mockResolvedValue({ attendance: true });
     vi.mocked(api.getClassTimes).mockResolvedValue({ meetings: [] });
+    vi.mocked(api.getAttendanceDays).mockResolvedValue({ days: [] });
   }
   const renderAt = (url) => render(
     <MemoryRouter initialEntries={[url]}>
@@ -306,10 +307,10 @@ describe('CoursePage attendance tab', () => {
     // Second, after Roster (Graham, 29 Oct 2026).
     expect(within(screen.getByRole('tablist', { name: 'Course views' })).getAllByRole('tab').map((t) => t.textContent))
       .toEqual(['Roster', 'Attendance', 'Gradebook', 'Assessments', 'Analytics']);
-    expect(await screen.findByText(/no lesson in the last 3 weeks/)).toBeInTheDocument();
+    expect(await screen.findByText(/has had no lesson in the last 9 weeks/)).toBeInTheDocument();
     act(() => setPrivateDetails(false));
     expect(await screen.findByText('Attendance is private.')).toBeInTheDocument();
-    expect(screen.queryByText(/no lesson in the last/)).toBeNull();
+    expect(screen.queryByText(/has had no lesson/)).toBeNull();
   });
 
   it('an archived course has no Attendance tab', async () => {

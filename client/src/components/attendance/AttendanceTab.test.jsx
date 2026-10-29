@@ -36,8 +36,8 @@ describe('AttendanceTab (#39)', () => {
     await screen.findByText('Student One');
     expect(getAttendance).toHaveBeenCalledWith('580', '2026-10-29');
     expect(screen.getByText('Not taken yet')).toBeInTheDocument();
-    // Other on the far left, then Tardy, Absent, and Present on the far right (Graham, 29 Oct 2026).
-    expect(within(row('Student One')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Other ▾', 'Tardy', 'Absent', 'Present']);
+    // The first order reversed: Other, Absent, Tardy, Present on the far right (Graham, 29 Oct 2026).
+    expect(within(row('Student One')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Other ▾', 'Absent', 'Tardy', 'Present']);
     expect(screen.getByText('Today (Thu 29/10), 08:35 to 09:45')).toBeInTheDocument();
     // The counts and Save come after the list.
     const list = screen.getByRole('list');

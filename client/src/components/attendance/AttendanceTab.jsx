@@ -24,7 +24,6 @@ export function dateWords(iso, today) {
   if (iso === yesterday) return `Yesterday (${dayLabel(iso)})`;
   return dayLabel(iso);
 }
-const STRIP_ORDER = ['T', 'A', '']; // after Other: Tardy, Absent, Present (far right)
 const errorText = (error) => (/mastery:login/.test(error) ? 'Schoology session expired. Run npm run mastery:login in a terminal, then open this tab again.' : error);
 const CalendarIcon = () => (
   <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -263,10 +262,10 @@ export default function AttendanceTab({ courseId }) {
                   {!st.markable && <span className="text-sm text-muted">Mark this student on Schoology: PowerSchool holds more than one mark for them in this lesson.</span>}
                   {editable(st) && (
                     <span className="att-strip" role="group" aria-label={`Attendance for ${st.name}`}>
-                      {/* Other on the left, then Tardy, Absent, and Present on the far right (Graham, 29 Oct 2026). */}
+                      {/* The first order reversed: Other, Absent, Tardy, Present on the far right (Graham, 29 Oct 2026). */}
                       <OtherMenu codes={others} choice={isOther ? choice : null} name={st.name} disabled={saving}
                         onChoose={(code) => choose(st.ps_student_id, code)} />
-                      {STRIP_ORDER.map((code) => MAIN_CODES.find((x) => x.code === code)).map((m) => (
+                      {[...MAIN_CODES].reverse().map((m) => (
                         <button key={m.label} type="button" aria-pressed={choice === m.code}
                           className={`att-seg att-seg--${m.label.toLowerCase()}${choice === m.code ? ' active' : ''}`}
                           onClick={() => choose(st.ps_student_id, m.code)} disabled={saving}>

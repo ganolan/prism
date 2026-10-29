@@ -2304,12 +2304,18 @@ button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accen
   /* Tap targets: 44px is the usual minimum for a fingertip. */
   .sidebar a { padding: 0.75rem; font-size: 0.95rem; min-height: 44px; }
   .tab-btn { min-height: 40px; }
-  /* A joined tab row stays on one line, so the active tab meets its panel (#194): four course
-     tabs fit a 390px phone at this size, and shrink (with an ellipsis) on a narrower one. */
-  .tab-row--joined { flex-wrap: nowrap; gap: 0.3rem; min-width: 0; }
+  /* A joined tab row stays on one line, so the active tab meets its panel (#194). Five course tabs do
+     not fit a phone, so the row scrolls sideways with full names (Graham, 29 Oct 2026; they were cut
+     off with an ellipsis). The 1px bottom padding, given back by the negative margin, keeps the active
+     tab's overlap of the panel border inside the scrolling box, so it stays flush. */
+  .tab-row--joined {
+    flex-wrap: nowrap; gap: 0.3rem; min-width: 0; max-width: 100%;
+    overflow-x: auto; scrollbar-width: none; padding-bottom: 1px; margin-bottom: -1px;
+  }
+  .tab-row--joined::-webkit-scrollbar { display: none; }
   .tab-row--joined .tab-btn {
     padding-left: 0.55rem; padding-right: 0.55rem; font-size: 0.8rem;
-    flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex: 0 0 auto; white-space: nowrap;
   }
   .filter-btn { min-height: 36px; }
 

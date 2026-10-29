@@ -102,6 +102,10 @@ export default function CoursePage() {
   const views = courseLive && features.attendance ? [COURSE_VIEWS[0], ATTENDANCE_VIEW, ...COURSE_VIEWS.slice(1)] : COURSE_VIEWS;
   // A remembered Attendance tab on a course without one (archived, or the feature off) opens the Roster.
   const attendanceGone = view === 'attendance' && course && !flagsLoading && !views.includes(ATTENDANCE_VIEW);
+  // On a phone the tab row scrolls sideways (five tabs do not fit): bring the open tab into view.
+  useEffect(() => {
+    document.querySelector('[aria-label="Course views"] [aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [view, views.length]);
   useEffect(() => { if (attendanceGone) setStickyView('roster'); }, [attendanceGone]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Assessments-tab wait column: every assignment still owed feedback (incl.

@@ -547,7 +547,8 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
 
 /* Parent and child tabs (#194, 26 Oct 2026). A tab row with a child row on any of its tabs
    (.tab-row--joined) joins its active tab to the .tab-panel under it, which holds that tab's
-   child row (.subtab-row) and its content. The tab overlaps the panel's top edge by 7px.
+   child row (.subtab-row) and its content. The tab overlaps the panel's top edge by its 1px border, so the
+   tab ends flush with the border (Graham, 29 Oct 2026; it overlapped 7px into the panel until then).
    .tab-panel--first squares the panel's top-left corner while the first tab is active.
    Filters stay .filter-btn pills, so a page reads as tab, child tab, then filters. */
 .tab-row { display: flex; align-items: flex-end; gap: 0.4rem; flex-wrap: wrap; }
@@ -556,8 +557,8 @@ button.btn-sm { padding: 0.3rem 0.65rem; font-size: 0.78rem; }
   border-bottom-right-radius: 0;
   position: relative;
   z-index: 1;
-  padding-bottom: calc(0.5rem + 7px);
-  margin-bottom: -7px;
+  padding-bottom: calc(0.5rem + 1px);
+  margin-bottom: -1px;
 }
 .tab-panel {
   background: var(--accent-light);

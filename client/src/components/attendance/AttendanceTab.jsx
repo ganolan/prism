@@ -17,6 +17,20 @@ const LOOKBACK_DAYS = 60; // how far back the opening lesson is looked for
 const AHEAD_DAYS = 21; // and the next lesson
 
 const dayLabel = (iso) => new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: '2-digit' });
+// "Today (Thu 29/10)", "Yesterday (Wed 28/10)", else "Tue 27/10" (Graham, 29 Oct 2026: the quick read first).
+export function dateWords(iso, today) {
+  const yesterday = localIsoDate(new Date(new Date(`${today}T00:00:00`).getTime() - 86400000));
+  if (iso === today) return `Today (${dayLabel(iso)})`;
+  if (iso === yesterday) return `Yesterday (${dayLabel(iso)})`;
+  return dayLabel(iso);
+}
+const STRIP_ORDER = ['T', 'A', '']; // after Other: Tardy, Absent, Present (far right)
+const errorText = (error) => (/mastery:login/.test(error) ? 'Schoology session expired. Run npm run mastery:login in a terminal, then open this tab again.' : error);
+const CalendarIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+    <path d="M4.75 0a.75.75 0 0 1 .75.75V2h5V.75a.75.75 0 0 1 1.5 0V2h1.25c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 13.25 16H2.75A1.75 1.75 0 0 1 1 14.25V3.75C1 2.784 1.784 2 2.75 2H4V.75A.75.75 0 0 1 4.75 0ZM2.5 7.5v6.75c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V7.5Zm10.75-4H2.75a.25.25 0 0 0-.25.25V6h11V3.75a.25.25 0 0 0-.25-.25Z" />
+  </svg>
+);
 
 // The lesson calendar: a Monday-to-Friday month grid. The class's lessons up to today are buttons, the open one
 // filled, today outlined; a dot marks whether PowerSchool holds attendance for each (green taken, amber not yet).
@@ -44,12 +58,17 @@ function LessonCalendar({ month, onMonth, lessons, status, selected, today, onPi
           if (iso > today) return <span key={iso} className={`${cls} att-cal__day--later`}>{n}<i className="att-cal__dot" aria-hidden="true" /></span>;
           return (
             <button key={iso} type="button" className={`${cls} att-cal__day--lesson`} aria-pressed={iso === selected} disabled={disabled}
-              aria-label={`${dayLabel(iso)}${lessonDay.start ? `, ${lessonDay.start}` : ''}${word(iso) ? `, ${word(iso)}` : ''}`} onClick={() => onPick(iso)}>
+              aria-label={`${dateWords(iso, today)}${lessonDay.start ? `, ${lessonDay.start}` : ''}${word(iso) ? `, ${word(iso)}` : ''}`} onClick={() => onPick(iso)}>
               {n}<i className={`att-cal__dot${dot ? ` att-cal__dot--${dot}` : ''}`} aria-hidden="true" />
             </button>
           );
         })}
       </div>
+      <p className="att-cal__key text-sm">
+        <span><i className="att-cal__dot att-cal__dot--taken" aria-hidden="true" /> Taken</span>
+        <span><i className="att-cal__dot att-cal__dot--missing" aria-hidden="true" /> Not taken</span>
+        <span><i className="att-cal__today-key" aria-hidden="true" /> Today</span>
+      </p>
     </div>
   );
 }
@@ -112,6 +131,7 @@ export default function AttendanceTab({ courseId }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [calOpen, setCalOpen] = useState(false);
 
   // The opening lesson: today's, or the last one before it.
   useEffect(() => {
@@ -156,6 +176,7 @@ export default function AttendanceTab({ courseId }) {
   const c = useMemo(() => counts(choices, lesson), [choices, lesson]);
   const dirty = isDirty(choices, lesson);
   const lessonToday = meetings?.some((m) => m.date === today);
+  const meeting = meetings?.find((m) => m.date === date);
   const nextLesson = meetings?.find((m) => m.date > today)?.date;
   const calendarLessons = monthLessons.length ? monthLessons : (meetings || []).filter((m) => m.date.slice(0, 7) === `${month.year}-${String(month.month + 1).padStart(2, '0')}`);
 
@@ -188,38 +209,40 @@ export default function AttendanceTab({ courseId }) {
           {nextLesson ? ` Next lesson: ${dayLabel(nextLesson)}.` : ''}
         </p>
       )}
-      <div className="attendance__top">
-        <LessonCalendar month={month} onMonth={setMonth} lessons={calendarLessons} status={status} selected={date} today={today}
-          onPick={(d) => setDate(d)} disabled={saving} />
-        <div className="attendance__bar">
-          {date && <span className="attendance__date">{dayLabel(date)}{meetings?.find((m) => m.date === date)?.start ? `, ${meetings.find((m) => m.date === date).start} to ${meetings.find((m) => m.date === date).end}` : ''}</span>}
-          {lesson?.lesson && (
-            <span className={`badge ${lesson.taken ? 'badge-green' : 'badge-amber'}`}>{lesson.taken ? 'Taken in PowerSchool' : 'Not taken yet'}</span>
-          )}
-          {dirty && <span className="text-sm text-muted">Unsaved changes: another lesson discards them.</span>}
-        </div>
+      {/* The lesson line; the calendar opens from its icon (Graham, 29 Oct 2026: not shown all the time). */}
+      <div className="attendance__bar">
+        {date && (
+          <span className="attendance__date">
+            {dateWords(date, today)}{meeting?.start ? `, ${meeting.start} to ${meeting.end}` : ''}
+          </span>
+        )}
+        <button type="button" className={`ghost tap-target attendance__cal-btn${calOpen ? ' active' : ''}`} aria-expanded={calOpen}
+          aria-label={calOpen ? 'Hide the lesson calendar' : 'Choose another lesson'} onClick={() => setCalOpen((o) => !o)}>
+          <CalendarIcon />
+        </button>
+        {lesson?.lesson && (
+          <span className={`badge ${lesson.taken ? 'badge-green' : 'badge-amber'}`}>{lesson.taken ? 'Taken in PowerSchool' : 'Not taken yet'}</span>
+        )}
+        {dirty && <span className="text-sm text-muted">Unsaved changes: another lesson discards them.</span>}
       </div>
+      {calOpen && (
+        <LessonCalendar month={month} onMonth={setMonth} lessons={calendarLessons} status={status} selected={date} today={today}
+          onPick={(d) => { setDate(d); setCalOpen(false); }} disabled={saving} />
+      )}
 
-      {error && <p className="alert alert-warning">{/mastery:login/.test(error) ? 'Schoology session expired. Run npm run mastery:login in a terminal, then open this tab again.' : error}</p>}
-      {notice && <p className="alert alert-success">{notice}</p>}
+      {error && !lesson?.lesson && <p className="alert alert-warning">{errorText(error)}</p>}
       {loading && <p className="text-muted">Reading attendance from PowerSchool…</p>}
       {lesson && !lesson.lesson && <p className="text-muted">PowerSchool has no lesson for this class on {dayLabel(date)}.</p>}
 
       {lesson?.lesson && (
         <>
-          <div className="attendance__actions">
-            {fillLabel(choices, lesson) && (
+          {fillLabel(choices, lesson) && (
+            <div className="attendance__actions">
               <button className="secondary" onClick={() => setChoices((prev) => markAllPresent(prev, lesson))} disabled={saving}>
                 {fillLabel(choices, lesson)}
               </button>
-            )}
-            <span className="text-sm attendance__counts" aria-live="polite">
-              Present {c.present}, Tardy {c.tardy}, Absent {c.absent}{c.other ? `, Other ${c.other}` : ''}{c.unmarked ? `, Not marked ${c.unmarked}` : ''}
-            </span>
-            <button className="primary" onClick={save} disabled={saving || !canSave(choices, lesson)}>
-              {saving ? 'Saving…' : 'Save to PowerSchool'}
-            </button>
-          </div>
+            </div>
+          )}
 
           <ul className="attendance__list">
             {lesson.students.map((st) => {
@@ -240,21 +263,34 @@ export default function AttendanceTab({ courseId }) {
                   {!st.markable && <span className="text-sm text-muted">Mark this student on Schoology: PowerSchool holds more than one mark for them in this lesson.</span>}
                   {editable(st) && (
                     <span className="att-strip" role="group" aria-label={`Attendance for ${st.name}`}>
-                      {MAIN_CODES.map((m) => (
+                      {/* Other on the left, then Tardy, Absent, and Present on the far right (Graham, 29 Oct 2026). */}
+                      <OtherMenu codes={others} choice={isOther ? choice : null} name={st.name} disabled={saving}
+                        onChoose={(code) => choose(st.ps_student_id, code)} />
+                      {STRIP_ORDER.map((code) => MAIN_CODES.find((x) => x.code === code)).map((m) => (
                         <button key={m.label} type="button" aria-pressed={choice === m.code}
                           className={`att-seg att-seg--${m.label.toLowerCase()}${choice === m.code ? ' active' : ''}`}
                           onClick={() => choose(st.ps_student_id, m.code)} disabled={saving}>
                           {m.label}
                         </button>
                       ))}
-                      <OtherMenu codes={others} choice={isOther ? choice : null} name={st.name} disabled={saving}
-                        onChoose={(code) => choose(st.ps_student_id, code)} />
                     </span>
                   )}
                 </li>
               );
             })}
           </ul>
+
+          {/* The counts and Save under the list: teachers read the whole list before saving (Graham, 29 Oct 2026). */}
+          <div className="attendance__save">
+            <span className="text-sm attendance__counts" aria-live="polite">
+              Present {c.present}, Tardy {c.tardy}, Absent {c.absent}{c.other ? `, Other ${c.other}` : ''}{c.unmarked ? `, Not marked ${c.unmarked}` : ''}
+            </span>
+            <button className="primary" onClick={save} disabled={saving || !canSave(choices, lesson)}>
+              {saving ? 'Saving…' : 'Save to PowerSchool'}
+            </button>
+          </div>
+          {error && <p className="alert alert-warning">{errorText(error)}</p>}
+          {notice && <p className="alert alert-success">{notice}</p>}
         </>
       )}
     </div>

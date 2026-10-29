@@ -925,6 +925,11 @@ enrolled, gradeLevel, ccId } } }`; `dcid` and `ccId` were 1-character strings th
   27/10 (1 office I), 28/10 (no lesson). The calendar's taken dots (`lessonDays`, `GET /api/attendance/:courseId/days`) need
   one one-day read per lesson, since a range read answers `attendanceTakenBySectionId: null`: AP CSP's 7 October lessons
   took 1.6 s with the launch (29/10/2026).
+- ⚠️ **One launch at a time per section.** The tab sends the lesson read and the calendar read together; each started its
+  own LTI launch, and the read on the first session then answered **401** for `/ws/attendance/section_info` (Graham, prod,
+  29/10/2026: another day, then today again). PowerSchool appears to keep only the newest session for a user.
+  `attendanceMarking.js` now runs one launch per section at a time and, on a 401 or a redirect, launches once more and asks
+  again; live check: the two reads together, another day, then today, all 200.
 
 ### Student counsellors (#190, probed 2026-10-28, Graham approved: 3 students of one current class, shapes only)
 

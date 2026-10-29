@@ -1849,8 +1849,8 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 .attendance__office { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.5rem; margin-left: auto; text-align: right; }
 .att-strip { display: inline-flex; margin-left: auto; border: 1px solid var(--border); border-radius: 999px; background: var(--card-bg); }
 .att-seg { padding: 0.15rem 0.6rem; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: 0.78rem; line-height: 1.5; white-space: nowrap; }
-.att-strip > .att-seg:first-child { border-left: 0; border-radius: 999px 0 0 999px; }
-.att-other > .att-seg { border-radius: 0 999px 999px 0; }
+.att-other > .att-seg { border-left: 0; border-radius: 999px 0 0 999px; } /* Other is first (far left) */
+.att-strip > .att-seg:last-child { border-radius: 0 999px 999px 0; } /* Present is last (far right) */
 .att-seg:hover:not(:disabled) { background: var(--bg-subtle); }
 .att-seg:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .att-seg--present.active { background: var(--success-bg); color: var(--badge-green-text); font-weight: 600; }
@@ -1859,7 +1859,7 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 .att-seg--other.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
 .att-other { position: relative; display: inline-flex; }
 .att-menu {
-  position: absolute; right: 0; top: calc(100% + 4px); z-index: 1300; width: 15rem; max-height: 18rem; overflow-y: auto;
+  position: absolute; left: 0; top: calc(100% + 4px); z-index: 1300; width: 15rem; max-height: 18rem; overflow-y: auto;
   display: flex; flex-direction: column; padding: 4px; box-sizing: border-box;
   background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 6px 18px rgba(30, 17, 69, 0.14);
 }
@@ -1876,24 +1876,30 @@ button.parent-edit-btn { margin-left: auto; font-size: 0.75rem; padding: 0.15rem
 /* The lesson calendar (Graham, 29 Oct 2026): a small Monday-to-Friday month grid beside the lesson's date line. Lesson
    days are buttons with a status dot (green taken, amber not yet); later lessons a hollow dot; other days greyed;
    today outlined; the open lesson filled. */
-.attendance__top { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.75rem 1.5rem; margin-bottom: 0.75rem; }
-.attendance__top .attendance__bar { flex: 1 1 14rem; margin-bottom: 0; }
 .attendance__date { font-weight: 600; }
-.att-cal { border: 1px solid var(--border); border-radius: 10px; padding: 0.4rem 0.5rem 0.5rem; background: var(--card-bg); }
+.attendance__cal-btn { display: inline-flex; align-items: center; padding: 0.3rem; color: var(--accent); }
+.attendance__cal-btn.active { background: var(--accent-light); }
+.attendance__save { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }
+.att-cal { display: inline-block; border: 1px solid var(--border); border-radius: 10px; padding: 0.4rem 0.5rem 0.5rem; margin-bottom: 0.75rem; background: var(--card-bg); }
 .att-cal__head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.25rem; }
 .att-cal__month { font-size: 0.85rem; font-weight: 600; }
-.att-cal__grid { display: grid; grid-template-columns: repeat(5, 2.1rem); gap: 2px; }
+.att-cal__grid { display: grid; grid-template-columns: repeat(5, 2.1rem); gap: 5px; }
 .att-cal__dow { font-size: 0.68rem; text-align: center; color: var(--text-muted); font-weight: 600; }
 .att-cal__day { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 2rem; border-radius: 6px; border: 1px solid transparent; font: inherit; font-size: 0.8rem; background: transparent; color: var(--text); }
 .att-cal__day--none, .att-cal__day--out { color: var(--text-muted); opacity: 0.45; }
 .att-cal__day--later { color: var(--text-muted); }
 .att-cal__day--lesson { cursor: pointer; background: var(--bg-subtle); font-weight: 600; }
 .att-cal__day--lesson:hover:not(:disabled) { border-color: var(--accent); }
-.att-cal__day--today { border-color: var(--accent); }
+.att-cal__day--today { outline: 2px solid var(--accent); outline-offset: 1px; color: var(--accent); font-weight: 700; } /* kept when selected */
 .att-cal__day--selected { background: var(--accent); color: var(--card-bg); }
+.att-cal__day--selected .att-cal__dot { border-color: var(--card-bg); }
 .att-cal__dot { width: 5px; height: 5px; border-radius: 50%; margin-top: 1px; border: 1px solid var(--text-muted); box-sizing: border-box; }
 .att-cal__dot--taken { background: var(--success); border-color: var(--success); }
 .att-cal__dot--missing { background: var(--warning); border-color: var(--warning); }
+.att-cal__key { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0.4rem 0 0; color: var(--text-muted); font-size: 0.72rem; }
+.att-cal__key span { display: inline-flex; align-items: center; gap: 0.3rem; }
+.att-cal__key .att-cal__dot { margin-top: 0; }
+.att-cal__today-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* Student page: notes. */
 .note-add-btn { background: none; border: none; cursor: pointer; padding: 0.15rem 0.3rem; margin-left: 0.35rem; color: var(--text-muted); display: inline-flex; align-items: center; }

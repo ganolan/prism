@@ -21,30 +21,39 @@ export class AttendanceError extends Error {
 
 const SESSION_TTL_MS = 10 * 60 * 1000;
 const sessions = new Map(); // schoology section id → { ps, ids, at }
-export const clearAttendanceSessions = () => sessions.clear();
+const starting = new Map(); // schoology section id → the launch in progress (one at a time)
+export const clearAttendanceSessions = () => { sessions.clear(); starting.clear(); };
 
-// A launched PowerSchool session for a section, kept 10 minutes so a read and its save share it.
-async function session(sectionId, { makePs, fresh = false, now = Date.now() } = {}) {
+// A launched PowerSchool session for a section, kept 10 minutes so the tab's reads and its save share it. Only one
+// launch runs at a time per section: the tab sends the lesson and the calendar reads together, and a second launch
+// left the first session answering 401 (seen on prod, 29/10/2026). `stale`: the entry that just failed; a new
+// session is started only if no other request has already replaced it.
+async function session(sectionId, { makePs, stale = null, now = Date.now() } = {}) {
   const hit = sessions.get(sectionId);
-  if (hit && !fresh && now - hit.at < SESSION_TTL_MS) return hit;
-  const ps = makePs ? makePs() : new PowerSchoolWeb({ sgyJar: cookieJar() });
-  const ids = await ps.launchIds(sectionId);
-  if (!ids.sectionDcid) throw new AttendanceError('NO_SECTION', 'This course has no PowerSchool section.');
-  await ps.launch(sectionId, { form: ids.form });
-  const entry = { ps, ids, at: now };
-  sessions.set(sectionId, entry);
-  return entry;
+  if (hit && hit !== stale && now - hit.at < SESSION_TTL_MS) return hit;
+  if (starting.has(sectionId)) return starting.get(sectionId);
+  const launch = (async () => {
+    const ps = makePs ? makePs() : new PowerSchoolWeb({ sgyJar: cookieJar() });
+    const ids = await ps.launchIds(sectionId);
+    if (!ids.sectionDcid) throw new AttendanceError('NO_SECTION', 'This course has no PowerSchool section.');
+    await ps.launch(sectionId, { form: ids.form });
+    const entry = { ps, ids, at: Date.now() };
+    sessions.set(sectionId, entry);
+    return entry;
+  })().finally(() => starting.delete(sectionId));
+  starting.set(sectionId, launch);
+  return launch;
 }
 
-// A read on the section's session; a session that ended is started again once.
+// A session that ended (a redirect to sign-in) or that PowerSchool no longer accepts (401) is started again once.
+const ended = (err) => Boolean(err?.sessionEnded) || err?.status === 401;
 async function withSession(sectionId, opts, fn) {
-  let s = await session(sectionId, opts);
+  const s = await session(sectionId, opts);
   try {
     return await fn(s);
   } catch (err) {
-    if (!err?.sessionEnded) throw err;
-    s = await session(sectionId, { ...opts, fresh: true });
-    return fn(s);
+    if (!ended(err)) throw err;
+    return fn(await session(sectionId, { ...opts, stale: s }));
   }
 }
 

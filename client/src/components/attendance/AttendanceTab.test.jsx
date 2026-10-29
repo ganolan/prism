@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('../../services/api.js', () => ({ getAttendance: vi.fn(), getAttendanceDays: vi.fn(), getClassTimes: vi.fn(), saveAttendance: vi.fn() }));
 import { getAttendance, getAttendanceDays, getClassTimes, saveAttendance } from '../../services/api.js';
-import AttendanceTab from './AttendanceTab.jsx';
+import AttendanceTab, { dateWords } from './AttendanceTab.jsx';
 
 // #39. Masked fixtures: no real names.
 const CODES = [{ code: '', description: 'Present' }, { code: 'A', description: 'Absence' }, { code: 'I', description: 'Illness' }, { code: 'T', description: 'Tardy' }];
@@ -36,7 +36,13 @@ describe('AttendanceTab (#39)', () => {
     await screen.findByText('Student One');
     expect(getAttendance).toHaveBeenCalledWith('580', '2026-10-29');
     expect(screen.getByText('Not taken yet')).toBeInTheDocument();
-    expect(within(row('Student One')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Present', 'Tardy', 'Absent', 'Other ▾']);
+    // Other on the far left, then Tardy, Absent, and Present on the far right (Graham, 29 Oct 2026).
+    expect(within(row('Student One')).getAllByRole('button').map((b) => b.textContent)).toEqual(['Other ▾', 'Tardy', 'Absent', 'Present']);
+    expect(screen.getByText('Today (Thu 29/10), 08:35 to 09:45')).toBeInTheDocument();
+    // The counts and Save come after the list.
+    const list = screen.getByRole('list');
+    const saveBtn = screen.getByRole('button', { name: 'Save to PowerSchool' });
+    expect(list.compareDocumentPosition(saveBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(row('Student Two')).queryByRole('button')).toBeNull();
     expect(within(row('Student Two')).getByText('Office: Illness (I)')).toBeInTheDocument();
     expect(within(row('Student Two')).getByText('Called in sick')).toBeInTheDocument();
@@ -93,17 +99,30 @@ describe('AttendanceTab (#39)', () => {
     expect(within(row('Student One')).getByText('Office: Absence (A)')).toBeInTheDocument();
   });
 
-  it('the calendar: lesson days with their status, today outlined, a later lesson not clickable; another lesson opens', async () => {
+  it('the calendar opens from its icon: lesson days with their status, today marked, a later lesson not clickable', async () => {
     renderTab();
     await screen.findByText('Student One');
+    expect(screen.queryByLabelText('Lessons')).toBeNull(); // hidden until asked for
+    fireEvent.click(screen.getByRole('button', { name: 'Choose another lesson' }));
     const cal = screen.getByLabelText('Lessons');
     expect(within(cal).getByText('October 2026')).toBeInTheDocument();
     expect(within(cal).getByRole('button', { name: 'Tue 27/10, 08:35, attendance taken' })).toBeInTheDocument();
-    expect(within(cal).getByRole('button', { name: 'Thu 29/10, 08:35, not taken yet' })).toHaveAttribute('aria-pressed', 'true');
+    const todayBtn = within(cal).getByRole('button', { name: 'Today (Thu 29/10), 08:35, not taken yet' });
+    expect(todayBtn).toHaveAttribute('aria-pressed', 'true');
+    expect(todayBtn).toHaveClass('att-cal__day--today');
+    expect(within(cal).getByText('Today')).toBeInTheDocument(); // the key
     expect(within(cal).queryByRole('button', { name: /Fri 30\/10/ })).toBeNull();
-    expect(screen.queryByText(/no lesson today/)).toBeNull();
     fireEvent.click(within(cal).getByRole('button', { name: /Tue 27\/10/ }));
     await waitFor(() => expect(getAttendance).toHaveBeenLastCalledWith('580', '2026-10-27'));
+    expect(screen.queryByLabelText('Lessons')).toBeNull(); // picking a lesson closes it
+    expect(await screen.findByText('Tue 27/10, 08:35 to 09:45')).toBeInTheDocument();
+  });
+
+  it('date words: Today and Yesterday first, the date in brackets; other days plain', () => {
+    expect(dateWords('2026-10-29', '2026-10-29')).toBe('Today (Thu 29/10)');
+    expect(dateWords('2026-10-28', '2026-10-29')).toBe('Yesterday (Wed 28/10)');
+    expect(dateWords('2026-10-27', '2026-10-29')).toBe('Tue 27/10');
+    expect(dateWords('2026-10-31', '2026-11-01')).toBe('Yesterday (Sat 31/10)');
   });
 
   it('on a day without a lesson it opens the last lesson, saying so and naming the next', async () => {
@@ -120,6 +139,8 @@ describe('AttendanceTab (#39)', () => {
     await screen.findByText('Student One');
     fireEvent.click(screen.getByRole('button', { name: 'Mark all 2 present' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save to PowerSchool' }));
-    expect(await screen.findByRole('button', { name: 'Thu 29/10, 08:35, attendance taken' })).toBeInTheDocument();
+    await screen.findByText(/Saved to PowerSchool/);
+    fireEvent.click(screen.getByRole('button', { name: 'Choose another lesson' }));
+    expect(screen.getByRole('button', { name: 'Today (Thu 29/10), 08:35, attendance taken' })).toBeInTheDocument();
   });
 });

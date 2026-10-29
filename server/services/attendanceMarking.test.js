@@ -166,6 +166,30 @@ describe('lessonDays (the calendar)', () => {
   });
 });
 
+describe('the shared PowerSchool session', () => {
+  test('two reads sent together share one launch (a second launch left the first answering 401)', async () => {
+    const state = { att: lessonOf([student(11, 501, mark(''))]) };
+    const { ps, calls, opts } = fakePs(state);
+    const launch = ps.launch;
+    ps.launch = async (...a) => { await new Promise((r) => setTimeout(r, 5)); return launch(...a); };
+    await Promise.all([readLesson(db, course, DAY, opts), readLesson(db, course, '2026-10-27', opts)]);
+    expect(calls.launches).toBe(1);
+  });
+  test('a 401 starts a new session once and asks again', async () => {
+    const state = { att: lessonOf([student(11, 501, mark(''))]) };
+    const { ps, calls, opts } = fakePs(state);
+    await readLesson(db, course, DAY, opts);
+    const read = ps.read;
+    let refused = false;
+    ps.read = async (...a) => {
+      if (!refused) { refused = true; throw Object.assign(new Error('PowerSchool answered 401 for /ws/attendance/section_info'), { status: 401, sessionEnded: false }); }
+      return read(...a);
+    };
+    await expect(readLesson(db, course, DAY, opts)).resolves.toMatchObject({ lesson: true });
+    expect(calls.launches).toBe(2);
+  });
+});
+
 describe('helpers', () => {
   test('the fingerprint follows codes, comments and office flags, not order', () => {
     const a = lessonOf([student(11, 501, mark('')), student(12, 502, mark('T'))]).sectionAttendances;

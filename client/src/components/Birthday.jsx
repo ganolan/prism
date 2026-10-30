@@ -15,10 +15,11 @@ const CakeIcon = () => (
   </svg>
 );
 
-// The public mark beside a name: a small cake with "Birthday today" as its popover and name. Never the date or age.
+// The public mark beside a name: a small cake, its popover and name the server's words ("Birthday today", or for a
+// weekend birthday marked early "Birthday on Saturday"). Never the date or age.
 export function BirthdayMark({ student }) {
   if (!student?.birthday_today) return null;
-  return <Tip className="birthday-mark" text="Birthday today"><CakeIcon /></Tip>;
+  return <Tip className="birthday-mark" text={student.birthday_label || 'Birthday today'}><CakeIcon /></Tip>;
 }
 
 // "Thu 29/10"

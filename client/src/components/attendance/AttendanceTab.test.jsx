@@ -144,4 +144,12 @@ describe('AttendanceTab (#39)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Choose another lesson' }));
     expect(screen.getByRole('button', { name: 'Today (Thu 29/10), 08:35, attendance taken' })).toBeInTheDocument();
   });
+
+  it('the birthday cake shows beside a name, with the roster\'s words (Graham, 30 Oct 2026)', async () => {
+    vi.mocked(getAttendance).mockResolvedValue({ ...structuredClone(LESSON), students: LESSON.students.map((st) => (st.ps_student_id === '11' ? { ...st, birthday_today: true, birthday_label: 'Birthday on Saturday' } : st)) });
+    renderTab();
+    await screen.findByText('Student One');
+    expect(within(row('Student One')).getByRole('img', { name: 'Birthday on Saturday' })).toBeInTheDocument();
+    expect(within(row('Student Three')).queryByRole('img')).toBeNull();
+  });
 });

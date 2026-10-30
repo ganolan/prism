@@ -62,8 +62,8 @@ describe('readLesson', () => {
     expect(r).toMatchObject({ date: DAY, lesson: true, taken: true });
     expect(r.codes.map((c) => c.code)).toEqual(['', 'A', 'I', 'T']);
     expect(r.students).toEqual([
-      { ps_student_id: '11', student_id: 1, name: 'Yeeun Choi', code: '', comment: null, office: false, markable: true },
-      { ps_student_id: '12', student_id: null, name: 'Student, 12', code: 'I', comment: 'Called in sick', office: true, markable: true },
+      { ps_student_id: '11', student_id: 1, name: 'Yeeun Choi', birthday_today: false, birthday_label: null, code: '', comment: null, office: false, markable: true },
+      { ps_student_id: '12', student_id: null, name: 'Student, 12', birthday_today: false, birthday_label: null, code: 'I', comment: 'Called in sick', office: true, markable: true },
     ]);
   });
 

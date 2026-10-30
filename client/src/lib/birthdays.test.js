@@ -1,9 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { birthdayIn, ageOn, birthdayNear, nextBirthday, markDay, isBirthdayToday } from './birthdays.js';
+import { birthdayIn, ageOn, birthdayNear, nextBirthday, markDay, isBirthdayToday, birthdayMarkLabel } from './birthdays.js';
 
 // Weekdays are school days, except a made-up holiday week 2026-12-14 to 12-25.
 const weekday = (d) => { const w = new Date(`${d}T00:00:00Z`).getUTCDay(); return w !== 0 && w !== 6; };
 const school = (d) => weekday(d) && !(d >= '2026-12-14' && d <= '2026-12-25');
+
+describe('birthdayMarkLabel (Graham, 30 Oct 2026: "Birthday today" for a weekend birthday misled)', () => {
+  it('on the day, the weekend birthday marked on Friday, the holiday birthday marked before the break, and no mark', () => {
+    expect(birthdayMarkLabel('2010-10-30', '2026-10-30', school)).toBe('Birthday today'); // Fri
+    expect(birthdayMarkLabel('2010-10-31', '2026-10-30', school)).toBe('Birthday on Saturday');
+    expect(birthdayMarkLabel('2010-11-01', '2026-10-30', school)).toBe('Birthday on Sunday');
+    expect(birthdayMarkLabel('2010-12-20', '2026-12-11', school)).toBe('Birthday over the break'); // 9 days on, in the holiday week
+    expect(birthdayMarkLabel('2010-11-02', '2026-10-30', school)).toBeNull(); // Monday's birthday is marked on Monday
+  });
+});
 
 describe('birthdays', () => {
   it('birthdayIn: 29 February is the 28th in a year without one', () => {

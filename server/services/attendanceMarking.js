@@ -14,6 +14,7 @@ import { cookieJar } from './schoologyWeb.js';
 import { PowerSchoolWeb } from './powerschoolWeb.js';
 import { studentFullName } from './studentNames.js';
 import { loadClassTimes } from './schoolCalendar.js';
+import { withBirthdays } from './birthdays.js';
 
 export class AttendanceError extends Error {
   constructor(code, message, extra = {}) { super(message); this.code = code; Object.assign(this, extra); }
@@ -89,6 +90,8 @@ export function lessonView(day, info, att, nameOf = () => null) {
       ps_student_id: String(st.studentId),
       student_id: prism?.id ?? null,
       name: prism?.name || st.lastFirst || '',
+      birthday_today: Boolean(prism?.birthday_today),
+      birthday_label: prism?.birthday_label ?? null,
       code: m ? (m.code ?? '') : null,
       comment: m?.comment || null,
       office: Boolean(m?.readOnly),
@@ -117,10 +120,13 @@ function courseSection(db, courseId) {
 }
 
 const prismNames = (db) => {
-  const q = db.prepare('SELECT id, first_name, last_name, preferred_name, preferred_name_teacher FROM students WHERE school_uid = ?');
+  const q = db.prepare('SELECT id, first_name, last_name, preferred_name, preferred_name_teacher, date_of_birth FROM students WHERE school_uid = ?');
+  const birthday = withBirthdays(db); // the roster's public cake mark, on the Attendance tab too (Graham, 30 Oct 2026)
   return (dcid) => {
     const s = q.get(`1_${dcid}`);
-    return s ? { id: s.id, name: studentFullName(s) } : null;
+    if (!s) return null;
+    const b = birthday(s);
+    return { id: s.id, name: studentFullName(s), birthday_today: b.birthday_today, birthday_label: b.birthday_label };
   };
 };
 

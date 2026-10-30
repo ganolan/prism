@@ -1,6 +1,8 @@
 // Birthdays and age from PowerSchool's date of birth (#191; Graham's rules, 25 and 28 Oct 2026). Pure, no DOM:
 // the server imports it too (routes/birthdays.js, the roster and student page answers), so both agree.
-//  - Public: the fact that today is a student's birthday ("Birthday today"), never the date or the age.
+//  - Public: the cake mark on the day it is shown, labelled "Birthday today", or for a weekend or holiday birthday
+//    marked early "Birthday on Saturday" (the weekday) or "Birthday over the break" (Graham, 30 Oct 2026: "Birthday
+//    today" for a weekend birthday was misleading); never the date or the age.
 //  - Private (Private details on): the age, the date of birth, and the list of birthdays from 3 days back to 7
 //    days ahead.
 //  - A birthday on a weekend or holiday is marked on the school day before it.
@@ -59,7 +61,20 @@ export function markDay(birthday, isSchoolDay) {
   return null;
 }
 
-// Whether the public "Birthday today" mark shows today: today is the mark day of the student's next birthday.
+// The public mark's words when it shows today, else null: "Birthday today" on the day; for a birthday marked early
+// (a weekend or holiday), its weekday within the week ahead ("Birthday on Saturday"), else "Birthday over the break".
+export function birthdayMarkLabel(dob, today, isSchoolDay) {
+  if (!isBirthdayToday(dob, today, isSchoolDay)) return null;
+  const next = nextBirthday(dob, today);
+  if (next.days === 0) return 'Birthday today';
+  if (next.days <= 6) {
+    const [y, m, d] = next.date.split('-').map(Number);
+    return `Birthday on ${new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' })}`;
+  }
+  return 'Birthday over the break';
+}
+
+// Whether the public birthday mark shows today: today is the mark day of the student's next birthday.
 export function isBirthdayToday(dob, today, isSchoolDay) {
   if (!dob || !isSchoolDay(today)) return false;
   const next = nextBirthday(dob, today);

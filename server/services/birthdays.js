@@ -5,12 +5,14 @@
 import { todayLocal } from '../lib/schoolDays.js';
 import { loadCalendar } from './schoolCalendar.js';
 import { studentFullName, preferredFirstName } from './studentNames.js';
-import { ageOn, birthdayNear, nextBirthday, isBirthdayToday } from '../../client/src/lib/birthdays.js';
+import { ageOn, birthdayNear, nextBirthday, isBirthdayToday, birthdayMarkLabel } from '../../client/src/lib/birthdays.js';
 
-// Fields for one student row: { age, birthday_today } (age null without a date of birth).
+// Fields for one student row: { age, birthday_today, birthday_label } (age null without a date of birth;
+// birthday_label the mark's words, e.g. "Birthday on Saturday", null when no mark shows).
 export function birthdayFields(student, today, isSchoolDay) {
   const dob = student?.date_of_birth || null;
-  return { age: dob ? ageOn(dob, today) : null, birthday_today: isBirthdayToday(dob, today, isSchoolDay) };
+  const label = dob ? birthdayMarkLabel(dob, today, isSchoolDay) : null;
+  return { age: dob ? ageOn(dob, today) : null, birthday_today: Boolean(label), birthday_label: label };
 }
 
 // The same for many rows, with one calendar read. → (row) => row with the fields added.
@@ -44,7 +46,7 @@ export function birthdaysAround(db, { today = todayLocal() } = {}) {
     if (!near) continue;
     students.push({
       id: row.id, name: studentFullName(row), first: preferredFirstName(row), date: near.date, days: near.days, turns: near.turns,
-      birthday_today: mark, courses,
+      birthday_today: mark, birthday_label: mark ? birthdayMarkLabel(row.date_of_birth, today, cal.isSchoolDay) : null, courses,
     });
   }
   students.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));

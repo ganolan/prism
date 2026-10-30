@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { getAttendance, getAttendanceDays, getClassTimes, saveAttendance } from '../../services/api.js';
 import { monthGrid, monthOf, monthRange, stepMonth } from '../../lib/monthGrid.js';
 import { formatTime, localIsoDate } from '../../lib/formatDate.js';
+import { BirthdayMark } from '../Birthday.jsx';
 import {
   MAIN_CODES, PRESENT, canSave, codeLabel, counts, editable, fillLabel, initialChoices, isDirty, markAllPresent, marksToSend, otherCodes,
 } from '../../lib/attendance.js';
@@ -244,6 +245,7 @@ export default function AttendanceTab({ courseId }) {
                 <li key={st.ps_student_id} className={`attendance__row${choice == null && editable(st) ? ' attendance__row--unmarked' : ''}`}>
                   <span className="attendance__name">
                     {st.student_id ? <Link className="link" to={`/student/${st.student_id}`}>{st.name}</Link> : st.name}
+                    <BirthdayMark student={st} />
                   </span>
                   {st.office && (
                     <span className="attendance__office">

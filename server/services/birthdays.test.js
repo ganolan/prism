@@ -54,14 +54,16 @@ test('a birthday deep in a holiday is listed on the school day it is marked, tho
   db.prepare("UPDATE school_days SET in_session = 0 WHERE date >= '2026-11-02' AND date <= '2026-11-20'").run();
   student('Kim', '2010-11-13');
   const r = birthdaysAround(db, { today: '2026-10-30' });
-  expect(r.students).toEqual([expect.objectContaining({ name: 'Kim Lee', first: 'Kim', date: '2026-11-13', days: 14, turns: 16, birthday_today: true })]);
+  expect(r.students).toEqual([expect.objectContaining({ name: 'Kim Lee', first: 'Kim', date: '2026-11-13', days: 14, turns: 16, birthday_today: true, birthday_label: 'Birthday over the break' })]);
 });
 
 describe('withBirthdays', () => {
   test('adds the age and birthday_today; none without a date of birth', () => {
     const add = withBirthdays(db, { today: '2026-10-30' });
-    expect(add({ id: 1, date_of_birth: '2010-11-01' })).toMatchObject({ age: 15, birthday_today: true }); // Sunday → Friday
-    expect(add({ id: 2, date_of_birth: '2010-10-29' })).toMatchObject({ age: 16, birthday_today: false });
-    expect(add({ id: 3, date_of_birth: null })).toMatchObject({ age: null, birthday_today: false });
+    // Graham, 30 Oct 2026: a weekend birthday marked on the Friday says when it is, not "Birthday today".
+    expect(add({ id: 1, date_of_birth: '2010-11-01' })).toMatchObject({ age: 15, birthday_today: true, birthday_label: 'Birthday on Sunday' }); // Sunday → Friday
+    expect(add({ id: 4, date_of_birth: '2010-10-30' })).toMatchObject({ birthday_today: true, birthday_label: 'Birthday today' });
+    expect(add({ id: 2, date_of_birth: '2010-10-29' })).toMatchObject({ age: 16, birthday_today: false, birthday_label: null });
+    expect(add({ id: 3, date_of_birth: null })).toMatchObject({ age: null, birthday_today: false, birthday_label: null });
   });
 });

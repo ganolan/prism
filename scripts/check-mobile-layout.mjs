@@ -158,7 +158,7 @@ try {
       const ctx = await browser.newContext({ viewport, isMobile: mobile, hasTouch: mobile });
       await ctx.addInitScript(() => { try { localStorage.setItem('prism:private-details', 'true'); } catch { /* ignore */ } });
       const page = await ctx.newPage();
-      for (const mode of ['roster', 'attention', 'testday', 'mastery']) {
+      for (const mode of ['attention', 'roster', 'testday', 'mastery']) {
         await page.goto(`${base}${course}?tab=roster&mode=${mode}`);
         await settle(page);
         const m = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, inner: window.innerWidth, tab: !!document.querySelector('.roster-tab') }));

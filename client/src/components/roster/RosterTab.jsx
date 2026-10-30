@@ -22,9 +22,10 @@ import { getCourseCommentSummaries } from '../../services/api.js';
 // app-wide switch in the sidebar, #197), and with it off is not in the page at all. Turning it off
 // closes any pop-up and clears the filters.
 //
-// Four modes, remembered like the course tabs (`?mode=`; the first keeps the id `roster`, #192 renamed
-// its label). With Private details off, Needs attention, Test day and Mastery each show the shared
-// PrivateHidden box (Test day keeps its test picker and length).
+// Four modes, remembered like the course tabs (`?mode=`; Details keeps the id `roster`, #192 renamed
+// its label). With no mode given it opens on Needs attention with Private details on and on Details
+// with it off (#210), since Needs attention is private; the switch changed afterwards keeps the mode. With Private details off, Needs attention,
+// Test day and Mastery each show the shared PrivateHidden box (Test day keeps its test picker and length).
 // Props: course (`linked`: a set of linked sections, where Mastery's override is disabled), students
 // (with dropped ones, `dropped_at`), mastery (getMasteryForCourse; masteryFailed when its read failed),
 // triage (CoursePage's own getTriage answer, as the rail reads it; triageFailed when that read failed), gradebook (CoursePage's getGradebook: the flag on overdue work, Test day's tests),
@@ -33,9 +34,9 @@ import { getCourseCommentSummaries } from '../../services/api.js';
 // re-reads mastery), courseId.
 
 export const ROSTER_MODES = [
-  // "Roster" would repeat the parent tab (#192). Entering attendance on class days is #39.
-  { id: 'roster', label: 'Details' }, // "Details and Attendance" until attendance got its own course tab (#39, 29 Oct 2026)
+  // Needs attention first (#210, 30 Oct 2026). "Roster" would repeat the parent tab (#192).
   { id: 'attention', label: 'Needs attention' },
+  { id: 'roster', label: 'Details' }, // "Details and Attendance" until attendance got its own course tab (#39, 29 Oct 2026)
   { id: 'testday', label: 'Test day' },
   { id: 'mastery', label: 'Mastery' },
 ];
@@ -81,9 +82,10 @@ function RosterMode({ on, courseId, active, dropped, unread, filters, setFilters
 }
 
 export default function RosterTab({ course = null, students, mastery = null, masteryFailed = false, triage = null, triageFailed = false, gradebook = null, onTriageChanged, onFlagChanged, onMasteryChanged, courseId }) {
-  const [mode, setMode] = useStickyTab('roster-mode', 'roster', { param: 'mode' });
-  const current = ROSTER_MODES.some((m) => m.id === mode) ? mode : 'roster';
   const [on] = usePrivateDetails();
+  const [fallback] = useState(() => (on ? 'attention' : 'roster'));
+  const [mode, setMode] = useStickyTab('roster-mode', fallback, { param: 'mode' });
+  const current = ROSTER_MODES.some((m) => m.id === mode) ? mode : fallback;
   // Filters live for this course and this visit (not remembered), across the modes.
   const [filters, setFilters] = useState(() => new Set());
   const [unread, setUnread] = useState(null); // { [student id]: count }, null until read or when unavailable

@@ -118,7 +118,7 @@ describe('RosterTab privacy', () => {
     const first = renderTab();
     toggle();
     first.unmount();
-    renderTab();
+    renderTab('/course/5?mode=roster'); // with no mode it would open on Needs attention (#210)
     expect(screen.getByRole('button', { name: 'Private details' })).toHaveAttribute('aria-pressed', 'true');
     expect(await screen.findByRole('button', { name: /2 comments/ })).toBeInTheDocument();
   });
@@ -498,13 +498,41 @@ describe('RosterTab modes', () => {
     renderTab();
     const modes = screen.getByRole('tablist', { name: 'Roster view' });
     // #192: "Roster" repeated the parent tab; "Details and Attendance" became "Details" once attendance had its own
-    // course tab (#39, 29 Oct 2026). Its id stays `roster`.
-    expect(within(modes).getAllByRole('tab').map((b) => b.textContent)).toEqual(['Details', 'Needs attention', 'Test day', 'Mastery']);
+    // course tab (#39, 29 Oct 2026). Its id stays `roster`. #210: Needs attention first.
+    expect(within(modes).getAllByRole('tab').map((b) => b.textContent)).toEqual(['Needs attention', 'Details', 'Test day', 'Mastery']);
     expect(within(modes).getByRole('tab', { name: 'Details' })).toHaveClass('subtab-btn', 'active');
     fireEvent.click(within(modes).getByRole('tab', { name: 'Mastery' }));
     expect(screen.getByTestId('search')).toHaveTextContent('mode=mastery');
     expect(within(modes).getByRole('tab', { name: 'Mastery' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByText('Annie Lee')).not.toBeInTheDocument();
+  });
+
+  it('opens on Needs attention with Private details on, and on Details with it off (#210)', () => {
+    setPrivateDetails(true);
+    const first = renderTab();
+    const modes = () => screen.getByRole('tablist', { name: 'Roster view' });
+    expect(within(modes()).getByRole('tab', { name: 'Needs attention' })).toHaveAttribute('aria-selected', 'true');
+    // Turning the switch off keeps the mode: Needs attention shows its private box.
+    toggle();
+    expect(screen.getByText('Overdue work, referrals and comments are private.')).toBeInTheDocument();
+    first.unmount();
+    renderTab();
+    expect(within(modes()).getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true');
+    expect(cardOf('Annie Lee')).toBeInTheDocument();
+    // Turning it on keeps Details.
+    toggle();
+    expect(within(modes()).getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('a linked or remembered mode wins over the default (#210)', () => {
+    setPrivateDetails(true);
+    const first = renderTab('/course/5?mode=roster');
+    const modes = () => screen.getByRole('tablist', { name: 'Roster view' });
+    expect(within(modes()).getByRole('tab', { name: 'Details' })).toHaveAttribute('aria-selected', 'true');
+    fireEvent.click(within(modes()).getByRole('tab', { name: 'Test day' }));
+    first.unmount();
+    renderTab();
+    expect(within(modes()).getByRole('tab', { name: 'Test day' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('Mastery is locked with the switch off, and with it on says when there is no mastery data', () => {

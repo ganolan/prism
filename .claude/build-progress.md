@@ -2079,3 +2079,9 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Graham:** a student's cake read "Birthday today" on the roster for a birthday this weekend (marked on the Friday by the #191 rule). He also wanted the cake on the Attendance tab.
 - **Built:** `birthdayMarkLabel` (`client/src/lib/birthdays.js`, shared with the server): "Birthday today" on the day, "Birthday on Saturday" (the weekday) within the week, "Birthday over the break" otherwise; `birthday_label` on every row `withBirthdays` serves and on the dashboard list; `BirthdayMark` uses it. `attendanceMarking.js` adds `birthday_today` / `birthday_label` per student; `AttendanceTab` draws `BirthdayMark`.
 - **Tests:** lib/birthdays (labels), services/birthdays, attendanceMarking, AttendanceTab (cake).
+
+## Roster tab opens on Needs attention (#210, 2026-10-30)
+
+- **Graham (30 Oct):** Needs attention first and the default, Details second.
+- **Built:** `ROSTER_MODES` order Needs attention, Details, Test day, Mastery. With no `?mode=` and nothing remembered, the tab opens on Needs attention while Private details is on and on Details while it is off (Needs attention is only the private box then). The default is fixed when the tab opens, so turning the switch afterwards keeps the mode; a linked or remembered mode wins.
+- **Tests:** RosterTab (order, default per switch, switch keeps the mode, linked and remembered modes win).

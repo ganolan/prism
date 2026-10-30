@@ -17,6 +17,7 @@ import { buildAssessmentView, courseFlags, courseViewContext } from '../services
 import { getAttachmentForAssignment } from '../services/rubricAttach.js';
 import { getUnfinishedGrading } from '../services/unfinishedGrading.js';
 import { birthdaysAround, withBirthdays } from '../services/birthdays.js';
+import { studentAttendance } from '../services/attendanceRecord.js';
 
 const router = Router();
 
@@ -256,8 +257,12 @@ router.get('/:id', (req, res) => {
   // #117: PowerSchool alerts (labels + when last read), when the feature is on.
   const psAlerts = student && getFeatures().powerschool_alerts ? psAlertsForStudent(db, student.id) : null;
 
+  // #208: the student's attendance this term in each current course read from PowerSchool.
+  const attendance = getFeatures().attendance ? studentAttendance(db, student.id) : null;
+
   res.json({
     ...withBirthdays(db)(student), courses, grades, notes, flags, parents, counselors, grading_scales: getGradingScalesMap(),
+    ...(attendance ? { attendance } : {}),
     ...(psAlerts ? { ps_alerts: psAlerts.alerts, ps_alerts_synced_at: psAlerts.synced_at } : {}),
     ...(guardiansSyncedAt !== undefined ? { guardians_synced_at: guardiansSyncedAt } : {}),
   });

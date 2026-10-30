@@ -16,6 +16,7 @@ import { setPublished, PublishError } from '../services/assessmentPublish.js';
 import { waitingCopies, flagLines } from '../services/savedGrades.js';
 import { loadClassTimes } from '../services/schoolCalendar.js';
 import { withBirthdays } from '../services/birthdays.js';
+import { courseAttendance } from '../services/attendanceRecord.js';
 
 const router = Router();
 
@@ -139,12 +140,17 @@ router.get('/:id/students', (req, res) => {
   // Learning, health and other only: family alerts never reach a roster.
   const alerts = getFeatures().powerschool_alerts ? psAlertsByStudent(db, students.map(s => s.id)) : null;
 
+  // #208: each student's attendance this term from the stored marks, once the course has been read.
+  const attendance = getFeatures().attendance ? courseAttendance(db, Number(req.params.id)) : null;
+  const noMarks = { absences: 0, lates: 0, excused: 0, lessons: [] };
+
   const birthday = withBirthdays(db); // #191: age and birthday_today from the date of birth
   const enriched = students.map(s => ({
     ...birthday(s),
     graded_count: summaryMap[s.id]?.graded_count || 0,
     avg_pct: summaryMap[s.id]?.avg_pct || null,
     ...(alerts ? { ps_alerts: forRoster(alerts.get(s.id)) } : {}),
+    ...(attendance ? { attendance: { ...(attendance.students[s.id] || noMarks), from: attendance.from, read_at: attendance.read_at } } : {}),
   }));
 
   res.json(enriched);

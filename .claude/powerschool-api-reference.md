@@ -931,6 +931,16 @@ enrolled, gradeLevel, ccId } } }`; `dcid` and `ccId` were 1-character strings th
   `attendanceMarking.js` now runs one launch per section at a time and, on a 401 or a redirect, launches once more and asks
   again; live check: the two reads together, another day, then today, all 200.
 
+- **Built (#208, 30 Oct 2026): a nightly read of each current course's term.** `server/services/attendanceRecord.js`, in the
+  alerts pass on its session (`launchIds` gives `userDcid`): `section_info` for the catalog, then `section_attendance`
+  from the term's first day to today in **14-day pieces** (the range size verified above; a longer range in one call was
+  not tried). Each on-track student's mark per lesson day is stored (`attendance_marks`: code, `readOnly` as office);
+  the Attendance tab's reads and saves store their lesson too. Counted by the catalog's descriptions, not a code list:
+  blank Present, "Tardy..." late, "...(Excused)" excused, every other code an absence. **Not verified:** what
+  `studentAbsentCount` / `studentTardyCount` count (the range, the year, or which codes), and the catalog's `calcAda`,
+  `calcAdm` and `courseCreditPoints` values: a read-only probe comparing them was refused by the session's safety
+  check on 30 Oct 2026 (it reads student marks), so Prism counts the marks itself and prints its rule under the strip.
+
 ### Student counsellors (#190, probed 2026-10-28, Graham approved: 3 students of one current class, shapes only)
 
 **A student's counsellors are a plain-HTTP JSON read: `GET /ws/studentcounselor/{studentDcid}`**, sent with

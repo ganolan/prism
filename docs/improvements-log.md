@@ -576,3 +576,22 @@ which tasks have waited longest for feedback. Counting school days by hand means
   "Three high-priority surfaces"); issue #63 records why a separate page was not needed.
 - Design and record: `docs/superpowers/specs/2026-10-01-triage-late-work-and-feedback-owed-design.md`,
   `docs/superpowers/specs/2026-10-04-triage-email-and-stats-design.md`; issues #63, #137.
+
+## Absences beside each student on the roster (#208, October 2026)
+
+**Status quo.** A teacher sees a student's absences in PowerSchool, one student or one day at a time, or in a
+PowerSchool report. Schoology's Attendance page marks one lesson and shows no totals.
+
+**The problem.** Before following up missed work, or before a parent meeting, the teacher has to open
+PowerSchool to learn how often a student missed the class this term.
+
+**What Prism does.**
+- **A count on each roster card** of the student's absences in this class this term, behind Private details.
+- **The last 8 lessons** as a strip with PowerSchool's own codes, one tap from the count, and on the student
+  page for each class.
+- **A filter** for students with 3 or more absences, beside Unread comments.
+- **Read every night** from PowerSchool, and updated when attendance is saved from Prism's Attendance tab.
+
+**Evidence.**
+- The read is PowerSchool's own attendance grid read, verified 29 October 2026
+  (`.claude/powerschool-api-reference.md`, "Attendance: reading and marking (#39)").

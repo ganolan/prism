@@ -150,7 +150,7 @@ export async function runUnifiedSync(
     try {
       const r = await syncPsAlerts({ onProgress: (p) => emit({ type: 'log', message: `[alerts] ${p.message}` }), ...scoped });
       phaseMs.alerts = Date.now() - alertsStartedAt;
-      summary.alerts = { students: r.students, withAlerts: r.withAlerts, failed: r.failed, elapsedMs: phaseMs.alerts };
+      summary.alerts = { students: r.students, withAlerts: r.withAlerts, failed: r.failed, attendance: r.attendance, elapsedMs: phaseMs.alerts };
       emit({ phase: 'alerts', status: 'done', records: r.students, failed: r.failed, elapsedMs: summary.alerts.elapsedMs });
     } catch (err) {
       const errorKind = classifyMasteryError(err);

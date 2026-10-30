@@ -1788,6 +1788,13 @@ button.student-alert-chip[aria-expanded="true"] { outline: 2px solid currentColo
   border: 1px solid var(--border); border-radius: 8px; background: var(--bg-subtle); font-size: 0.84rem; max-width: 40rem; }
 .student-alert-detail__head { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
 /* Recent tasks (#185): mark, task and course, status in the timeline's words. */
+/* Recent tasks and Attendance this term side by side while there is room, one above the other otherwise (#208). */
+.student-records { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 1rem; align-items: start; margin-bottom: 1rem; }
+.student-records > .card { margin-bottom: 0; }
+.student-attendance__course { display: flex; flex-direction: column; gap: 4px; padding: 6px 0; }
+.student-attendance__course + .student-attendance__course { border-top: 1px solid var(--border); }
+.student-attendance__line { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
+.student-attendance__foot { margin: 0.4rem 0 0; font-size: 0.72rem; }
 .recent-tasks__head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
 .recent-tasks__head h3 { margin: 0; }
 .recent-tasks__list { list-style: none; margin: 0; padding: 0; }
@@ -2005,7 +2012,7 @@ button.private-details-switch[aria-pressed="true"] { background: var(--badge-amb
   column-gap: 12px; row-gap: 8px; align-items: center; padding: 10px 12px; background: var(--card-bg);
   border: 1px solid var(--border); border-radius: 12px; cursor: pointer; }
 .roster-card:hover { box-shadow: var(--card-shadow-hover); }
-.roster-card--private { grid-template-columns: 48px minmax(0, 1fr) 7rem 12rem; grid-template-areas: "av id cm al" ". it it it"; }
+.roster-card--private { grid-template-columns: 48px minmax(0, 1fr) 7rem 7rem 12rem; grid-template-areas: "av id cm ab al" ". it it it it"; }
 .roster-card--dropped { opacity: 0.55; }
 .roster-card__avatar { grid-area: av; }
 .roster-card__photo { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; }
@@ -2028,6 +2035,7 @@ button.roster-copy { border: 0; background: none; padding: 2px 4px; border-radiu
   display: inline-flex; align-items: center; gap: 4px; font: inherit; }
 button.roster-copy:hover { background: var(--bg-subtle); color: var(--text); }
 .roster-card__comments { grid-area: cm; }
+.roster-card__absences { grid-area: ab; }
 .roster-card__alerts { grid-area: al; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
 .roster-card__items { grid-area: it; display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--border); min-width: 0; }
 /* A private count: the number large, the word small. Tappable when there is something to read. */
@@ -2042,6 +2050,15 @@ button.roster-alert-chip { border: 0; cursor: pointer; white-space: nowrap; font
 .filter-btn__n { margin-left: 0.35rem; font-weight: 700; opacity: 0.75; }
 .roster-filter-status__left { display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 button.filter-btn-outline:disabled { opacity: 0.5; cursor: default; }
+/* A student's last lessons (#208, AttendanceStrip): one cell per lesson, oldest first, the code over the date, in the
+   Attendance tab's colours (late amber, absent red, excused accent; present plain). */
+.attendance-strip { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; }
+.attendance-strip__cell { height: 34px; border-radius: 5px; display: grid; place-items: center; align-content: center; text-align: center; line-height: 1.1;
+  font-size: 0.6rem; font-weight: 600; background: var(--bg-subtle); color: var(--text-muted); }
+.attendance-strip__cell b { font-size: 0.72rem; display: block; min-height: 0.8rem; }
+.attendance-strip__cell--late { background: var(--warning-light); color: var(--badge-amber-text); }
+.attendance-strip__cell--absent { background: var(--danger-bg); color: var(--badge-red-text); }
+.attendance-strip__cell--excused { background: var(--accent-light); color: var(--accent); }
 .roster-dropped { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .roster-dropped .roster-cards { align-self: stretch; }
 /* Pop-ups (AnchoredPopover): fixed, inside a 16px gutter, scrolling inside themselves. */
@@ -2227,7 +2244,7 @@ button.mastery-th--sorted, button.mastery-th--sorted b { background: var(--accen
 /* A narrow roster (a phone, or beside the rail): the private slots move under the name. */
 @container roster (max-width: 600px) {
   .test-day-card { grid-template-columns: 48px minmax(0, 1fr); grid-template-areas: "av id" ". tm" ". ln"; }
-  .roster-card--private { grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1.4fr); grid-template-areas: "av id id" ". cm al" ". it it"; }
+  .roster-card--private { grid-template-columns: 48px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr); grid-template-areas: "av id id id" ". cm ab al" ". it it it"; }
   .roster-card__alerts { justify-content: flex-start; }
   .roster-attention-row { grid-template-columns: 28px minmax(0, 1fr); }
   .roster-attention-row__actions { grid-column: 2; justify-content: flex-start; }

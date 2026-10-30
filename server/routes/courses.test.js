@@ -335,6 +335,26 @@ describe('GET /api/courses/:id/students — PowerSchool alerts (#117)', () => {
   });
 });
 
+describe('GET /api/courses/:id/students — attendance this term (#208)', () => {
+  test('each student carries the stored absences and last lessons, once the course has been read', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM attendance_marks; DELETE FROM attendance_reads; DELETE FROM attendance_codes;');
+    expect((await get(`/api/courses/${courseId}/students`)).body[0].attendance).toBeUndefined(); // never read
+    db.prepare(`INSERT INTO attendance_codes (code, description) VALUES ('A', 'Absence'), ('T', 'Tardy')`).run();
+    db.prepare(`INSERT INTO attendance_reads (course_id, from_date, to_date, read_at) VALUES (?, '2026-08-13', '2026-10-30', '2026-10-30T01:00:00Z')`).run(courseId);
+    db.prepare(`INSERT INTO attendance_marks (course_id, student_id, date, code) VALUES (?, ?, '2026-10-27', 'A'), (?, ?, '2026-10-29', 'T')`).run(courseId, studentId, courseId, studentId);
+    const { body } = await get(`/api/courses/${courseId}/students`);
+    expect(body.find((s) => s.id === studentId).attendance).toEqual({
+      absences: 1, lates: 1, excused: 0, from: '2026-08-13', read_at: '2026-10-30T01:00:00Z',
+      lessons: [
+        { date: '2026-10-27', code: 'A', description: 'Absence', kind: 'absent', office: false },
+        { date: '2026-10-29', code: 'T', description: 'Tardy', kind: 'late', office: false },
+      ],
+    });
+    db.exec('DELETE FROM attendance_marks; DELETE FROM attendance_reads;');
+  });
+});
+
 // A template section (no course code, no school code) is marked excluded by the sync and never
 // read, so it must not reach the dashboard's tabs as a course card (#171).
 describe('GET /api/courses/:id — linked (#178)', () => {

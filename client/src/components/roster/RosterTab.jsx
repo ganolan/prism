@@ -3,6 +3,7 @@ import RosterCard from './RosterCard.jsx';
 import RosterFilters from './RosterFilters.jsx';
 import AlertPopover from './AlertPopover.jsx';
 import CommentsPopover from './CommentsPopover.jsx';
+import AttendancePopover from './AttendancePopover.jsx';
 import CopyEmailsPopover from './CopyEmailsPopover.jsx';
 import NeedsAttention from './NeedsAttention.jsx';
 import TestDay from './TestDay.jsx';
@@ -17,7 +18,7 @@ import { unreadCounts, rosterFilterOptions, applyRosterFilters } from '../../lib
 import { getCourseCommentSummaries } from '../../services/api.js';
 
 // The course page's Roster tab (#160; docs/superpowers/specs/2026-10-25-course-roster-redesign-design.md).
-// A roster may be projected to a class, so everything private (comment counts, alerts, filters, copying
+// A roster may be projected to a class, so everything private (comment counts, absences, alerts, filters, copying
 // emails, and the Needs attention, Test day and Mastery modes) shows only with Private details on (the
 // app-wide switch in the sidebar, #197), and with it off is not in the page at all. Turning it off
 // closes any pop-up and clears the filters.
@@ -95,9 +96,9 @@ export default function RosterTab({ course = null, students, mastery = null, mas
   const dropped = useMemo(() => students.filter((s) => s.dropped_at), [students]);
   const shownUnread = on ? unread : null;
 
-  // One pop-up at a time (an alert, a student's comments, Copy emails), closed with Private details
+  // One pop-up at a time (an alert, a student's comments or attendance, Copy emails), closed with Private details
   // off or on a change of mode. The anchor toggles its own pop-up; another anchor replaces it.
-  const [popup, setPopup] = useState(null); // { kind: 'alert' | 'comments' | 'emails', anchor, student?, alert? }
+  const [popup, setPopup] = useState(null); // { kind: 'alert' | 'comments' | 'attendance' | 'emails', anchor, student?, alert? }
   useEffect(() => { if (!on) setPopup(null); }, [on]);
   useEffect(() => { setPopup(null); }, [current]);
   const openPopup = (next) => setPopup((cur) => (cur && cur.anchor === next.anchor ? null : next));
@@ -108,7 +109,9 @@ export default function RosterTab({ course = null, students, mastery = null, mas
     <RosterCard key={s.id} student={s} showPrivate={on}
       unread={!isDropped && shownUnread ? shownUnread[s.id] || 0 : null}
       alerts={isDropped ? [] : forRoster(s.ps_alerts)}
+      attendance={isDropped ? null : s.attendance ?? null}
       onOpenComments={(anchor) => openPopup({ kind: 'comments', anchor, student: s })}
+      onOpenAttendance={(anchor) => openPopup({ kind: 'attendance', anchor, student: s })}
       onOpenAlert={(alert, anchor) => openPopup({ kind: 'alert', anchor, student: s, alert })}>
       {children}
     </RosterCard>
@@ -153,6 +156,7 @@ export default function RosterTab({ course = null, students, mastery = null, mas
       )}
       {on && popup?.kind === 'alert' && <AlertPopover student={popup.student} alert={popup.alert} anchor={popup.anchor} onClose={closePopup} />}
       {on && popup?.kind === 'comments' && <CommentsPopover student={popup.student} courseId={courseId} anchor={popup.anchor} onClose={closePopup} />}
+      {on && popup?.kind === 'attendance' && <AttendancePopover student={popup.student} anchor={popup.anchor} onClose={closePopup} />}
     </div>
   );
 }

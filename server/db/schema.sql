@@ -989,3 +989,31 @@ CREATE TABLE IF NOT EXISTS people_notes (
   content TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- #208: each student's attendance mark per lesson in a current course this term, read from PowerSchool every night
+-- (server/services/attendanceRecord.js) and after a save on the Attendance tab. One row per lesson day: code is
+-- PowerSchool's ('' Present); office = PowerSchool's readOnly (a mark the office entered). Replaced for the range read.
+CREATE TABLE IF NOT EXISTS attendance_marks (
+  course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  date TEXT NOT NULL,                   -- 'YYYY-MM-DD'
+  code TEXT NOT NULL DEFAULT '',
+  office INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (course_id, student_id, date)
+);
+
+-- #208: the school's attendance codes (section_info's catalog), so a stored code is shown with PowerSchool's own
+-- description and counted by it.
+CREATE TABLE IF NOT EXISTS attendance_codes (
+  code TEXT PRIMARY KEY,
+  description TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER
+);
+
+-- #208: the range each course's attendance was last read for (the term so far), and when.
+CREATE TABLE IF NOT EXISTS attendance_reads (
+  course_id INTEGER PRIMARY KEY REFERENCES courses(id) ON DELETE CASCADE,
+  from_date TEXT NOT NULL,
+  to_date TEXT NOT NULL,
+  read_at TEXT NOT NULL
+);

@@ -302,3 +302,21 @@ describe('/api/students/:id parents: PowerSchool details and the teacher\'s addi
     expect(r.status).toBe(404);
   });
 });
+
+describe('GET /api/students/:id — attendance this term (#208)', () => {
+  test('each current course read, with the attendance feature on; absent with it off', async () => {
+    const db = getDb();
+    db.exec('DELETE FROM attendance_marks; DELETE FROM attendance_reads;');
+    const courseId = db.prepare('SELECT id FROM courses').get().id;
+    db.prepare(`INSERT OR REPLACE INTO attendance_codes (code, description) VALUES ('A', 'Absence')`).run();
+    db.prepare(`INSERT INTO attendance_reads (course_id, from_date, to_date, read_at) VALUES (?, '2026-08-13', '2026-10-30', '2026-10-30T01:00:00Z')`).run(courseId);
+    db.prepare(`INSERT INTO attendance_marks (course_id, student_id, date, code) VALUES (?, ?, '2026-10-27', 'A')`).run(courseId, studentId);
+    expect((await get(`/api/students/${studentId}`)).body.attendance).toBeUndefined();
+    vi.mocked(getFeatures).mockReturnValue({ powerschool_alerts: true, attendance: true });
+    expect((await get(`/api/students/${studentId}`)).body.attendance).toEqual([{
+      course_id: courseId, course_name: 'AIML', from: '2026-08-13', read_at: '2026-10-30T01:00:00Z', absences: 1, lates: 0, excused: 0,
+      lessons: [{ date: '2026-10-27', code: 'A', description: 'Absence', kind: 'absent', office: false }],
+    }]);
+    db.exec('DELETE FROM attendance_marks; DELETE FROM attendance_reads;');
+  });
+});

@@ -19,6 +19,9 @@
  * Referer (the click path PowerTeacher expects), joined to the roster by name
  * (server/lib/psEmergencyContacts.js) into each student's two guardian slots.
  *
+ * Then, once the alerts are stored, each section's attendance this term (#208, attendanceRecord.js), behind the
+ * attendance feature: the marks the Roster tab's absences and the student page read.
+ *
  * Fresh every sync, reconciled per student: a student read this sync gets exactly
  * the alerts that fire now (cleared ones go). A section that fails keeps its
  * students' last-known alerts. The guardian slots follow the same rule, separately: a
@@ -32,6 +35,9 @@ import { getDb } from '../db/index.js';
 import { cookieJar, getResource } from './schoologyWeb.js';
 import { getUserProfilesBatch } from './schoology.js';
 import { syncDemographics } from './psDemographicsSync.js';
+import { syncAttendance } from './attendanceRecord.js';
+import { getFeatures } from '../middleware/featureGate.js';
+import { todayLocal } from '../lib/schoolDays.js';
 import { fillCounselorEmails } from './counselorEmails.js';
 import { PowerSchoolWeb } from './powerschoolWeb.js';
 import { alertPlan, fieldValuesParams, sectionAlerts, dropMeta } from '../lib/psAlerts.js';
@@ -100,11 +106,11 @@ export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(),
   let plan = null;
   const byDcid = new Map();
   const guardiansByDcid = new Map();
-  const readSections = []; // { schoologySectionId, sectionDcid, roster }, for the Demographics pass (#191)
+  const readSections = []; // { courseId, schoologySectionId, sectionDcid, userDcid, roster }, for the Demographics (#191) and attendance (#208) passes
   for (const c of courses) {
     summary.processed++;
     try {
-      const { sectionDcid } = await ps.launchIds(c.schoology_section_id).catch((err) => { throw asLogin(err); });
+      const { sectionDcid, userDcid } = await ps.launchIds(c.schoology_section_id).catch((err) => { throw asLogin(err); });
       if (!sectionDcid) {
         summary.skipped++;
         summary.results.push({ courseId: c.id, courseName: c.course_name, status: 'skipped', reason: 'no-section-dcid' });
@@ -134,7 +140,7 @@ export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(),
       }
       const { found, roster } = section;
       for (const [dcid, entry] of found) byDcid.set(dcid, entry);
-      readSections.push({ schoologySectionId: c.schoology_section_id, sectionDcid, roster });
+      readSections.push({ courseId: c.id, schoologySectionId: c.schoology_section_id, sectionDcid, userDcid, roster });
       if (roster.length) {
         // Its own try: a list that will not read costs the guardians, never the alerts just read.
         try {
@@ -176,6 +182,19 @@ export async function syncPsAlerts({ onProgress, courseIds = null, db = getDb(),
   summary.withAlerts = applied.withAlerts;
   summary.guardians.students = applyPsGuardians(db, guardiansByDcid).students;
   log(`Done: ${applied.students} students read, ${applied.withAlerts} with alerts (${summary.failed} courses not read), ${summary.guardians.students} with guardians (${summary.guardians.failed} lists not read).`);
+
+  // #208: each section's attendance this term, stored for the roster and the student page. Its own try: a failure
+  // costs the attendance only. deps.attendance: options for syncAttendance (tests), or false to leave it out.
+  if (deps.attendance !== false && getFeatures().attendance && readSections.length) {
+    try {
+      const relaunch = (sectionId) => ps.launch(sectionId).catch((err) => { throw asLogin(err); });
+      summary.attendance = await syncAttendance(db, ps, readSections, { today: todayLocal(), log, relaunch, ...(deps.attendance || {}) });
+    } catch (err) {
+      if (err.message === LOGIN_MESSAGE || err.code === 'PS_SECURITY') throw err;
+      summary.attendance = { error: err.message };
+      log(`Attendance not read (${err.message})`);
+    }
+  }
 
   // #191: each student's Demographics screen, once per school year, after the alerts and guardians are stored, so a
   // failure here costs them nothing. A security page still stops the sync (it is thrown).

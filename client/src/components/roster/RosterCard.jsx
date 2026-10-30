@@ -13,14 +13,15 @@ import { BirthdayMark } from '../Birthday.jsx';
 // The card shows no gender or age tag: those are on the student page only (Graham, 27 Oct 2026;
 // components/StudentTags.jsx), and the roster keeps its Gender filter and sort.
 // Under it one line: grade, student number (the email's local part) and an Email copy button. Right, only with
-// Private details on: the unread comments count and the alert chips, in fixed-width slots so they line
-// up down the page. With Private details off those slots are not drawn at all.
+// Private details on: the unread comments count, the absences this term (#208) and the alert chips, in fixed-width
+// slots so they line up down the page. With Private details off those slots are not drawn at all.
 //
 // Tapping the card opens the student page; a button or link inside it does its own job only. Hover text
 // is the instant popover (Tip), never a native title.
 // `children` (Needs attention's rows) sit under the card's top line, and a tap among them stays.
 //  - unread: the student's unread comment count, or null when Prism has none to show (slot left empty).
 //  - alerts: the student's roster alerts (forRoster).
+//  - attendance: the student's attendance this term ({ absences, lessons, ... }), or null (slot left empty).
 
 const CopyIcon = () => (
   <svg className="filter-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
@@ -72,7 +73,24 @@ function Comments({ count, onOpen }) {
   );
 }
 
-export default function RosterCard({ student, showPrivate, unread = null, alerts = [], onOpenComments, onOpenAlert, children }) {
+// Absences this term (#208): tap for the last lessons. Shown once Prism has read the course's attendance.
+function Absences({ attendance, onOpen }) {
+  if (!attendance) return null;
+  const n = attendance.absences;
+  const word = n === 1 ? 'absence' : 'absences';
+  if (!attendance.lessons.length) {
+    return <Tip className="roster-stat roster-stat--zero" text="No lessons recorded yet this term"><b>0</b> <span>{word}</span></Tip>;
+  }
+  return (
+    <Tip as="button" type="button" className={`roster-stat${n ? '' : ' roster-stat--zero'}`} aria-haspopup="dialog" named={false}
+      text="Absences this term, from PowerSchool. Tap for the last lessons."
+      onClick={(e) => { e.stopPropagation(); onOpen(e.currentTarget); }}>
+      <b>{n}</b> <span>{word}</span>
+    </Tip>
+  );
+}
+
+export default function RosterCard({ student, showPrivate, unread = null, alerts = [], attendance = null, onOpenComments, onOpenAlert, onOpenAttendance, children }) {
   const navigate = useNavigate();
   const number = student.email ? student.email.split('@')[0] : null;
   const grade = gradeText(student.grad_year);
@@ -98,6 +116,9 @@ export default function RosterCard({ student, showPrivate, unread = null, alerts
       </span>
       {showPrivate && (
         <span className="roster-card__comments"><Comments count={unread} onOpen={onOpenComments} /></span>
+      )}
+      {showPrivate && (
+        <span className="roster-card__absences"><Absences attendance={attendance} onOpen={onOpenAttendance} /></span>
       )}
       {showPrivate && (
         <span className="roster-card__alerts">

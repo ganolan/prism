@@ -3,14 +3,18 @@
 // student is never counted or matched.
 //
 // Filter keys: LEARNING_PLAN (any learning alert: they share one pill), an alert key for every other
-// roster alert (health, other; family alerts never reach a roster, `forRoster`), UNREAD, and
+// roster alert (health, other; family alerts never reach a roster, `forRoster`), UNREAD, ABSENCES (#208: 3 or more
+// absences this term, `student.attendance`), and
 // `gender:F`, `gender:M`, `gender:NB`, `gender:none` (25 Oct 2026; none = blank or missing). Alerts and Follow up pills combine as "any of"; the Gender row narrows that (AND).
 import { forRoster } from './psAlerts.js';
 import { genderOf, GENDER_TAGS, otherValueLabel } from './genderTag.js';
 
 export const LEARNING_PLAN = 'learning';
 export const UNREAD = 'unread';
-const FIXED_LABELS = { [LEARNING_PLAN]: 'Learning plan', [UNREAD]: 'Unread comments' };
+export const ABSENCES = 'absences';
+export const ABSENCE_LIMIT = 3;
+const FIXED_LABELS = { [LEARNING_PLAN]: 'Learning plan', [UNREAD]: 'Unread comments', [ABSENCES]: `${ABSENCE_LIMIT} or more absences` };
+const manyAbsences = (s) => (s.attendance?.absences ?? 0) >= ABSENCE_LIMIT;
 const GENDER_PREFIX = 'gender:';
 const GENDER_ORDER = Object.keys(GENDER_TAGS); // F, M, NB, none
 const CATEGORY_ORDER = { health: 0, other: 1 };
@@ -35,6 +39,7 @@ function keysOf(student, unread) {
   const keys = new Set();
   for (const a of forRoster(student.ps_alerts)) keys.add(a.category === 'learning' ? LEARNING_PLAN : a.key);
   if (unread?.[student.id] > 0) keys.add(UNREAD);
+  if (manyAbsences(student)) keys.add(ABSENCES);
   keys.add(GENDER_PREFIX + genderOf(student));
   return keys;
 }
@@ -47,6 +52,7 @@ export function rosterFilterOptions(students, unread, selected = new Set(), labe
   const alerts = new Map(); // key → { key, label, count, rank }
   let alertStudents = 0;
   let followUpStudents = 0;
+  let absentStudents = 0;
   const genders = { F: 0, M: 0, NB: 0, none: 0 };
   const otherValues = [];
   for (const s of students) {
@@ -58,17 +64,21 @@ export function rosterFilterOptions(students, unread, selected = new Set(), labe
       if (!alerts.has(key)) alerts.set(key, { key, label: FIXED_LABELS[key] || a.label, count: 0, rank: key === LEARNING_PLAN ? -1 : CATEGORY_ORDER[a.category] ?? 2 });
       if (!counted.has(key)) { alerts.get(key).count += 1; counted.add(key); }
     }
-    if (unread?.[s.id] > 0) followUpStudents += 1;
+    if (unread?.[s.id] > 0 || manyAbsences(s)) followUpStudents += 1;
+    if (manyAbsences(s)) absentStudents += 1;
     const g = genderOf(s);
     genders[g] += 1;
     if (g === 'NB') otherValues.push(s.gender);
   }
   for (const key of selected) {
-    if (key === UNREAD || key.startsWith(GENDER_PREFIX) || alerts.has(key)) continue;
+    if (key === UNREAD || key === ABSENCES || key.startsWith(GENDER_PREFIX) || alerts.has(key)) continue;
     alerts.set(key, { key, label: FIXED_LABELS[key] || labels[key] || key, count: 0, rank: key === LEARNING_PLAN ? -1 : 3 });
   }
-  const followUp = followUpStudents > 0 || selected.has(UNREAD)
-    ? [{ key: UNREAD, label: FIXED_LABELS[UNREAD], count: followUpStudents }] : [];
+  const unreadStudents = students.filter((s) => unread?.[s.id] > 0).length;
+  const followUp = [
+    ...(unreadStudents > 0 || selected.has(UNREAD) ? [{ key: UNREAD, label: FIXED_LABELS[UNREAD], count: unreadStudents }] : []),
+    ...(absentStudents > 0 || selected.has(ABSENCES) ? [{ key: ABSENCES, label: FIXED_LABELS[ABSENCES], count: absentStudents }] : []),
+  ];
   // F, M, NB, ?: listed while some student matches or the pill is on. The pill shows the code; `tip` is the full label.
   const gender = GENDER_ORDER
     .filter((g) => genders[g] > 0 || selected.has(GENDER_PREFIX + g))

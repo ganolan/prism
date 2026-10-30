@@ -551,3 +551,45 @@ describe('RosterTab modes', () => {
     expect(screen.queryByText('Annie Lee')).not.toBeInTheDocument();
   });
 });
+
+describe('RosterTab absences (#208)', () => {
+  const lessons = (codes) => codes.map((code, i) => ({
+    date: `2026-10-${String(13 + 2 * i).padStart(2, '0')}`, code, description: { '': 'Present', A: 'Absence', T: 'Tardy', X: 'Absence (Excused)' }[code], kind: { '': 'present', A: 'absent', T: 'late', X: 'excused' }[code], office: false,
+  }));
+  const att = (codes) => {
+    const l = lessons(codes);
+    return { absences: l.filter((x) => x.kind === 'absent').length, lates: l.filter((x) => x.kind === 'late').length, excused: l.filter((x) => x.kind === 'excused').length, lessons: l, from: '2026-08-13', read_at: '2026-10-30T01:00:00Z' };
+  };
+  const WITH = STUDENTS.map((s) => (s.id === 1 ? { ...s, attendance: att(['', 'A', 'T', 'A', 'X', 'A', '', '']) }
+    : s.id === 2 ? { ...s, attendance: att(['', '']) } : s.id === 3 ? { ...s, attendance: { ...att([]), lessons: [] } } : s));
+
+  it('with Private details off, no absences are in the DOM', () => {
+    const { container } = renderTab('/course/5?mode=roster', { students: WITH });
+    expect(container.querySelector('.roster-card__absences')).toBeNull();
+    expect(screen.queryByText(/absences?$/)).not.toBeInTheDocument();
+  });
+
+  it('with it on, each card shows its absences this term; a tap opens the last lessons with PowerSchool\'s codes', async () => {
+    renderTab('/course/5?mode=roster', { students: WITH });
+    toggle();
+    const annie = cardOf('Annie Lee');
+    const count = within(annie).getByRole('button', { name: /3 absences/ });
+    expect(within(cardOf('First2 Last2')).getByText('absences').closest('.roster-stat')).toHaveClass('roster-stat--zero');
+    expect(within(cardOf('First3 Last3')).getByRole('img', { name: 'No lessons recorded yet this term' })).toBeInTheDocument();
+    expect(cardOf('First4 Last4').querySelector('.roster-card__absences')).toBeEmptyDOMElement(); // not read: an empty slot
+    fireEvent.click(count);
+    const pop = screen.getByRole('dialog', { name: 'Annie Lee: attendance' });
+    expect(pop).toHaveTextContent('3 absences, 1 late, 1 excused since 13/08/2026. The last 8 lessons:');
+    expect(within(pop).getAllByRole('listitem')).toHaveLength(8);
+    expect(within(pop).getByRole('img', { name: 'Thu 15/10: Absence (A)' })).toHaveClass('attendance-strip__cell--absent');
+    expect(within(pop).getByRole('img', { name: 'Wed 21/10: Absence (Excused) (X)' })).toHaveClass('attendance-strip__cell--excused');
+    expect(screen.queryByText('Student page 1')).not.toBeInTheDocument(); // the tap stays on the roster
+  });
+
+  it('the Follow up row offers 3 or more absences', () => {
+    renderTab('/course/5?mode=roster', { students: WITH });
+    toggle();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Follow up' })).getByRole('button', { name: /3 or more absences/ }));
+    expect([...document.querySelectorAll('.roster-mode > .roster-cards .roster-card__name')].map((a) => a.textContent)).toEqual(['Annie Lee']);
+  });
+});

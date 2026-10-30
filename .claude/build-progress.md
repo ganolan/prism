@@ -2085,3 +2085,11 @@ Graham decided on 25 Oct 2026 to expose all four candidates. Read only; the Scho
 - **Graham (30 Oct):** Needs attention first and the default, Details second.
 - **Built:** `ROSTER_MODES` order Needs attention, Details, Test day, Mastery. With no `?mode=` and nothing remembered, the tab opens on Needs attention while Private details is on and on Details while it is off (Needs attention is only the private box then). The default is fixed when the tab opens, so turning the switch afterwards keeps the mode; a linked or remembered mode wins.
 - **Tests:** RosterTab (order, default per switch, switch keeps the mode, linked and remembered modes win).
+
+## Attendance tracking: absences on the roster and the student page (#208, 2026-10-30)
+
+- **Built without a design session** (Graham at lunch; the #160 mock's slot, strip and filter, issue text as the spec).
+- **Server:** `server/services/attendanceRecord.js`: `syncAttendance` in the alerts pass (behind `attendance`; `deps.attendance`), each current course's term (`termStart`: the shortest semester-length range holding today, lib/semesters.js) read in 14-day pieces, `storeCourseAttendance` replaces the range; `storeLesson` after the Attendance tab's read and save; `courseAttendance` / `studentAttendance` (counts by the catalog, last 8 lessons). Tables `attendance_marks`, `attendance_codes`, `attendance_reads` (schema.sql). `attendance` on `GET /api/courses/:id/students` and `GET /api/students/:id`; `summary.alerts.attendance` in the sync run.
+- **Client:** `components/AttendanceStrip.jsx` (strip, `absenceSummary`), `roster/AttendancePopover.jsx`, the card's `Absences` slot (grid area `ab`), `ABSENCES` in `lib/rosterVitals.js` ("3 or more absences"), `components/StudentAttendance.jsx` beside Recent tasks (`.student-records`).
+- **Counting rule (agent's call, printed in the UI):** blank Present, "Tardy..." late, "...Excused" excused, any other code an absence. PowerSchool's own `studentAbsentCount` was not compared: the probe was refused (reads student marks).
+- **Tests:** attendanceRecord (kinds, pieces, term start, marks, read, store, lesson, sync failure/relaunch/security), psAlertsSync (the pass and its reads), routes (courses, students, attendance store), rosterVitals, RosterTab (privacy, slot, pop-up, filter), StudentPage.attendance.

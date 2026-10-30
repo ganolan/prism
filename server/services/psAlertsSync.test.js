@@ -126,6 +126,21 @@ describe('syncPsAlerts', () => {
     9002: [{ studentid: '103', studentdcid: '5003', values: { x_allergyepi: '1' } }],
   };
 
+  test('then reads each course\'s attendance this term on the same session (#208); deps.attendance false leaves it out', async () => {
+    const id = addCourse('S1', 'Alpha');
+    db.prepare("UPDATE courses SET term_start = '2026-08-13', term_end = '2027-06-08' WHERE id = ?").run(id);
+    addStudent('5001');
+    const web = fakePowerSchoolWeb({ schoology: { S1: '9001' }, sections: { 9001: sections[9001].slice(0, 1) } });
+    const r = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false, counselorEmails: false, attendance: { today: '2026-10-30' } } });
+    expect(r.attendance).toEqual({ read: 1, failed: 0, skipped: 0, marks: 0 });
+    expect(db.prepare('SELECT from_date, to_date FROM attendance_reads WHERE course_id = ?').get(id)).toEqual({ from_date: '2026-08-13', to_date: '2026-10-30' });
+    const reads = web.requests.filter((q) => q.path === '/ws/attendance/section_attendance');
+    expect(reads).toHaveLength(6); // 13/08 to 30/10 in 14-day pieces
+    expect(reads[0]).toMatchObject({ cookie: 'JSESSIONID=s1', params: { sectionDcid: '9001', userDcid: '100', startDate: '2026-08-13', endDate: '2026-08-26' } });
+    const off = await syncPsAlerts({ db, deps: { fetchImpl: web.fetchImpl, jar: web.jar, demographics: false, counselorEmails: false, attendance: false } });
+    expect(off.attendance).toBeUndefined();
+  });
+
   test('reads every active course over plain HTTP and stores each student\'s alerts and contact fields', async () => {
     addCourse('S1', 'Alpha'); addCourse('S2', 'Beta');
     addCourse('S3', 'Old', { archived: 1 }); addCourse('S4', 'Template', { excluded: 1 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { unreadCounts, rosterFilterOptions, applyRosterFilters, alertChipLabel, LEARNING_PLAN, UNREAD } from './rosterVitals.js';
+import { unreadCounts, rosterFilterOptions, applyRosterFilters, alertChipLabel, LEARNING_PLAN, UNREAD, ABSENCES } from './rosterVitals.js';
 
 const plan = { key: 'accommodation_plan', label: 'Accommodation plan', category: 'learning' };
 const ls2 = { key: 'learning_support_2', label: 'Learning support 2', category: 'learning' };
@@ -115,5 +115,34 @@ describe('gender pills', () => {
 
   it('any value other than F or M is NB; only a blank or missing value is ?', () => {
     expect(rosterFilterOptions([{ id: 1, gender: 'X' }], null).gender).toEqual([{ key: 'gender:NB', label: 'NB', tip: 'Recorded in PowerSchool as "X"', count: 1 }]);
+  });
+});
+
+describe('3 or more absences (#208)', () => {
+  const att = (absences) => ({ absences, lates: 0, excused: 0, lessons: [] });
+  const R = [
+    { id: 1, attendance: att(3) },
+    { id: 2, attendance: att(5) },
+    { id: 3, attendance: att(2) },
+    { id: 4 }, // attendance not read
+  ];
+
+  it('a Follow up pill counting the students with 3 or more, beside Unread comments', () => {
+    const o = rosterFilterOptions(R, { 3: 1 });
+    expect(o.followUp).toEqual([
+      { key: UNREAD, label: 'Unread comments', count: 1 },
+      { key: ABSENCES, label: '3 or more absences', count: 2 },
+    ]);
+    expect(o.followUpStudents).toBe(3);
+  });
+
+  it('is listed only while a student matches or it is on', () => {
+    expect(rosterFilterOptions([R[2], R[3]], null).followUp).toEqual([]);
+    expect(rosterFilterOptions([R[2]], null, new Set([ABSENCES])).followUp).toEqual([{ key: ABSENCES, label: '3 or more absences', count: 0 }]);
+  });
+
+  it('filters to those students, "any of" with Unread comments', () => {
+    expect(applyRosterFilters(R, new Set([ABSENCES])).map((s) => s.id)).toEqual([1, 2]);
+    expect(applyRosterFilters(R, new Set([ABSENCES, UNREAD]), { 3: 1 }).map((s) => s.id)).toEqual([1, 2, 3]);
   });
 });

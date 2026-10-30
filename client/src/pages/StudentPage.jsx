@@ -17,6 +17,7 @@ import { useGradeCards } from '../hooks/useGradeCards.js';
 import { useCardEditing } from '../hooks/useCardEditing.js';
 import StudentAlerts from '../components/StudentAlerts.jsx';
 import RecentTasks from '../components/RecentTasks.jsx';
+import StudentAttendance from '../components/StudentAttendance.jsx';
 import { CopyEmail } from '../components/roster/RosterCard.jsx';
 import { useAttemptLinks } from '../hooks/useAttemptLinks.js';
 import { useStudentWorkLinks, useStudentCommentSummaries, useStudentFileSummaries } from '../hooks/useStudentFeedbackLinks.js';
@@ -706,7 +707,11 @@ export default function StudentPage() {
         </div>
       </div>
 
-      <RecentTasks student={student} />
+      {/* Recent tasks (public), and beside it attendance this term (private, #208). */}
+      <div className="student-records">
+        <RecentTasks student={student} />
+        {privateOn && <StudentAttendance attendance={student.attendance} />}
+      </div>
 
       {/* Notes: private (#197). */}
       {privateOn && (
